@@ -1,0 +1,12 @@
+[package]
+name = "stateright"
+version = "0.0.0"
+authors = ["Jonathan Nadal <jon.nadal@gmail.com>"]
+license = "MIT"
+
+description = "A library for specifying state machines and model checking invariants."
+repository = "https://github.com/stateright/stateright"
+readme = "README.md"
+categories = ["development-tools"]
+keywords = ["model-checking"]
+
