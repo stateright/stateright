@@ -9,16 +9,19 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
+/// Represents an action-state pair.
+pub type Step<State> = (&'static str, State);
+
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
     /// The type of state upon which this machine operates.
     type State: Clone + Eq + Hash;
 
     /// Collects the initial possible action-state pairs.
-    fn init(&self, results: &mut VecDeque<(&'static str, Self::State)>);
+    fn init(&self, results: &mut VecDeque<Step<Self::State>>);
 
     /// Collects the subsequent possible action-state pairs based on a previous state.
-    fn next(&self, state: &Self::State, results: &mut VecDeque<(&'static str, Self::State)>);
+    fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>);
 }
 
 /// Elaborates on a state machine by providing a state invariant.
@@ -30,10 +33,10 @@ pub trait Model: StateMachine {
     fn checker(&self, keep_paths: bool) -> Checker<Self> {
         const STARTING_CAPACITY: usize = 30_000_000;
 
-        let mut pending: VecDeque<(&'static str, Self::State)> = VecDeque::new();
+        let mut pending: VecDeque<Step<Self::State>> = VecDeque::new();
         self.init(&mut pending);
 
-        let mut source: HashMap<Self::State, (&'static str, Option<Self::State>)> = HashMap::new();
+        let mut source: HashMap<Self::State, Step<Option<Self::State>>> = HashMap::new();
         if keep_paths {
             source = HashMap::with_capacity(STARTING_CAPACITY);
             for &(ref action, ref next_state) in pending.iter() {
@@ -75,8 +78,8 @@ pub struct Checker<'model, M: 'model + Model> {
     model: &'model M,
 
     // mutable checking state
-    pending: VecDeque<(&'static str, M::State)>,
-    source: HashMap<M::State, (&'static str, Option<M::State>)>,
+    pending: VecDeque<Step<M::State>>,
+    source: HashMap<M::State, Step<Option<M::State>>>,
     pub visited: HashSet<M::State>,
 }
 
@@ -129,11 +132,11 @@ mod test {
     impl StateMachine for LinearEquation {
         type State = (Wrapping<u8>, Wrapping<u8>);
 
-        fn init(&self, new_states: &mut VecDeque<(&'static str, Self::State)>) {
+        fn init(&self, new_states: &mut VecDeque<Step<Self::State>>) {
             new_states.push_back(("guess", (Wrapping(0), Wrapping(0))));
         }
 
-        fn next(&self, state: &Self::State, new_states: &mut VecDeque<(&'static str, Self::State)>) {
+        fn next(&self, state: &Self::State, new_states: &mut VecDeque<Step<Self::State>>) {
             match *state {
                 (x, y) => {
                     new_states.push_back(("increase x", (x + Wrapping(1), y)));
