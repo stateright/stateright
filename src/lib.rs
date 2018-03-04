@@ -153,6 +153,18 @@ mod test {
     }
 
     #[test]
+    fn model_check_records_states() {
+        use std::iter::FromIterator;
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(false);
+        checker.check(100);
+        assert_eq!(checker.visited, HashSet::from_iter(vec![
+            (Wrapping(0), Wrapping(0)),
+            (Wrapping(1), Wrapping(0)), (Wrapping(0), Wrapping(1)),
+            (Wrapping(2), Wrapping(0)), (Wrapping(1), Wrapping(1)), (Wrapping(0), Wrapping(2)),
+            (Wrapping(3), Wrapping(0)), (Wrapping(2), Wrapping(1))]));
+    }
+
+    #[test]
     fn model_check_can_pass() {
         let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(false);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
