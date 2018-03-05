@@ -1,5 +1,40 @@
 //! A library for specifying state machines and model checking invariants.
 //!
+//! ## Example
+//!
+//! ```
+//! use stateright::*;
+//! use std::collections::VecDeque;
+//!
+//! struct BinaryClock { start: u8 }
+//!
+//! impl StateMachine for BinaryClock {
+//!     type State = u8;
+//!
+//!     fn init(&self, results: &mut VecDeque<Step<Self::State>>) {
+//!         results.push_back(("start", self.start));
+//!     }
+//!
+//!     fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>) {
+//!         results.push_back(("flip bit", (1 - *state)));
+//!     }
+//! }
+//!
+//! impl Model for BinaryClock {
+//!     fn invariant(&self, state: &Self::State) -> bool {
+//!         0 <= *state && *state <= 1
+//!     }
+//! }
+//!
+//! let mut checker = BinaryClock { start: 1 }.checker(true);
+//! assert_eq!(
+//!     checker.check(100),
+//!     CheckResult::Pass);
+//! assert_eq!(
+//!     checker.path_to(&0),
+//!     Some(vec![("start", 1), ("flip bit", 0)]));
+//! ```
+//!
 //! ## License
 //!
 //! Copyright 2018 Jonathan Nadal and made available under the MIT License.
@@ -152,15 +187,15 @@ mod test {
     impl StateMachine for LinearEquation {
         type State = (Wrapping<u8>, Wrapping<u8>);
 
-        fn init(&self, new_states: &mut VecDeque<Step<Self::State>>) {
-            new_states.push_back(("guess", (Wrapping(0), Wrapping(0))));
+        fn init(&self, results: &mut VecDeque<Step<Self::State>>) {
+            results.push_back(("guess", (Wrapping(0), Wrapping(0))));
         }
 
-        fn next(&self, state: &Self::State, new_states: &mut VecDeque<Step<Self::State>>) {
+        fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>) {
             match *state {
                 (x, y) => {
-                    new_states.push_back(("increase x", (x + Wrapping(1), y)));
-                    new_states.push_back(("increase y", (x, y + Wrapping(1))));
+                    results.push_back(("increase x", (x + Wrapping(1), y)));
+                    results.push_back(("increase y", (x, y + Wrapping(1))));
                 }
             }
         }
