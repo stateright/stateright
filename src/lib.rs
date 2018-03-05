@@ -39,9 +39,9 @@ pub trait Model: StateMachine {
         let mut source: HashMap<Self::State, Step<Option<Self::State>>> = HashMap::new();
         if keep_paths {
             source = HashMap::with_capacity(STARTING_CAPACITY);
-            for &(ref action, ref next_state) in pending.iter() {
-                if !source.contains_key(&next_state) {
-                    source.insert(next_state.clone(), (action, None));
+            for &(ref init_action, ref init_state) in pending.iter() {
+                if !source.contains_key(&init_state) {
+                    source.insert(init_state.clone(), (init_action, None));
                 }
             }
         }
@@ -119,6 +119,26 @@ impl<'model, M: Model> Checker<'model, M> {
 
         CheckResult::Pass
     }
+
+    /// Identifies the action-state "behavior" path by which a visited state was reached.
+    pub fn path_to(&self, state: &M::State) -> Option<Vec<Step<M::State>>> {
+        let mut output = Vec::new();
+        let mut next_state = state;
+        while let Some(source) = self.source.get(next_state) {
+            match *source {
+                (next_action, None) => {
+                    output.push((next_action, next_state.clone()));
+                    output.reverse();
+                    return Some(output);
+                },
+                (next_action, Some(ref prev_state)) => {
+                    output.push((next_action, next_state.clone()));
+                    next_state = &prev_state;
+                },
+            }
+        }
+        None // missing source indicates path not retained... or bug.
+    }
 }
 
 #[cfg(test)]
@@ -185,6 +205,24 @@ mod test {
             checker.check(100_000),
             CheckResult::Fail { state: (Wrapping(3), Wrapping(15)) });
         assert_eq!(checker.visited.len(), 187);
+    }
+
+    #[test]
+    fn model_check_can_indicate_path() {
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(true);
+        match checker.check(100_000) {
+            CheckResult::Fail { state } => {
+                assert_eq!(
+                    checker.path_to(&state),
+                    Some(vec![
+                        ("guess",      (Wrapping(0), Wrapping(0))),
+                        ("increase x", (Wrapping(1), Wrapping(0))),
+                        ("increase x", (Wrapping(2), Wrapping(0))),
+                        ("increase y", (Wrapping(2), Wrapping(1))),
+                    ]));
+            },
+            _ => panic!("expected solution")
+        }
     }
 }
 
