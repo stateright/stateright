@@ -44,6 +44,8 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
+pub mod examples;
+
 /// Represents an action-state pair.
 pub type Step<State> = (&'static str, State);
 
