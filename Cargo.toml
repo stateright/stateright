@@ -10,3 +10,5 @@ readme = "README.md"
 categories = ["development-tools"]
 keywords = ["model-checking"]
 
+[dev-dependencies]
+clap = "2.30.0"

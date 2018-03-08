@@ -35,13 +35,24 @@
 //!     Some(vec![("start", 1), ("flip bit", 0)]));
 //! ```
 //!
+//! ## More Examples
+//!
+//! - [Two Phase Commit](https://github.com/stateright/stateright/blob/9a5b413b06768db92c77f7ddfd8d65e2dbb544a7/src/examples/two_phase_commit.rs)
+//!
+//! ## Performance
+//!
+//! To benchmark model checking speed, run:
+//!
+//! ```sh
+//! cargo run --release --example bench 2pc
+//! ```
+//!
 //! ## License
 //!
 //! Copyright 2018 Jonathan Nadal and made available under the MIT License.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 pub mod examples;
@@ -175,6 +186,45 @@ impl<'model, M: Model> Checker<'model, M> {
             }
         }
         None // missing source indicates path not retained... or bug.
+    }
+
+    /// Blocks the thread until model checking is complete. Periodically emits a status while
+    /// checking, tailoring the block size to the checking speed. Emits a report when complete.
+    pub fn check_and_report(&mut self) {
+        use std::time::Instant;
+        let method_start = Instant::now();
+        let mut block_size = 32_768;
+        loop {
+            let block_start = Instant::now();
+            match self.check(block_size) {
+                CheckResult::Fail { state } => {
+                    println!("{} unique states visited after {} sec. Invariant violated{}.",
+                             self.visited.len(),
+                             method_start.elapsed().as_secs(),
+                             self.path_to(&state)
+                                 .map(|path| format!(" by path of length {}", path.len()))
+                                 .unwrap_or(String::from("")));
+                    return;
+                },
+                CheckResult::Pass => {
+                    println!("{} unique states visited after {} sec. Passed.",
+                             self.visited.len(),
+                             method_start.elapsed().as_secs());
+                    return;
+                },
+                CheckResult::Incomplete => {}
+            }
+
+            let block_elapsed = block_start.elapsed().as_secs();
+            if block_elapsed > 0 {
+                println!("{} unique states visited after {} sec. Continuing.",
+                         self.visited.len(),
+                         method_start.elapsed().as_secs());
+            }
+
+            if block_elapsed < 3 { block_size *= 2; }
+            else if block_elapsed > 10 { block_size = max(1, block_size / 2); }
+        }
     }
 }
 
