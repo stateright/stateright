@@ -25,7 +25,7 @@ fn main() {
             let mut model = two_phase_commit::TwoPhaseModel {
                 rms: BTreeSet::from_iter(0..rm_count)
             };
-            model.checker(false).check_and_report();
+            model.checker(true).check_and_report();
         }
         _ => panic!("expected subcommand")
     }
