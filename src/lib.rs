@@ -149,15 +149,14 @@ impl<'model, M: Model> Checker<'model, M> {
             }
 
             // otherwise collect the next steps/states
-            let before = self.pending.len();
-            self.model.next(&state, &mut self.pending);
+            let mut results = VecDeque::new();
+            self.model.next(&state, &mut results);
             if self.keep_paths {
-                for &(ref next_action, ref next_state) in self.pending.iter().skip(before) {
-                    if !self.source.contains_key(&next_state) {
-                        self.source.insert(next_state.clone(), (next_action, Some(state.clone())));
-                    }
+                for (next_action, next_state) in results.clone() {
+                    self.source.entry(next_state).or_insert((next_action, Some(state.clone())));
                 }
             }
+            self.pending.append(&mut results);
             self.visited.insert(state);
 
             // but pause if we've reached the limit so that the caller can display progress
