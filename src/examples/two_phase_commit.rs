@@ -5,7 +5,6 @@
 use ::*;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::VecDeque;
 use std::hash::Hash;
 
 pub struct TwoPhaseModel<R> { pub rms: BTreeSet<R> }
@@ -28,75 +27,75 @@ pub enum RmState { Working, Prepared, Committed, Aborted }
 pub enum TmState { Init, Committed, Aborted }
 
 impl<R: Clone + Eq + Hash + Ord> TwoPhaseModel<R> {
-    fn tm_rcv_prepared(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut VecDeque<Step<TwoPhaseState<R>>>) {
+    fn tm_rcv_prepared(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.tm_state == TmState::Init
                 && state.msgs.contains(&Message::Prepared { rm: rm.clone() }) {
             let mut result = state.clone();
             result.tm_prepared.insert(rm.clone());
-            results.push_back(("TM got prepared msg", result));
+            results.push(("TM got prepared msg", result));
         }
     }
-    fn tm_commit(&self, state: &TwoPhaseState<R>, results: &mut VecDeque<Step<TwoPhaseState<R>>>) {
+    fn tm_commit(&self, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.tm_state == TmState::Init
                 && state.tm_prepared == self.rms {
             let mut result = state.clone();
             result.tm_state = TmState::Committed;
             result.msgs.insert(Message::Commit);
-            results.push_back(("TM was able to commit and has informed RMs", result));
+            results.push(("TM was able to commit and has informed RMs", result));
         }
     }
-    fn tm_abort(&self, state: &TwoPhaseState<R>, results: &mut VecDeque<Step<TwoPhaseState<R>>>) {
+    fn tm_abort(&self, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.tm_state == TmState::Init {
             let mut result = state.clone();
             result.tm_state = TmState::Aborted;
             result.msgs.insert(Message::Abort);
-            results.push_back(("TM chose to abort", result));
+            results.push(("TM chose to abort", result));
         }
     }
-    fn rm_prepare(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut VecDeque<Step<TwoPhaseState<R>>>) {
+    fn rm_prepare(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.rm_state.get(rm) == Some(&RmState::Working) {
             let mut result = state.clone();
             result.rm_state.insert(rm.clone(), RmState::Prepared);
             result.msgs.insert(Message::Prepared { rm: rm.clone() });
-            results.push_back(("RM is preparing", result));
+            results.push(("RM is preparing", result));
         }
     }
-    fn rm_choose_to_abort(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut VecDeque<Step<TwoPhaseState<R>>>) {
+    fn rm_choose_to_abort(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.rm_state.get(rm) == Some(&RmState::Working) {
             let mut result = state.clone();
             result.rm_state.insert(rm.clone(), RmState::Aborted);
-            results.push_back(("RM is choosing to abort", result));
+            results.push(("RM is choosing to abort", result));
         }
     }
-    fn rm_rcv_commit_msg(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut VecDeque<Step<TwoPhaseState<R>>>) {
+    fn rm_rcv_commit_msg(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.msgs.contains(&Message::Commit) {
             let mut result = state.clone();
             result.rm_state.insert(rm.clone(), RmState::Committed);
-            results.push_back(("RM is being told to commit", result));
+            results.push(("RM is being told to commit", result));
         }
     }
-    fn rm_rcv_abort_msg(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut VecDeque<(&'static str, TwoPhaseState<R>)>) {
+    fn rm_rcv_abort_msg(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.msgs.contains(&Message::Abort) {
             let mut result = state.clone();
             result.rm_state.insert(rm.clone(), RmState::Aborted);
-            results.push_back(("RM is being told to abort", result));
+            results.push(("RM is being told to abort", result));
         }
     }
 }
 
 impl<R: Clone + Eq + Hash + Ord> StateMachine for TwoPhaseModel<R> {
     type State = TwoPhaseState<R>;
-    fn init(&self, results: &mut VecDeque<Step<Self::State>>) {
+    fn init(&self, results: &mut StepVec<Self::State>) {
         let state = TwoPhaseState {
             rm_state: self.rms.iter().map(|rm| (rm.clone(), RmState::Working)).collect(),
             tm_state: TmState::Init,
             tm_prepared: BTreeSet::new(),
             msgs: BTreeSet::new()
         };
-        results.push_back(("init", state));
+        results.push(("init", state));
     }
 
-    fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>) {
+    fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
         self.tm_commit(state, results);
         self.tm_abort(state, results);
         for rm in &self.rms {

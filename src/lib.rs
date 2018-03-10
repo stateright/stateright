@@ -11,12 +11,12 @@
 //! impl StateMachine for BinaryClock {
 //!     type State = u8;
 //!
-//!     fn init(&self, results: &mut VecDeque<Step<Self::State>>) {
-//!         results.push_back(("start", self.start));
+//!     fn init(&self, results: &mut StepVec<Self::State>) {
+//!         results.push(("start", self.start));
 //!     }
 //!
-//!     fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>) {
-//!         results.push_back(("flip bit", (1 - *state)));
+//!     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
+//!         results.push(("flip bit", (1 - *state)));
 //!     }
 //! }
 //!
@@ -60,16 +60,19 @@ pub mod examples;
 /// Represents an action-state pair.
 pub type Step<State> = (&'static str, State);
 
+/// Represents the range of action-state pairs that a state machine can follow during a step.
+pub type StepVec<State> = Vec<Step<State>>;
+
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
     /// The type of state upon which this machine operates.
     type State: Clone + Eq + Hash;
 
     /// Collects the initial possible action-state pairs.
-    fn init(&self, results: &mut VecDeque<Step<Self::State>>);
+    fn init(&self, results: &mut StepVec<Self::State>);
 
     /// Collects the subsequent possible action-state pairs based on a previous state.
-    fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>);
+    fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
 }
 
 /// Elaborates on a state machine by providing a state invariant.
@@ -81,8 +84,10 @@ pub trait Model: StateMachine {
     fn checker(&self, keep_paths: bool) -> Checker<Self> {
         const STARTING_CAPACITY: usize = 30_000_000;
 
+        let mut results = StepVec::new();
+        self.init(&mut results);
         let mut pending: VecDeque<Step<Self::State>> = VecDeque::new();
-        self.init(&mut pending);
+        for r in results { pending.push_back(r); }
 
         let mut source: HashMap<Self::State, Step<Option<Self::State>>> = HashMap::new();
         if keep_paths {
@@ -149,14 +154,14 @@ impl<'model, M: Model> Checker<'model, M> {
             }
 
             // otherwise collect the next steps/states
-            let mut results = VecDeque::new();
+            let mut results = StepVec::new();
             self.model.next(&state, &mut results);
             if self.keep_paths {
                 for (next_action, next_state) in results.clone() {
                     self.source.entry(next_state).or_insert((next_action, Some(state.clone())));
                 }
             }
-            self.pending.append(&mut results);
+            for r in results { self.pending.push_back(r); }
             self.visited.insert(state);
 
             // but pause if we've reached the limit so that the caller can display progress
@@ -238,15 +243,15 @@ mod test {
     impl StateMachine for LinearEquation {
         type State = (Wrapping<u8>, Wrapping<u8>);
 
-        fn init(&self, results: &mut VecDeque<Step<Self::State>>) {
-            results.push_back(("guess", (Wrapping(0), Wrapping(0))));
+        fn init(&self, results: &mut StepVec<Self::State>) {
+            results.push(("guess", (Wrapping(0), Wrapping(0))));
         }
 
-        fn next(&self, state: &Self::State, results: &mut VecDeque<Step<Self::State>>) {
+        fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
             match *state {
                 (x, y) => {
-                    results.push_back(("increase x", (x + Wrapping(1), y)));
-                    results.push_back(("increase y", (x, y + Wrapping(1))));
+                    results.push(("increase x", (x + Wrapping(1), y)));
+                    results.push(("increase y", (x, y + Wrapping(1))));
                 }
             }
         }
