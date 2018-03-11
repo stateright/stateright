@@ -66,7 +66,7 @@ pub type StepVec<State> = Vec<Step<State>>;
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
     /// The type of state upon which this machine operates.
-    type State: Clone + Eq + Hash;
+    type State: Hash;
 
     /// Collects the initial possible action-state pairs.
     fn init(&self, results: &mut StepVec<Self::State>);
@@ -82,20 +82,19 @@ pub trait Model: StateMachine {
 
     /// Initializes a fresh checker for a particular model.
     fn checker(&self, keep_paths: bool) -> Checker<Self> {
-        const STARTING_CAPACITY: usize = 30_000_000;
+        const STARTING_CAPACITY: usize = 1_000_000;
 
         let mut results = StepVec::new();
         self.init(&mut results);
         let mut pending: VecDeque<Step<Self::State>> = VecDeque::new();
         for r in results { pending.push_back(r); }
 
-        let mut source: HashMap<Self::State, Step<Option<Self::State>>> = HashMap::new();
+        let mut source: HashMap<u64, Option<u64>> = HashMap::new();
         if keep_paths {
             source = HashMap::with_capacity(STARTING_CAPACITY);
-            for &(ref init_action, ref init_state) in pending.iter() {
-                if !source.contains_key(&init_state) {
-                    source.insert(init_state.clone(), (init_action, None));
-                }
+            for &(ref _init_action, ref init_state) in pending.iter() {
+                let init_digest = hash(&init_state);
+                source.entry(init_digest).or_insert(None);
             }
         }
 
@@ -132,8 +131,8 @@ pub struct Checker<'model, M: 'model + Model> {
 
     // mutable checking state
     pending: VecDeque<Step<M::State>>,
-    source: HashMap<M::State, Step<Option<M::State>>>,
-    pub visited: HashSet<M::State>,
+    source: HashMap<u64, Option<u64>>,
+    pub visited: HashSet<u64>,
 }
 
 impl<'model, M: Model> Checker<'model, M> {
@@ -144,12 +143,14 @@ impl<'model, M: Model> Checker<'model, M> {
         let mut remaining = max_count;
 
         while let Some((_action, state)) = self.pending.pop_front() {
+            let digest = hash(&state);
+
             // skip if already visited
-            if self.visited.contains(&state) { continue; }
+            if self.visited.contains(&digest) { continue; }
 
             // exit if invariant fails to hold
             if !self.model.invariant(&state) {
-                self.visited.insert(state.clone());
+                self.visited.insert(digest);
                 return CheckResult::Fail { state };
             }
 
@@ -157,12 +158,13 @@ impl<'model, M: Model> Checker<'model, M> {
             let mut results = StepVec::new();
             self.model.next(&state, &mut results);
             if self.keep_paths {
-                for (next_action, next_state) in results.clone() {
-                    self.source.entry(next_state).or_insert((next_action, Some(state.clone())));
+                for &(ref _next_action, ref next_state) in &results {
+                    let next_digest = hash(&next_state);
+                    self.source.entry(next_digest).or_insert(Some(digest));
                 }
             }
             for r in results { self.pending.push_back(r); }
-            self.visited.insert(state);
+            self.visited.insert(digest);
 
             // but pause if we've reached the limit so that the caller can display progress
             remaining -= 1;
@@ -174,22 +176,47 @@ impl<'model, M: Model> Checker<'model, M> {
 
     /// Identifies the action-state "behavior" path by which a visited state was reached.
     pub fn path_to(&self, state: &M::State) -> Option<Vec<Step<M::State>>> {
-        let mut output = Vec::new();
-        let mut next_state = state;
-        while let Some(source) = self.source.get(next_state) {
+        // First build a stack of digests representing the path (with the init digest at top of
+        // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
+        // uses a similar technique, which is documented in the paper "Model Checking TLA+
+        // Specifications" by Yu, Manolios, and Lamport.
+
+        let find_step = |steps: StepVec<M::State>, digest: u64|
+            steps.into_iter()
+                .find(|step| hash(&step.1) == digest)
+                .expect("step with state matching recorded digest");
+
+        // 1. Build a stack of digests.
+        let mut digests = Vec::new();
+        let mut next_digest = hash(&state);
+        while let Some(source) = self.source.get(&next_digest) {
             match *source {
-                (next_action, None) => {
-                    output.push((next_action, next_state.clone()));
-                    output.reverse();
-                    return Some(output);
+                Some(prev_digest) => {
+                    digests.push(next_digest);
+                    next_digest = prev_digest;
                 },
-                (next_action, Some(ref prev_state)) => {
-                    output.push((next_action, next_state.clone()));
-                    next_state = &prev_state;
+                None => {
+                    digests.push(next_digest);
+                    break;
                 },
             }
         }
-        None // missing source indicates path not retained... or bug.
+
+        // 2. Begin unwinding by determining the init step.
+        let mut output = Vec::new();
+        let mut steps = StepVec::new();
+        self.model.init(&mut steps);
+        output.push(find_step(steps, digests.pop().expect("at least one state due to param")));
+
+        // 3. Then continue with the remaining steps.
+        while let Some(next_digest) = digests.pop() {
+            let mut next_steps = StepVec::new();
+            self.model.next(
+                &output.last().expect("nonempty (b/c step was already enqueued)").1,
+                &mut next_steps);
+            output.push(find_step(next_steps, next_digest));
+        }
+        return Some(output);
     }
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
@@ -232,6 +259,15 @@ impl<'model, M: Model> Checker<'model, M> {
     }
 }
 
+fn hash<T: Hash>(value: &T) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+
 #[cfg(test)]
 mod test {
     use ::*;
@@ -269,13 +305,15 @@ mod test {
     #[test]
     fn model_check_records_states() {
         use std::iter::FromIterator;
+        let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
         let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(false);
         checker.check(100);
         assert_eq!(checker.visited, HashSet::from_iter(vec![
-            (Wrapping(0), Wrapping(0)),
-            (Wrapping(1), Wrapping(0)), (Wrapping(0), Wrapping(1)),
-            (Wrapping(2), Wrapping(0)), (Wrapping(1), Wrapping(1)), (Wrapping(0), Wrapping(2)),
-            (Wrapping(3), Wrapping(0)), (Wrapping(2), Wrapping(1))]));
+            h(0, 0),
+            h(1, 0), h(0, 1),
+            h(2, 0), h(1, 1), h(0, 2),
+            h(3, 0), h(2, 1),
+        ]));
     }
 
     #[test]
