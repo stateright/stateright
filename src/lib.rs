@@ -51,8 +51,11 @@
 //!
 //! Copyright 2018 Jonathan Nadal and made available under the MIT License.
 
+extern crate fxhash;
+
+use fxhash::{FxHashMap, FxHashSet};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::hash::Hash;
 
 pub mod examples;
@@ -89,9 +92,9 @@ pub trait Model: StateMachine {
         let mut pending: VecDeque<Step<Self::State>> = VecDeque::new();
         for r in results { pending.push_back(r); }
 
-        let mut source: HashMap<u64, Option<u64>> = HashMap::new();
+        let mut source = FxHashMap::default();
         if keep_paths {
-            source = HashMap::with_capacity(STARTING_CAPACITY);
+            source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
             for &(ref _init_action, ref init_state) in pending.iter() {
                 let init_digest = hash(&init_state);
                 source.entry(init_digest).or_insert(None);
@@ -104,7 +107,7 @@ pub trait Model: StateMachine {
 
             pending,
             source,
-            visited: HashSet::with_capacity(STARTING_CAPACITY),
+            visited: FxHashSet::with_capacity_and_hasher(STARTING_CAPACITY, Default::default()),
         }
     }
 }
@@ -131,8 +134,8 @@ pub struct Checker<'model, M: 'model + Model> {
 
     // mutable checking state
     pending: VecDeque<Step<M::State>>,
-    source: HashMap<u64, Option<u64>>,
-    pub visited: HashSet<u64>,
+    source: FxHashMap<u64, Option<u64>>,
+    pub visited: FxHashSet<u64>,
 }
 
 impl<'model, M: Model> Checker<'model, M> {
@@ -260,11 +263,7 @@ impl<'model, M: Model> Checker<'model, M> {
 }
 
 fn hash<T: Hash>(value: &T) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
+    fxhash::hash64(value)
 }
 
 
@@ -308,7 +307,7 @@ mod test {
         let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
         let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(false);
         checker.check(100);
-        assert_eq!(checker.visited, HashSet::from_iter(vec![
+        assert_eq!(checker.visited, FxHashSet::from_iter(vec![
             h(0, 0),
             h(1, 0), h(0, 1),
             h(2, 0), h(1, 1), h(0, 2),

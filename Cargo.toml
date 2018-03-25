@@ -10,5 +10,8 @@ readme = "README.md"
 categories = ["development-tools"]
 keywords = ["model-checking"]
 
+[dependencies]
+fxhash = "0.2.1"
+
 [dev-dependencies]
 clap = "2.30.0"
