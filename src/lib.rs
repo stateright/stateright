@@ -20,13 +20,7 @@
 //!     }
 //! }
 //!
-//! impl Model for BinaryClock {
-//!     fn invariant(&self, state: &Self::State) -> bool {
-//!         0 <= *state && *state <= 1
-//!     }
-//! }
-//!
-//! let mut checker = BinaryClock { start: 1 }.checker(true);
+//! let mut checker = BinaryClock { start: 1 }.checker(true, |clock, time| 0 <= *time && *time <= 1);
 //! assert_eq!(
 //!     checker.check(100),
 //!     CheckResult::Pass);
@@ -76,15 +70,9 @@ pub trait StateMachine: Sized {
 
     /// Collects the subsequent possible action-state pairs based on a previous state.
     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
-}
 
-/// Elaborates on a state machine by providing a state invariant.
-pub trait Model: StateMachine {
-    /// A claim that should always be true.
-    fn invariant(&self, state: &Self::State) -> bool;
-
-    /// Initializes a fresh checker for a particular model.
-    fn checker(&self, keep_paths: bool) -> Checker<Self> {
+    /// Initializes a fresh checker for a state machine.
+    fn checker(&self, keep_paths: bool, invariant: fn(&Self, &Self::State) -> bool) -> Checker<Self> {
         const STARTING_CAPACITY: usize = 1_000_000;
 
         let mut results = StepVec::new();
@@ -102,8 +90,9 @@ pub trait Model: StateMachine {
         }
 
         Checker {
+            invariant,
             keep_paths,
-            model: self,
+            state_machine: self,
 
             pending,
             source,
@@ -127,18 +116,19 @@ pub enum CheckResult<State> {
 }
 
 /// Visits every state reachable by a state machine, and verifies that an invariant holds.
-pub struct Checker<'model, M: 'model + Model> {
+pub struct Checker<'a, SM: 'a + StateMachine> {
     // immutable cfg
     keep_paths: bool,
-    model: &'model M,
+    state_machine: &'a SM,
+    invariant: fn(&SM, &SM::State) -> bool,
 
     // mutable checking state
-    pending: VecDeque<Step<M::State>>,
+    pending: VecDeque<Step<SM::State>>,
     source: FxHashMap<u64, Option<u64>>,
     pub visited: FxHashSet<u64>,
 }
 
-impl<'model, M: Model> Checker<'model, M> {
+impl<'a, M: StateMachine> Checker<'a, M> {
     /// Visits up to a specified number of states checking the model's invariant. May return
     /// earlier when all states have been visited or a state is found in which the invariant fails
     /// to hold.
@@ -152,14 +142,15 @@ impl<'model, M: Model> Checker<'model, M> {
             if self.visited.contains(&digest) { continue; }
 
             // exit if invariant fails to hold
-            if !self.model.invariant(&state) {
+            let inv = self.invariant;
+            if !inv(&self.state_machine, &state) {
                 self.visited.insert(digest);
                 return CheckResult::Fail { state };
             }
 
             // otherwise collect the next steps/states
             let mut results = StepVec::new();
-            self.model.next(&state, &mut results);
+            self.state_machine.next(&state, &mut results);
             if self.keep_paths {
                 for &(ref _next_action, ref next_state) in &results {
                     let next_digest = hash(&next_state);
@@ -208,13 +199,13 @@ impl<'model, M: Model> Checker<'model, M> {
         // 2. Begin unwinding by determining the init step.
         let mut output = Vec::new();
         let mut steps = StepVec::new();
-        self.model.init(&mut steps);
+        self.state_machine.init(&mut steps);
         output.push(find_step(steps, digests.pop().expect("at least one state due to param")));
 
         // 3. Then continue with the remaining steps.
         while let Some(next_digest) = digests.pop() {
             let mut next_steps = StepVec::new();
-            self.model.next(
+            self.state_machine.next(
                 &output.last().expect("nonempty (b/c step was already enqueued)").1,
                 &mut next_steps);
             output.push(find_step(next_steps, next_digest));
@@ -291,12 +282,10 @@ mod test {
             }
         }
     }
-    impl Model for LinearEquation {
-        fn invariant(&self, state: &Self::State) -> bool {
-            match *state {
-                (x, y) => {
-                    Wrapping(self.a)*x + Wrapping(self.b)*y != Wrapping(self.c)
-                }
+    fn invariant(equation: &LinearEquation, solution: &(Wrapping<u8>, Wrapping<u8>)) -> bool {
+        match *solution {
+            (x, y) => {
+                Wrapping(equation.a)*x + Wrapping(equation.b)*y != Wrapping(equation.c)
             }
         }
     }
@@ -305,7 +294,7 @@ mod test {
     fn model_check_records_states() {
         use std::iter::FromIterator;
         let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(false);
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(false, invariant);
         checker.check(100);
         assert_eq!(checker.visited, FxHashSet::from_iter(vec![
             h(0, 0),
@@ -317,7 +306,7 @@ mod test {
 
     #[test]
     fn model_check_can_pass() {
-        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(false);
+        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(false, invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
         assert_eq!(checker.visited.len(), 100);
         assert_eq!(checker.check(100_000), CheckResult::Pass);
@@ -326,7 +315,7 @@ mod test {
 
     #[test]
     fn model_check_can_fail() {
-        let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(false);
+        let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(false, invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
         assert_eq!(checker.visited.len(), 100);
         assert_eq!(
@@ -337,7 +326,7 @@ mod test {
 
     #[test]
     fn model_check_can_indicate_path() {
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(true);
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(true, invariant);
         match checker.check(100_000) {
             CheckResult::Fail { state } => {
                 assert_eq!(

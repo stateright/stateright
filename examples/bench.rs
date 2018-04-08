@@ -22,10 +22,10 @@ fn main() {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             println!("Benchmarking two phase commit with {} resource managers.", rm_count);
 
-            let mut model = two_phase_commit::TwoPhaseModel {
+            let mut sys = two_phase_commit::TwoPhaseSys {
                 rms: BTreeSet::from_iter(0..rm_count)
             };
-            model.checker(true).check_and_report();
+            sys.checker(true, two_phase_commit::is_consistent).check_and_report();
         }
         _ => panic!("expected subcommand")
     }
