@@ -52,6 +52,7 @@ use std::cmp::max;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
+pub mod actor;
 pub mod examples;
 
 /// Represents an action-state pair.
