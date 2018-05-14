@@ -31,7 +31,7 @@
 //!
 //! ## More Examples
 //!
-//! - [Two Phase Commit](https://github.com/stateright/stateright/blob/9a5b413b06768db92c77f7ddfd8d65e2dbb544a7/src/examples/two_phase_commit.rs)
+//! - [Two Phase Commit](https://github.com/stateright/stateright/blob/master/src/examples/two_phase_commit.rs)
 //!
 //! ## Performance
 //!
