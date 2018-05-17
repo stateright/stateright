@@ -25,7 +25,7 @@ fn main() {
             let mut sys = two_phase_commit::TwoPhaseSys {
                 rms: BTreeSet::from_iter(0..rm_count)
             };
-            sys.checker(true, two_phase_commit::is_consistent).check_and_report();
+            sys.checker(KeepPaths::Yes, two_phase_commit::is_consistent).check_and_report();
         }
         _ => panic!("expected subcommand")
     }

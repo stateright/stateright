@@ -126,7 +126,7 @@ mod test {
             rms.insert(rm);
         }
         let sys = TwoPhaseSys { rms };
-        let mut checker = sys.checker(false, is_consistent);
+        let mut checker = sys.checker(KeepPaths::No, is_consistent);
         assert_eq!(
             checker.check(1_000_000),
             CheckResult::Pass);

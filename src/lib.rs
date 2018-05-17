@@ -20,7 +20,9 @@
 //!     }
 //! }
 //!
-//! let mut checker = BinaryClock { start: 1 }.checker(true, |clock, time| 0 <= *time && *time <= 1);
+//! let mut checker = BinaryClock { start: 1 }.checker(
+//!     KeepPaths::Yes,
+//!     |clock, time| 0 <= *time && *time <= 1);
 //! assert_eq!(
 //!     checker.check(100),
 //!     CheckResult::Pass);
@@ -73,7 +75,7 @@ pub trait StateMachine: Sized {
     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
 
     /// Initializes a fresh checker for a state machine.
-    fn checker(&self, keep_paths: bool, invariant: fn(&Self, &Self::State) -> bool) -> Checker<Self> {
+    fn checker(&self, keep_paths: KeepPaths, invariant: fn(&Self, &Self::State) -> bool) -> Checker<Self> {
         const STARTING_CAPACITY: usize = 1_000_000;
 
         let mut results = StepVec::new();
@@ -82,7 +84,7 @@ pub trait StateMachine: Sized {
         for r in results { pending.push_back(r); }
 
         let mut source = FxHashMap::default();
-        if keep_paths {
+        if keep_paths == KeepPaths::Yes {
             source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
             for &(ref _init_action, ref init_state) in pending.iter() {
                 let init_digest = hash(&init_state);
@@ -116,10 +118,14 @@ pub enum CheckResult<State> {
     Fail { state: State }
 }
 
+/// Use `KeepPaths::No` for faster model checking.
+#[derive(PartialEq)]
+pub enum KeepPaths { Yes, No }
+
 /// Visits every state reachable by a state machine, and verifies that an invariant holds.
 pub struct Checker<'a, SM: 'a + StateMachine> {
     // immutable cfg
-    keep_paths: bool,
+    keep_paths: KeepPaths,
     state_machine: &'a SM,
     invariant: fn(&SM, &SM::State) -> bool,
 
@@ -152,7 +158,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
             // otherwise collect the next steps/states
             let mut results = StepVec::new();
             self.state_machine.next(&state, &mut results);
-            if self.keep_paths {
+            if self.keep_paths == KeepPaths::Yes {
                 for &(ref _next_action, ref next_state) in &results {
                     let next_digest = hash(&next_state);
                     self.source.entry(next_digest).or_insert(Some(digest));
@@ -295,7 +301,7 @@ mod test {
     fn model_check_records_states() {
         use std::iter::FromIterator;
         let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(false, invariant);
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(KeepPaths::No, invariant);
         checker.check(100);
         assert_eq!(checker.visited, FxHashSet::from_iter(vec![
             h(0, 0),
@@ -307,7 +313,7 @@ mod test {
 
     #[test]
     fn model_check_can_pass() {
-        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(false, invariant);
+        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(KeepPaths::No, invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
         assert_eq!(checker.visited.len(), 100);
         assert_eq!(checker.check(100_000), CheckResult::Pass);
@@ -316,7 +322,7 @@ mod test {
 
     #[test]
     fn model_check_can_fail() {
-        let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(false, invariant);
+        let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(KeepPaths::No, invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
         assert_eq!(checker.visited.len(), 100);
         assert_eq!(
@@ -327,7 +333,7 @@ mod test {
 
     #[test]
     fn model_check_can_indicate_path() {
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(true, invariant);
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(KeepPaths::Yes, invariant);
         match checker.check(100_000) {
             CheckResult::Fail { state } => {
                 assert_eq!(

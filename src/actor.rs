@@ -33,7 +33,7 @@
 //!     init_network: vec![Envelope { src: 1, dst: 0, msg: 1 }],
 //! };
 //! let mut checker = sys.checker(
-//!     true,
+//!     KeepPaths::Yes,
 //!     |sys, snapshot| snapshot.actor_states.iter().all(|s| *s < 3));
 //! assert_eq!(
 //!     checker.check(100),
@@ -250,7 +250,7 @@ mod test {
             ],
             init_network: Vec::new(),
         };
-        let mut checker = system.checker(true, invariant);
+        let mut checker = system.checker(KeepPaths::Yes, invariant);
         checker.check(1_000);
         assert_eq!(checker.visited.len(), 14);
         assert_eq!(checker.visited, FxHashSet::from_iter(vec![
@@ -355,7 +355,7 @@ mod test {
             ],
             init_network: Vec::new(),
         };
-        let mut checker = sys.checker(false, invariant);
+        let mut checker = sys.checker(KeepPaths::No, invariant);
         let result = checker.check(1_000_000);
         assert_eq!(result, CheckResult::Pass);
         assert_eq!(checker.visited.len(), 4094);
