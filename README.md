@@ -38,7 +38,8 @@ assert_eq!(
 
 ## More Examples
 
-- [Two Phase Commit](https://github.com/stateright/stateright/blob/master/src/examples/two_phase_commit.rs)
+See the [examples/bench/](https://github.com/stateright/stateright/tree/master/examples/bench)
+directory for additional examples, such as an implementation of two phase commit.
 
 ## Performance
 
@@ -61,7 +62,7 @@ cargo run --release --example bench 2pc
    ```
 3. Run the tests:
    ```sh
-   cargo test --release
+   cargo test && cargo test --examples
    ```
 4. Review the docs:
    ```sh

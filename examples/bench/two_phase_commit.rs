@@ -116,8 +116,7 @@ pub fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &T
 
 #[cfg(test)]
 mod test {
-    use ::*;
-    use ::examples::two_phase_commit::*;
+    use two_phase_commit::*;
 
     #[test]
     fn can_model_2pc() {
