@@ -2,7 +2,13 @@
 //!
 //! ## Example
 //!
-//! ```
+//! As a simple example, we can simulate a minimal "clock" that alternates between
+//! two hours: zero and one. Then we can enumerate all possible states verifying
+//! that the time is always within bounds and that a path to the other hour begins
+//! at the `start` hour (a model input) followed by a step for flipping the hour
+//! bit.
+//!
+//! ```rust
 //! use stateright::*;
 //! use std::collections::VecDeque;
 //!
@@ -42,6 +48,33 @@
 //! ```sh
 //! cargo run --release --example bench 2pc
 //! ```
+//!
+//! ## Contributing
+//!
+//! 1. Clone the repository:
+//!    ```sh
+//!    git clone https://github.com/stateright/stateright.git
+//!    cd stateright
+//!    ```
+//! 2. Install the latest version of rust:
+//!    ```sh
+//!    rustup update || (curl https://sh.rustup.rs -sSf | sh)
+//!    ```
+//! 3. Run the tests:
+//!    ```sh
+//!    cargo test --release
+//!    ```
+//! 4. Review the docs:
+//!    ```sh
+//!    cargo doc --open
+//!    ```
+//! 5. Explore the code:
+//!    ```sh
+//!    $EDITOR src/ # src/lib.rs is a good place to start
+//!    ```
+//! 6. If you would like to share improvements, please
+//!    [fork the library](https://github.com/stateright/stateright/fork), push changes to your fork,
+//!    and send a [pull request](https://help.github.com/articles/creating-a-pull-request-from-a-fork/).
 //!
 //! ## License
 //!
