@@ -10,7 +10,6 @@
 //!
 //! ```rust
 //! use stateright::*;
-//! use std::collections::VecDeque;
 //!
 //! struct BinaryClock { start: u8 }
 //!
