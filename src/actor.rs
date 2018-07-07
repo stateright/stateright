@@ -23,7 +23,7 @@
 //!         let ActorInput::Deliver { src, msg: timestamp } = input;
 //!         if timestamp > actor.state {
 //!             actor.state = timestamp;
-//!             actor.send(src, timestamp + 1);
+//!             actor.outputs.send(src, timestamp + 1);
 //!         }
 //!     }
 //! }
@@ -64,20 +64,28 @@ pub enum ActorOutput<Id, Msg> {
     Send { dst: Id, msg: Msg },
 }
 
+/// We create a wrapper type so we can add convenience methods.
+#[derive(Clone, Debug)]
+pub struct ActorOutputVec<Id, Msg>(Vec<ActorOutput<Id, Msg>>);
+
+impl<Id, Msg> ActorOutputVec<Id, Msg> {
+    pub fn send(&mut self, dst: Id, msg: Msg) {
+        let ActorOutputVec(outputs) = self;
+        outputs.push(ActorOutput::Send { dst, msg })
+    }
+}
+
 /// Packages up the action, state, and outputs for an actor step.
 #[derive(Debug)]
 pub struct ActorResult<Id, Msg, State> {
     pub action: &'static str,
     pub state: State,
-    pub outputs: Vec<ActorOutput<Id, Msg>>,
+    pub outputs: ActorOutputVec<Id, Msg>,
 }
 
 impl<Id, Msg, State> ActorResult<Id, Msg, State> {
     pub fn new(state: State) -> Self {
-        ActorResult { action: "actor step", state, outputs: Vec::new() }
-    }
-    pub fn send(&mut self, dst: Id, msg: Msg) {
-        self.outputs.push(ActorOutput::Send { dst, msg })
+        ActorResult { action: "actor step", state, outputs: ActorOutputVec(Vec::new()) }
     }
 }
 
@@ -144,7 +152,7 @@ pub mod model {
             for (src, actor) in self.actors.iter().enumerate() {
                 let result = actor.start();
                 actor_states.push(result.state);
-                for o in result.outputs {
+                for o in result.outputs.0 {
                     match o {
                         ActorOutput::Send { dst, msg } => { network.insert(Envelope { src, dst, msg }); },
                     }
@@ -170,7 +178,7 @@ pub mod model {
                     &mut result);
                 let mut message_delivered = state.clone();
                 message_delivered.actor_states[id] = result.state;
-                for output in result.outputs {
+                for output in result.outputs.0 {
                     match output {
                         ActorOutput::Send {dst, msg} => { message_delivered.network.insert(Envelope {src: id, dst, msg}); },
                     }
@@ -200,7 +208,7 @@ mod test {
             match self.role {
                 PingPongActorRole::Pinger => {
                     let mut result = ActorResult::new(PingPongActorState::PingerState(0));
-                    result.send(self.ponger_id, PingPongActorMsg::Ping(0));
+                    result.outputs.send(self.ponger_id, PingPongActorMsg::Ping(0));
                     result
                 },
                 PingPongActorRole::Ponger => ActorResult::new(PingPongActorState::PongerState(0)),
@@ -209,20 +217,23 @@ mod test {
 
         fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
             let ActorInput::Deliver { src, msg } = input;
-            match (msg, &actor.state) {
-                (PingPongActorMsg::Pong(msg_value), &PingPongActorState::PingerState(value)) => {
-                    if value == msg_value && value < self.max_nat {
-                        actor.state = PingPongActorState::PingerState(value + 1);
-                        actor.send(src, PingPongActorMsg::Ping(value + 1));
+            match actor.state {
+                PingPongActorState::PingerState(ref mut actor_value) => {
+                    if let PingPongActorMsg::Pong(msg_value) = msg {
+                        if *actor_value == msg_value && *actor_value < self.max_nat {
+                            *actor_value += 1;
+                            actor.outputs.send(src, PingPongActorMsg::Ping(msg_value + 1));
+                        }
                     }
-                },
-                (PingPongActorMsg::Ping(msg_value), &PingPongActorState::PongerState(value)) => {
-                    if value == msg_value && value < self.max_nat {
-                        actor.state = PingPongActorState::PongerState(value + 1);
-                        actor.send(src, PingPongActorMsg::Pong(value));
+                }
+                PingPongActorState::PongerState(ref mut actor_value) => {
+                    if let PingPongActorMsg::Ping(msg_value) = msg {
+                        if *actor_value == msg_value && *actor_value < self.max_nat {
+                            *actor_value += 1;
+                            actor.outputs.send(src, PingPongActorMsg::Pong(msg_value));
+                        }
                     }
-                },
-                _ => {}
+                }
             }
         }
     }
