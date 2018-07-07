@@ -39,7 +39,8 @@
 //! ## More Examples
 //!
 //! See the [examples/bench/](https://github.com/stateright/stateright/tree/master/examples/bench)
-//! directory for additional examples, such as an implementation of two phase commit.
+//! directory for additional examples, such as an abstract model of two phase
+//! commit and an actor-based model of a write-once register.
 //!
 //! ## Performance
 //!
@@ -47,6 +48,7 @@
 //!
 //! ```sh
 //! cargo run --release --example bench 2pc
+//! cargo run --release --example bench wor
 //! ```
 //!
 //! ## Contributing
