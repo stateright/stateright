@@ -2,7 +2,7 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use ::*;
+use stateright::*;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::hash::Hash;

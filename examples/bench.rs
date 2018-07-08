@@ -2,12 +2,12 @@
 extern crate clap;
 extern crate stateright;
 
-mod two_phase_commit;
-mod write_once_register;
+mod state_machines;
 
 use clap::{Arg, App, AppSettings, SubCommand};
+use state_machines::two_phase_commit;
+use state_machines::write_once_register;
 use stateright::*;
-use stateright::actor::*;
 use std::collections::BTreeSet;
 use std::iter::FromIterator;
 

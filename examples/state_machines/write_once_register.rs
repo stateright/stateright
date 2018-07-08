@@ -1,4 +1,7 @@
-use ::*;
+//! A simple server exposing a single register that can only be written once.
+
+use stateright::*;
+use stateright::actor::*;
 
 pub type Value = char;
 
@@ -58,8 +61,8 @@ impl<Id: Copy> actor::Actor<Id> for Actor<Id> {
 }
 
 #[test]
-fn test() {
-    use ::actor::model::*;
+fn can_model_wor() {
+    use stateright::actor::model::*;
     let system = ActorSystem {
         actors: vec![
             Actor::Server,

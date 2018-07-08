@@ -38,9 +38,9 @@
 //!
 //! ## More Examples
 //!
-//! See the [examples/bench/](https://github.com/stateright/stateright/tree/master/examples/bench)
-//! directory for additional examples, such as an abstract model of two phase
-//! commit and an actor-based model of a write-once register.
+//! See the [examples/state\_machines/](https://github.com/stateright/stateright/tree/master/examples/state_machines)
+//! directory for additional examples, such as an actor based write-once register
+//! and an abstract two phase commit state machine.
 //!
 //! ## Performance
 //!
