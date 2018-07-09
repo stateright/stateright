@@ -42,9 +42,9 @@ fn main() {
                 26, value_t!(args, "client_count", u8).expect("client_count"));
             println!("Benchmarking a write-once register with {} clients.", client_count);
 
-            let mut actors = vec![write_once_register::Actor::Server];
+            let mut actors = vec![write_once_register::Cfg::Server];
             for i in 0..client_count {
-                actors.push(write_once_register::Actor::Client {
+                actors.push(write_once_register::Cfg::Client {
                     server_id: 0, desired_value: ('A' as u8 + i) as char
                 });
             }

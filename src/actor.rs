@@ -50,7 +50,6 @@
 //!     });
 //! ```
 
-
 use std::hash::Hash;
 
 /// Inputs to which an actor can respond.
@@ -105,6 +104,45 @@ pub trait Actor<Id> {
 
     /// Indicates the updated state and outputs for the actor when it receives an input.
     fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>);
+}
+
+/// Provides a DSL to eliminate some boilerplate for defining an actor.
+#[macro_export]
+macro_rules! actor {
+    (
+    Cfg { $($cfg:tt)* }
+    State { $($state:tt)* }
+    Msg { $($msg:tt)* }
+    Start() { $($start:tt)* }
+    Advance($src:ident, $msg_advance:ident, $actor:ident) { $($advance:tt)* }
+    ) => (
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum Cfg<Id> { $($cfg)* }
+
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum State { $($state)* }
+
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum Msg { $($msg)* }
+
+        impl<Id: Copy> Actor<Id> for Cfg<Id> {
+            type Msg = Msg;
+            type State = State;
+
+            fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+                match self {
+                    $($start)*
+                }
+            }
+
+            fn advance(&self, input: ActorInput<Id, Self::Msg>, $actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
+                let ActorInput::Deliver { $src, $msg_advance } = input;
+                match self {
+                    $($advance)*
+                }
+            }
+        }
+    )
 }
 
 /// Models semantics for an actor system on a lossy network that can redeliver messages.
@@ -194,55 +232,48 @@ mod test {
     use ::actor::*;
     use ::actor::model::*;
 
-    struct PingPongActor<Id> { max_nat: u32, role: PingPongActorRole, ponger_id: Id }
-    enum PingPongActorRole { Pinger, Ponger }
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    enum PingPongActorMsg { Ping(u32), Pong(u32) }
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    enum PingPongActorState { PingerState(u32), PongerState(u32) }
-    impl<Id: Copy> Actor<Id> for PingPongActor<Id> {
-        type Msg = PingPongActorMsg;
-        type State = PingPongActorState;
-
-        fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
-            match self.role {
-                PingPongActorRole::Pinger => {
-                    let mut result = ActorResult::new(PingPongActorState::PingerState(0));
-                    result.outputs.send(self.ponger_id, PingPongActorMsg::Ping(0));
-                    result
-                },
-                PingPongActorRole::Ponger => ActorResult::new(PingPongActorState::PongerState(0)),
+    actor! {
+        Cfg { Pinger { max_nat: u32, ponger_id: Id } , Ponger { max_nat: u32 } }
+        State { PingerState(u32), PongerState(u32) }
+        Msg { Ping(u32), Pong(u32) }
+        Start() {
+            Cfg::Pinger { ponger_id, .. } => {
+                let mut result = ActorResult::new(State::PingerState(0));
+                result.outputs.send(*ponger_id, Msg::Ping(0));
+                result
             }
+            Cfg::Ponger { .. } => ActorResult::new(State::PongerState(0))
         }
-
-        fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
-            let ActorInput::Deliver { src, msg } = input;
-            match actor.state {
-                PingPongActorState::PingerState(ref mut actor_value) => {
-                    if let PingPongActorMsg::Pong(msg_value) = msg {
-                        if *actor_value == msg_value && *actor_value < self.max_nat {
+        Advance(src, msg, actor) {
+            Cfg::Pinger { max_nat, .. } => {
+                if let State::PingerState(ref mut actor_value) = actor.state {
+                    if let Msg::Pong(msg_value) = msg {
+                        if *actor_value == msg_value && *actor_value < *max_nat {
                             *actor_value += 1;
-                            actor.outputs.send(src, PingPongActorMsg::Ping(msg_value + 1));
+                            actor.outputs.send(src, Msg::Ping(msg_value + 1));
                         }
                     }
                 }
-                PingPongActorState::PongerState(ref mut actor_value) => {
-                    if let PingPongActorMsg::Ping(msg_value) = msg {
-                        if *actor_value == msg_value && *actor_value < self.max_nat {
+            }
+            Cfg::Ponger { max_nat, .. } => {
+                if let State::PongerState(ref mut actor_value) = actor.state {
+                    if let Msg::Ping(msg_value) = msg {
+                        if *actor_value == msg_value && *actor_value < *max_nat {
                             *actor_value += 1;
-                            actor.outputs.send(src, PingPongActorMsg::Pong(msg_value));
+                            actor.outputs.send(src, Msg::Pong(msg_value));
                         }
                     }
                 }
             }
         }
     }
-    fn invariant(_sys: &ActorSystem<PingPongActor<ModelId>>, state: &ActorSystemSnapshot<PingPongActorMsg, PingPongActorState>) -> bool {
+
+    fn invariant(_sys: &ActorSystem<Cfg<ModelId>>, state: &ActorSystemSnapshot<Msg, State>) -> bool {
         let &ActorSystemSnapshot { ref actor_states, .. } = state;
-        fn extract_value(a: &PingPongActorState) -> u32 {
+        fn extract_value(a: &State) -> u32 {
             match a {
-                &PingPongActorState::PingerState(value) => value,
-                &PingPongActorState::PongerState(value) => value,
+                &State::PingerState(value) => value,
+                &State::PongerState(value) => value,
             }
         };
 
@@ -256,8 +287,8 @@ mod test {
         use std::iter::FromIterator;
         let system = ActorSystem {
             actors: vec![
-                PingPongActor { max_nat: 1, role: PingPongActorRole::Pinger, ponger_id: 1 },
-                PingPongActor { max_nat: 1, role: PingPongActorRole::Ponger, ponger_id: 1 },
+                Cfg::Pinger { max_nat: 1, ponger_id: 1 },
+                Cfg::Ponger { max_nat: 1 },
             ],
             init_network: Vec::new(),
         };
@@ -267,92 +298,92 @@ mod test {
         assert_eq!(checker.visited, FxHashSet::from_iter(vec![
             // When the network loses no messages...
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(0), PingPongActorState::PongerState(0)],
-                network: Network::from_iter(vec![Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) }]),
+                actor_states: vec![State::PingerState(0), State::PongerState(0)],
+                network: Network::from_iter(vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(0), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(0), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: PingPongActorMsg::Pong(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: PingPongActorMsg::Pong(0) },
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(1) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
             }),
 
             // When the network loses the message for pinger-ponger state (0, 0)...
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(0), PingPongActorState::PongerState(0)],
-                network:  Network::<Envelope<PingPongActorMsg>>::new(),
+                actor_states: vec![State::PingerState(0), State::PongerState(0)],
+                network:  Network::<Envelope<Msg>>::new(),
             }),
 
             // When the network loses a message for pinger-ponger state (0, 1)
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(0), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(0), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 1, dst: 0, msg: PingPongActorMsg::Pong(0) },
+                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(0), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(0), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(0), PingPongActorState::PongerState(1)],
-                network:  Network::<Envelope<PingPongActorMsg>>::new(),
+                actor_states: vec![State::PingerState(0), State::PongerState(1)],
+                network:  Network::<Envelope<Msg>>::new(),
             }),
 
             // When the network loses a message for pinger-ponger state (1, 1)
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 1, dst: 0, msg: PingPongActorMsg::Pong(0) },
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(1) },
+                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) },
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(1) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: PingPongActorMsg::Pong(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(1) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 1, dst: 0, msg: PingPongActorMsg::Pong(0) },
+                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
                 network: Network::from_iter(vec![
-                    Envelope { src: 0, dst: 1, msg: PingPongActorMsg::Ping(0) },
+                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                 ]),
             }),
             hash(&ActorSystemSnapshot {
-                actor_states: vec![PingPongActorState::PingerState(1), PingPongActorState::PongerState(1)],
-                network:  Network::<Envelope<PingPongActorMsg>>::new(),
+                actor_states: vec![State::PingerState(1), State::PongerState(1)],
+                network:  Network::<Envelope<Msg>>::new(),
             }),
         ]));
     }
@@ -361,8 +392,8 @@ mod test {
     fn can_play_ping_pong() {
         let sys = ActorSystem {
             actors: vec![
-                PingPongActor { max_nat: 5, role: PingPongActorRole::Pinger, ponger_id: 1 },
-                PingPongActor { max_nat: 5, role: PingPongActorRole::Ponger, ponger_id: 1 },
+                Cfg::Pinger { max_nat: 5, ponger_id: 1 },
+                Cfg::Ponger { max_nat: 5 },
             ],
             init_network: Vec::new(),
         };
