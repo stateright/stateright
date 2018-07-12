@@ -34,7 +34,7 @@
 
 extern crate fxhash;
 extern crate serde;
-#[allow(unused_imports)] // false warning
+#[cfg(test)]
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
@@ -75,7 +75,7 @@ pub trait StateMachine: Sized {
         let mut source = FxHashMap::default();
         if keep_paths == KeepPaths::Yes {
             source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
-            for &(ref _init_action, ref init_state) in pending.iter() {
+            for &(ref _init_action, ref init_state) in &pending {
                 let init_digest = hash(&init_state);
                 source.entry(init_digest).or_insert(None);
             }
@@ -150,7 +150,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
             if self.keep_paths == KeepPaths::Yes {
                 for &(ref _next_action, ref next_state) in &results {
                     let next_digest = hash(&next_state);
-                    self.source.entry(next_digest).or_insert(Some(digest));
+                    self.source.entry(next_digest).or_insert_with(|| Some(digest));
                 }
             }
             for r in results { self.pending.push_back(r); }
@@ -206,7 +206,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
                 &mut next_steps);
             output.push(find_step(next_steps, next_digest));
         }
-        return Some(output);
+        Some(output)
     }
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
@@ -224,7 +224,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
                              method_start.elapsed().as_secs(),
                              self.path_to(&state)
                                  .map(|path| format!(" by path of length {}", path.len()))
-                                 .unwrap_or(String::from("")));
+                                 .unwrap_or_default());
                     return;
                 },
                 CheckResult::Pass => {

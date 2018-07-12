@@ -113,12 +113,12 @@ pub trait Actor<Id> {
 }
 
 /// Runs an actor by mapping messages to JSON over UDP.
-pub fn spawn<A: Actor<SocketAddr>>(actor: A, id: SocketAddr) -> Result<()>
+pub fn spawn<A: Actor<SocketAddr>>(actor: &A, id: SocketAddr) -> Result<()>
 where
     A::Msg: Debug + DeserializeOwned + Serialize,
     A::State: Debug
 {
-    let socket = UdpSocket::bind(id.clone())?; // bubble up if unable to bind
+    let socket = UdpSocket::bind(id)?; // bubble up if unable to bind
     let mut in_buf = [0; 65_535];
 
     let mut result = actor.start();
