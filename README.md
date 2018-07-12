@@ -1,12 +1,17 @@
-A library for specifying state machines and model checking invariants.
+# Stateright
+
+Stateright is a library for specifying state machines and [model
+checking](https://en.wikipedia.org/wiki/Model_checking) invariants. Embedding a
+model checker into a general purpose programming language allows consumers to
+formally verify product implementations in addition to abstract models.
 
 ## Example
 
-As a simple example, we can simulate a minimal "clock" that alternates between
-two hours: zero and one. Then we can enumerate all possible states verifying
-that the time is always within bounds and that a path to the other hour begins
-at the `start` hour (a model input) followed by a step for flipping the hour
-bit.
+As a simple example of an abstract model, we can simulate a minimal "clock"
+that alternates between two hours: zero and one. Then we can enumerate all
+possible states verifying that the time is always within bounds and that a path
+to the other hour begins at the `start` hour (a model input) followed by a step
+for flipping the hour bit.
 
 ```rust
 use stateright::*;
@@ -39,16 +44,30 @@ assert_eq!(
 ## More Examples
 
 See the [examples/state\_machines/](https://github.com/stateright/stateright/tree/master/examples/state_machines)
-directory for additional examples, such as an actor based write-once register
+directory for additional state machines, such as an actor based write-once register
 and an abstract two phase commit state machine.
+
+To model check, run:
+
+```sh
+cargo run --release --example bench 2pc 3 # 2PC, 3 resource managers
+cargo run --release --example bench wor 3 # write-only register, 3 clients
+```
+
+Stateright also includes a simple runtime for executing an actor state machine
+mapping messages to JSON over UDP:
+
+```sh
+cargo run --example serve
+```
 
 ## Performance
 
-To benchmark model checking speed, run:
+To benchmark model checking speed, run with larger state spaces:
 
 ```sh
-cargo run --release --example bench 2pc
-cargo run --release --example bench wor
+cargo run --release --example bench 2pc 8
+cargo run --release --example bench wor 6
 ```
 
 ## Contributing

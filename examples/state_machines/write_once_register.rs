@@ -1,13 +1,14 @@
 //! A simple server exposing a single register that can only be written once.
 
+#[allow(unused_imports)] // false warning
 use stateright::*;
-use stateright::actor::*;
 use stateright::actor::*;
 
 pub type Value = char;
 
 actor! {
     Cfg {
+        #[allow(dead_code)] // not constructed here (only used for model checking)
         Client { desired_value: Value, server_id: Id },
         Server,
     }

@@ -108,6 +108,7 @@ impl<R: Clone + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
     }
 }
 
+#[allow(dead_code)] // not used by `serve.rs`
 pub fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &TwoPhaseState<R>) -> bool {
     !sys.rms.iter().any(|rm1|
         sys.rms.iter().any(|rm2|
@@ -116,7 +117,7 @@ pub fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &T
 
 #[cfg(test)]
 mod test {
-    use two_phase_commit::*;
+    use state_machines::two_phase_commit::*;
 
     #[test]
     fn can_model_2pc() {

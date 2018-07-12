@@ -50,7 +50,13 @@
 //!     });
 //! ```
 
+use serde::de::*;
+use serde::ser::*;
+use serde_json;
+use std::fmt::Debug;
 use std::hash::Hash;
+use std::net::{SocketAddr, UdpSocket};
+use std::io::Result;
 
 /// Inputs to which an actor can respond.
 pub enum ActorInput<Id, Msg> {
@@ -65,7 +71,7 @@ pub enum ActorOutput<Id, Msg> {
 
 /// We create a wrapper type so we can add convenience methods.
 #[derive(Clone, Debug)]
-pub struct ActorOutputVec<Id, Msg>(Vec<ActorOutput<Id, Msg>>);
+pub struct ActorOutputVec<Id, Msg>(pub Vec<ActorOutput<Id, Msg>>);
 
 impl<Id, Msg> ActorOutputVec<Id, Msg> {
     pub fn send(&mut self, dst: Id, msg: Msg) {
@@ -106,6 +112,65 @@ pub trait Actor<Id> {
     fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>);
 }
 
+/// Runs an actor by mapping messages to JSON over UDP.
+pub fn spawn<A: Actor<SocketAddr>>(actor: A, id: SocketAddr) -> Result<()>
+where
+    A::Msg: Debug + DeserializeOwned + Serialize,
+    A::State: Debug
+{
+    let socket = UdpSocket::bind(id.clone())?; // bubble up if unable to bind
+    let mut in_buf = [0; 65_535];
+
+    let mut result = actor.start();
+    println!("Actor started. id={}, result={:#?}", id, result);
+    handle_outputs(&result.outputs, &id, &socket);
+
+    loop {
+        let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
+        let msg: A::Msg = match serde_json::from_slice(&in_buf[..count]) {
+            Ok(v) => {
+                println!("Received message. id={}, src={}, msg={:?}", id, src_addr, v);
+                v
+            },
+            Err(e) => {
+                println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
+                        id, src_addr, &in_buf[..count], e);
+                continue
+            }
+        };
+        actor.advance(
+            ActorInput::Deliver { src: src_addr, msg },
+            &mut result);
+        println!("Actor advanced. id={}, result={:#?}", id, result);
+        handle_outputs(&result.outputs, &id, &socket);
+    }
+}
+
+fn handle_outputs<Msg>(
+    outputs: &ActorOutputVec<SocketAddr, Msg>, id: &SocketAddr, socket: &UdpSocket)
+where Msg: Debug + Serialize
+{
+    for o in &outputs.0 {
+        let ActorOutput::Send { dst, msg } = o;
+        let out_buf = match serde_json::to_vec(msg) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("Unable to serialize. Ignoring. id={}, dst={}, msg={:?}, err={}",
+                         id, dst, msg, e);
+                continue
+            },
+        };
+        match socket.send_to(&out_buf, &dst) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("Unable to send. Ignoring. id={}, dst={}, msg={:?}, err={}",
+                         id, dst, msg, e);
+                continue
+            }
+        }
+    }
+}
+
 /// Provides a DSL to eliminate some boilerplate for defining an actor.
 #[macro_export]
 macro_rules! actor {
@@ -123,6 +188,7 @@ macro_rules! actor {
         pub enum State { $($state)* }
 
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Serialize, Deserialize)]
         pub enum Msg { $($msg)* }
 
         impl<Id: Copy> Actor<Id> for Cfg<Id> {

@@ -1,12 +1,8 @@
 //! A library for specifying state machines and model checking invariants.
 //!
-//! ## Example
-//!
-//! As a simple example, we can simulate a minimal "clock" that alternates between
-//! two hours: zero and one. Then we can enumerate all possible states verifying
-//! that the time is always within bounds and that a path to the other hour begins
-//! at the `start` hour (a model input) followed by a step for flipping the hour
-//! bit.
+//! A small example follows. Please see the
+//! [README](https://github.com/stateright/stateright/blob/master/README.md) for a more thorough
+//! introduction.
 //!
 //! ```rust
 //! use stateright::*;
@@ -35,54 +31,13 @@
 //!     checker.path_to(&0),
 //!     Some(vec![("start", 1), ("flip bit", 0)]));
 //! ```
-//!
-//! ## More Examples
-//!
-//! See the [examples/state\_machines/](https://github.com/stateright/stateright/tree/master/examples/state_machines)
-//! directory for additional examples, such as an actor based write-once register
-//! and an abstract two phase commit state machine.
-//!
-//! ## Performance
-//!
-//! To benchmark model checking speed, run:
-//!
-//! ```sh
-//! cargo run --release --example bench 2pc
-//! cargo run --release --example bench wor
-//! ```
-//!
-//! ## Contributing
-//!
-//! 1. Clone the repository:
-//!    ```sh
-//!    git clone https://github.com/stateright/stateright.git
-//!    cd stateright
-//!    ```
-//! 2. Install the latest version of rust:
-//!    ```sh
-//!    rustup update || (curl https://sh.rustup.rs -sSf | sh)
-//!    ```
-//! 3. Run the tests:
-//!    ```sh
-//!    cargo test && cargo test --examples
-//!    ```
-//! 4. Review the docs:
-//!    ```sh
-//!    cargo doc --open
-//!    ```
-//! 5. Explore the code:
-//!    ```sh
-//!    $EDITOR src/ # src/lib.rs is a good place to start
-//!    ```
-//! 6. If you would like to share improvements, please
-//!    [fork the library](https://github.com/stateright/stateright/fork), push changes to your fork,
-//!    and send a [pull request](https://help.github.com/articles/creating-a-pull-request-from-a-fork/).
-//!
-//! ## License
-//!
-//! Copyright 2018 Jonathan Nadal and made available under the MIT License.
 
 extern crate fxhash;
+extern crate serde;
+#[allow(unused_imports)] // false warning
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 use fxhash::{FxHashMap, FxHashSet};
 use std::cmp::max;
