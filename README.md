@@ -1,5 +1,9 @@
 # Stateright
 
+[![crates.io](https://img.shields.io/crates/v/stateright.svg)](https://crates.io/crates/stateright)
+[![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
+[![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
+
 Stateright is a library for specifying state machines and [model
 checking](https://en.wikipedia.org/wiki/Model_checking) invariants. Embedding a
 model checker into a general purpose programming language allows consumers to
