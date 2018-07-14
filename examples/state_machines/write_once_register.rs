@@ -7,7 +7,7 @@ use stateright::actor::*;
 pub type Value = char;
 
 actor! {
-    Cfg {
+    Cfg<Id> {
         #[allow(dead_code)] // not constructed here (only used for model checking)
         Client { desired_value: Value, server_id: Id },
         Server,

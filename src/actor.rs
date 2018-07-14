@@ -175,25 +175,25 @@ where Msg: Debug + Serialize
 #[macro_export]
 macro_rules! actor {
     (
-    Cfg { $($cfg:tt)* }
-    State { $($state:tt)* }
-    Msg { $($msg:tt)* }
+    Cfg $(<$tcfg:ident>)* { $($cfg:tt)* }
+    State $(<$tstate:ident>)* { $($state:tt)* }
+    Msg $(<$tmsg:ident>)* { $($msg:tt)* }
     Start() { $($start:tt)* }
     Advance($src:ident, $msg_advance:ident, $actor:ident) { $($advance:tt)* }
     ) => (
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub enum Cfg<Id> { $($cfg)* }
+        pub enum Cfg $(<$tcfg>)* { $($cfg)* }
 
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub enum State { $($state)* }
+        pub enum State $(<$tstate>)* { $($state)* }
 
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         #[derive(Serialize, Deserialize)]
-        pub enum Msg { $($msg)* }
+        pub enum Msg $(<$tmsg>)* { $($msg)* }
 
-        impl<Id: Copy> Actor<Id> for Cfg<Id> {
-            type Msg = Msg;
-            type State = State;
+        impl<Id: Copy> Actor<Id> for Cfg $(<$tcfg>)* {
+            type Msg = Msg $(<$tmsg>)*;
+            type State = State $(<$tstate>)*;
 
             fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
                 match self {
@@ -299,7 +299,7 @@ mod test {
     use ::actor::model::*;
 
     actor! {
-        Cfg { Pinger { max_nat: u32, ponger_id: Id } , Ponger { max_nat: u32 } }
+        Cfg<Id> { Pinger { max_nat: u32, ponger_id: Id } , Ponger { max_nat: u32 } }
         State { PingerState(u32), PongerState(u32) }
         Msg { Ping(u32), Pong(u32) }
         Start() {
