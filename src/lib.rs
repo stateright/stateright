@@ -69,14 +69,14 @@ pub trait StateMachine: Sized {
 
         let mut results = StepVec::new();
         self.init(&mut results);
-        let mut pending: VecDeque<Step<Self::State>> = VecDeque::new();
-        for r in results { pending.push_back(r); }
+        let mut pending = VecDeque::new();
+        for r in results { pending.push_back(r.1); }
 
         let mut source = FxHashMap::default();
         if keep_paths == KeepPaths::Yes {
             source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
-            for &(ref _init_action, ref init_state) in &pending {
-                let init_digest = hash(&init_state);
+            for init_state in &pending {
+                let init_digest = hash(init_state);
                 source.entry(init_digest).or_insert(None);
             }
         }
@@ -119,7 +119,7 @@ pub struct Checker<'a, SM: 'a + StateMachine> {
     invariant: fn(&SM, &SM::State) -> bool,
 
     // mutable checking state
-    pending: VecDeque<Step<SM::State>>,
+    pending: VecDeque<SM::State>,
     source: FxHashMap<u64, Option<u64>>,
     pub visited: FxHashSet<u64>,
 }
@@ -131,7 +131,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
     pub fn check(&mut self, max_count: usize) -> CheckResult<M::State> {
         let mut remaining = max_count;
 
-        while let Some((_action, state)) = self.pending.pop_front() {
+        while let Some(state) = self.pending.pop_front() {
             let digest = hash(&state);
 
             // skip if already visited
@@ -153,7 +153,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
                     self.source.entry(next_digest).or_insert_with(|| Some(digest));
                 }
             }
-            for r in results { self.pending.push_back(r); }
+            for r in results { self.pending.push_back(r.1); }
             self.visited.insert(digest);
 
             // but pause if we've reached the limit so that the caller can display progress
