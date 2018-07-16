@@ -171,6 +171,8 @@ impl<'a, M: StateMachine> Checker<'a, M> {
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
         // Specifications" by Yu, Manolios, and Lamport.
 
+        if self.keep_paths == KeepPaths::No { return None }
+
         let find_step = |steps: StepVec<M::State>, digest: u64|
             steps.into_iter()
                 .find(|step| hash(&step.1) == digest)
@@ -333,6 +335,17 @@ mod test {
                         ("increase x", (Wrapping(2), Wrapping(0))),
                         ("increase y", (Wrapping(2), Wrapping(1))),
                     ]));
+            },
+            _ => panic!("expected solution")
+        }
+    }
+
+    #[test]
+    fn model_check_can_omit_path() {
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(KeepPaths::No, invariant);
+        match checker.check(100_000) {
+            CheckResult::Fail { state } => {
+                assert_eq!(checker.path_to(&state), None); // b/c not recorded
             },
             _ => panic!("expected solution")
         }
