@@ -136,27 +136,22 @@ impl<'a, M: StateMachine> Checker<'a, M> {
 
             // skip if already visited
             if self.visited.contains(&digest) { continue; }
+            self.visited.insert(digest);
 
-            // exit if invariant fails to hold
-            let inv = self.invariant;
-            if !inv(&self.state_machine, &state) {
-                self.visited.insert(digest);
-                return CheckResult::Fail { state };
-            }
-
-            // otherwise collect the next steps/states
+            // collect the next steps/states
             let mut results = StepVec::new();
             self.state_machine.next(&state, &mut results);
             if self.keep_paths == KeepPaths::Yes {
-                for &(ref _next_action, ref next_state) in &results {
-                    let next_digest = hash(&next_state);
+                for r in &results {
+                    let next_digest = hash(&r.1);
                     self.source.entry(next_digest).or_insert_with(|| Some(digest));
                 }
             }
             for r in results { self.pending.push_back(r.1); }
-            self.visited.insert(digest);
 
-            // but pause if we've reached the limit so that the caller can display progress
+            // exit if invariant fails to hold or we've reached the max count
+            let inv = self.invariant;
+            if !inv(&self.state_machine, &state) { return CheckResult::Fail { state }; }
             remaining -= 1;
             if remaining == 0 { return CheckResult::Incomplete }
         }
@@ -320,6 +315,20 @@ mod test {
             checker.check(100_000),
             CheckResult::Fail { state: (Wrapping(3), Wrapping(15)) });
         assert_eq!(checker.visited.len(), 187);
+    }
+
+    #[test]
+    fn model_check_can_resume_after_failing() {
+        let mut checker = LinearEquation { a: 0, b: 0, c: 0 }.checker(KeepPaths::No, invariant);
+        // init case
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(0)) });
+        // distance==1 cases
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(1), Wrapping(0)) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(1)) });
+        // subset of distance==2 cases
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(2), Wrapping(0)) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(1), Wrapping(1)) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(2)) });
     }
 
     #[test]
