@@ -32,7 +32,9 @@
 //!     Some(vec![("start", 1), ("flip bit", 0)]));
 //! ```
 
+extern crate difference;
 extern crate fxhash;
+extern crate regex;
 extern crate serde;
 #[cfg(test)]
 #[macro_use]
@@ -40,8 +42,10 @@ extern crate serde_derive;
 extern crate serde_json;
 
 use fxhash::{FxHashMap, FxHashSet};
+use regex::Regex;
 use std::cmp::max;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::hash::Hash;
 
 pub mod actor;
@@ -55,7 +59,7 @@ pub type StepVec<State> = Vec<Step<State>>;
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
     /// The type of state upon which this machine operates.
-    type State: Hash;
+    type State: Debug + Hash;
 
     /// Collects the initial possible action-state pairs.
     fn init(&self, results: &mut StepVec<Self::State>);
@@ -222,6 +226,30 @@ impl<'a, M: StateMachine> Checker<'a, M> {
                              self.path_to(&state)
                                  .map(|path| format!(" by path of length {}", path.len()))
                                  .unwrap_or_default());
+                    if let Some(path) = self.path_to(&state) {
+                        let newline_re = Regex::new(r"\n *").unwrap();
+                        let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
+                        let mut maybe_last_state_str: Option<String> = None;
+                        for (action, state) in path {
+                            // Pretty-print as that results in a more sane diff, then collapse the
+                            // lines to keep the output more concise.
+                            let state_str: String = format!("{:#?}", state);
+                            print!("    \x1B[33m|{}|\x1B[0m ", action);
+                            match maybe_last_state_str {
+                                None => {
+                                    println!("{}", newline_re.replace_all(&state_str, " "));
+                                }
+                                Some(last_str) => {
+                                    let diff = format!("{}", difference::Changeset::new(&last_str, &state_str, "\n"));
+                                    println!("{}",
+                                             newline_re.replace_all(
+                                                 &control_re.replace_all(&diff, "$c "),
+                                                 " "));
+                                }
+                            }
+                            maybe_last_state_str = Some(state_str);
+                        }
+                    }
                     return;
                 },
                 CheckResult::Pass => {

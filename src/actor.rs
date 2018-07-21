@@ -100,10 +100,10 @@ impl<Id, Msg, State> ActorResult<Id, Msg, State> {
 /// likely be added.
 pub trait Actor<Id> {
     /// The type of messages sent and received by this actor.
-    type Msg: Clone + Eq + Hash + Ord;
+    type Msg: Clone + Debug + Eq + Hash + Ord;
 
     /// The type of state maintained by this actor.
-    type State: Clone + Eq + Hash + Ord;
+    type State: Clone + Debug + Eq + Hash + Ord;
 
     /// Indicates the initial state and outputs for the actor.
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State>;
@@ -115,8 +115,7 @@ pub trait Actor<Id> {
 /// Runs an actor by mapping messages to JSON over UDP.
 pub fn spawn<A: Actor<SocketAddr>>(actor: &A, id: SocketAddr) -> Result<()>
 where
-    A::Msg: Debug + DeserializeOwned + Serialize,
-    A::State: Debug
+    A::Msg: DeserializeOwned + Serialize,
 {
     let socket = UdpSocket::bind(id)?; // bubble up if unable to bind
     let mut in_buf = [0; 65_535];

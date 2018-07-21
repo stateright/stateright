@@ -5,6 +5,7 @@
 use stateright::*;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 use std::hash::Hash;
 
 pub struct TwoPhaseSys<R> { pub rms: BTreeSet<R> }
@@ -26,7 +27,7 @@ pub enum RmState { Working, Prepared, Committed, Aborted }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TmState { Init, Committed, Aborted }
 
-impl<R: Clone + Eq + Hash + Ord> TwoPhaseSys<R> {
+impl<R: Clone + Debug + Eq + Hash + Ord> TwoPhaseSys<R> {
     fn tm_rcv_prepared(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
         if state.tm_state == TmState::Init
                 && state.msgs.contains(&Message::Prepared { rm: rm.clone() }) {
@@ -83,7 +84,7 @@ impl<R: Clone + Eq + Hash + Ord> TwoPhaseSys<R> {
     }
 }
 
-impl<R: Clone + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
+impl<R: Clone + Debug + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
     type State = TwoPhaseState<R>;
     fn init(&self, results: &mut StepVec<Self::State>) {
         let state = TwoPhaseState {

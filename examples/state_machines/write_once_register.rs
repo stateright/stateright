@@ -36,11 +36,13 @@ actor! {
             if let State::Server { ref mut maybe_value } = actor.state {
                 match msg {
                     Msg::Put { value } => {
+                        actor.action = "SERVER ACCEPTS PUT";
                         if let None = maybe_value {
                             *maybe_value = Some(value.clone());
                         }
                     }
                     Msg::Get => {
+                        actor.action = "SERVER RESPONDS TO GET";
                         if let Some(value) = maybe_value {
                             actor.outputs.send(src, Msg::Respond { value: value.clone() });
                         }
