@@ -53,13 +53,14 @@ fn main() {
 
             let sys = stateright::actor::model::ActorSystem { actors, init_network: Vec::new() };
             let mut checker = sys.checker(KeepPaths::Yes, |_sys, state| {
-                // only returns a value in the set of values proposed by clients
-                state.network.iter().all(
-                    |env| match env.msg {
-                        write_once_register::Msg::Respond { value } =>
-                            'A' <= value && value <= 'Z', // could be tighter w/ a closure
-                        _ => true,
-                    })
+                let values = write_once_register::response_values(&state);
+                match values.as_slice() {
+                    [] => true,
+                    // Should have a tighter bound. Could recompute count but probably cleaner to
+                    // update the checker to accept a `Fn` instead of a `fn`.
+                    [v] => 'A' <= *v && *v <= 'Z',
+                    _ => false
+                }
             });
             checker.check_and_report();
         }

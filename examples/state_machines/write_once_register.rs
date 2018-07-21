@@ -3,6 +3,7 @@
 #[allow(unused_imports)] // false warning
 use stateright::*;
 use stateright::actor::*;
+use stateright::actor::model::*;
 
 pub type Value = char;
 
@@ -52,9 +53,21 @@ actor! {
     }
 }
 
+/// Indicates unique values with which the server has responded.
+#[allow(dead_code)] // not used by `serve.rs`
+pub fn response_values(state: &ActorSystemSnapshot<Msg, State>) -> Vec<Value> {
+    let mut values: Vec<Value> = state.network.iter().filter_map(
+        |env| match env.msg {
+            Msg::Respond { value } => Some(value),
+            _ => None,
+        }).collect();
+    values.sort();
+    values.dedup();
+    values
+}
+
 #[test]
 fn can_model_wor() {
-    use stateright::actor::model::*;
     let system = ActorSystem {
         actors: vec![
             Cfg::Server,
@@ -64,12 +77,12 @@ fn can_model_wor() {
         init_network: Vec::new(),
     };
     let mut checker = system.checker(KeepPaths::Yes, |_sys, state| {
-        // only returns a value in the set of values proposed by clients
-        state.network.iter().all(
-            |env| match env.msg {
-                Msg::Respond { value } => value == 'X' || value == 'Y',
-                _ => true,
-            })
+        let values = response_values(&state);
+        match values.as_slice() {
+            [] => true,
+            [v] => *v == 'X' || *v == 'Y',
+            _ => false
+        }
     });
     assert_eq!(checker.check(10_000), CheckResult::Pass);
     assert_eq!(checker.visited.len(), 144);
