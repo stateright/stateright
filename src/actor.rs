@@ -137,6 +137,8 @@ where
                 continue
             }
         };
+        result.action = "UNSPECIFIED";
+        result.outputs.0.clear();
         actor.advance(
             ActorInput::Deliver { src: src_addr, msg },
             &mut result);
