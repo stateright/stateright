@@ -20,5 +20,5 @@ fn main() -> Result<()> {
     println!("{}", serde_json::to_string(&write_once_register::Msg::Get).unwrap());
     println!();
 
-    actor::spawn(&write_once_register::Cfg::Server, format!("127.0.0.1:{}", port).parse().unwrap())
+    actor::spawn(&write_once_register::Cfg::Server, &("127.0.0.1".parse().unwrap(), port))
 }

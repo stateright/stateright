@@ -54,7 +54,7 @@ use serde::de::*;
 use serde::ser::*;
 use serde_json;
 use std::fmt::Debug;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, UdpSocket};
 use std::io::Result;
 
 /// Inputs to which an actor can respond.
@@ -111,8 +111,13 @@ pub trait Actor<Id> {
     fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>);
 }
 
+/// An ID type for an actor identified by an IP address and port.
+pub type SpawnId = (IpAddr, u16);
+
+fn fmt(id: &SpawnId) -> String { format!("{}:{}", id.0, id.1) }
+
 /// Runs an actor by mapping messages to JSON over UDP.
-pub fn spawn<A: Actor<SocketAddr>>(actor: &A, id: SocketAddr) -> Result<()>
+pub fn spawn<A: Actor<SpawnId>>(actor: &A, id: &SpawnId) -> Result<()>
 where
     A::Msg: Debug + DeserializeOwned + Serialize,
     A::State: Debug,
@@ -121,34 +126,34 @@ where
     let mut in_buf = [0; 65_535];
 
     let mut result = actor.start();
-    println!("Actor started. id={}, result={:#?}", id, result);
+    println!("Actor started. id={}, result={:#?}", fmt(&id), result);
     handle_outputs(&result.outputs, &id, &socket);
 
     loop {
         let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
         let msg: A::Msg = match serde_json::from_slice(&in_buf[..count]) {
             Ok(v) => {
-                println!("Received message. id={}, src={}, msg={:?}", id, src_addr, v);
+                println!("Received message. id={}, src={}, msg={:?}", fmt(&id), src_addr, v);
                 v
             },
             Err(e) => {
                 println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
-                        id, src_addr, &in_buf[..count], e);
+                        fmt(&id), src_addr, &in_buf[..count], e);
                 continue
             }
         };
         result.action = "UNSPECIFIED";
         result.outputs.0.clear();
         actor.advance(
-            ActorInput::Deliver { src: src_addr, msg },
+            ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg },
             &mut result);
-        println!("Actor advanced. id={}, result={:#?}", id, result);
+        println!("Actor advanced. id={}, result={:#?}", fmt(&id), result);
         handle_outputs(&result.outputs, &id, &socket);
     }
 }
 
 fn handle_outputs<Msg>(
-    outputs: &ActorOutputVec<SocketAddr, Msg>, id: &SocketAddr, socket: &UdpSocket)
+    outputs: &ActorOutputVec<SpawnId, Msg>, id: &SpawnId, socket: &UdpSocket)
 where Msg: Debug + Serialize
 {
     for o in &outputs.0 {
@@ -157,7 +162,7 @@ where Msg: Debug + Serialize
             Ok(v) => v,
             Err(e) => {
                 println!("Unable to serialize. Ignoring. id={}, dst={}, msg={:?}, err={}",
-                         id, dst, msg, e);
+                         fmt(id), fmt(dst), msg, e);
                 continue
             },
         };
@@ -165,7 +170,7 @@ where Msg: Debug + Serialize
             Ok(_) => {}
             Err(e) => {
                 println!("Unable to send. Ignoring. id={}, dst={}, msg={:?}, err={}",
-                         id, dst, msg, e);
+                         fmt(id), fmt(dst), msg, e);
                 continue
             }
         }
