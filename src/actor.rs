@@ -55,7 +55,7 @@ use serde::ser::*;
 use serde_json;
 use std::fmt::Debug;
 use std::net::{IpAddr, UdpSocket};
-use std::io::Result;
+use std::thread;
 
 /// Inputs to which an actor can respond.
 pub enum ActorInput<Id, Msg> {
@@ -117,39 +117,43 @@ pub type SpawnId = (IpAddr, u16);
 fn fmt(id: &SpawnId) -> String { format!("{}:{}", id.0, id.1) }
 
 /// Runs an actor by mapping messages to JSON over UDP.
-pub fn spawn<A: Actor<SpawnId>>(actor: &A, id: &SpawnId) -> Result<()>
+pub fn spawn<A>(actor: A, id: SpawnId) -> thread::JoinHandle<()>
 where
+    A: 'static + Send + Actor<SpawnId>,
     A::Msg: Debug + DeserializeOwned + Serialize,
     A::State: Debug,
 {
-    let socket = UdpSocket::bind(id)?; // bubble up if unable to bind
-    let mut in_buf = [0; 65_535];
+    // note that panics are returned as `Err` when `join`ing
+    thread::spawn(move || {
+        let socket = UdpSocket::bind(id).unwrap(); // panic if unable to bind
+        let mut in_buf = [0; 65_535];
 
-    let mut result = actor.start();
-    println!("Actor started. id={}, result={:#?}", fmt(&id), result);
-    handle_outputs(&result.outputs, &id, &socket);
-
-    loop {
-        let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
-        let msg: A::Msg = match serde_json::from_slice(&in_buf[..count]) {
-            Ok(v) => {
-                println!("Received message. id={}, src={}, msg={:?}", fmt(&id), src_addr, v);
-                v
-            },
-            Err(e) => {
-                println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
-                        fmt(&id), src_addr, &in_buf[..count], e);
-                continue
-            }
-        };
-        result.action = "UNSPECIFIED";
-        result.outputs.0.clear();
-        actor.advance(
-            ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg },
-            &mut result);
-        println!("Actor advanced. id={}, result={:#?}", fmt(&id), result);
+        let mut result = actor.start();
+        println!("Actor started. id={}, result={:#?}", fmt(&id), result);
         handle_outputs(&result.outputs, &id, &socket);
-    }
+
+        loop {
+            let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
+            let msg: A::Msg = match serde_json::from_slice(&in_buf[..count]) {
+                Ok(v) => {
+                    println!("Received message. id={}, src={}, msg={:?}", fmt(&id), src_addr, v);
+                    v
+                },
+                Err(e) => {
+                    println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
+                            fmt(&id), src_addr, &in_buf[..count], e);
+                    continue
+                }
+            };
+            result.action = "UNSPECIFIED";
+            result.outputs.0.clear();
+            actor.advance(
+                ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg },
+                &mut result);
+            println!("Actor advanced. id={}, result={:#?}", fmt(&id), result);
+            handle_outputs(&result.outputs, &id, &socket);
+        }
+    })
 }
 
 fn handle_outputs<Msg>(

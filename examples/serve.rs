@@ -7,9 +7,8 @@ mod state_machines;
 
 use state_machines::write_once_register;
 use stateright::actor;
-use std::io::Result;
 
-fn main() -> Result<()> {
+fn main() {
     let port = 3000;
 
     println!("  This is a server written using the stateright actor library.");
@@ -20,5 +19,5 @@ fn main() -> Result<()> {
     println!("{}", serde_json::to_string(&write_once_register::Msg::Get).unwrap());
     println!();
 
-    actor::spawn(&write_once_register::Cfg::Server, &("127.0.0.1".parse().unwrap(), port))
+    actor::spawn(write_once_register::Cfg::Server, ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
 }
