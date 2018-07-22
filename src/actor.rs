@@ -54,7 +54,6 @@ use serde::de::*;
 use serde::ser::*;
 use serde_json;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::net::{SocketAddr, UdpSocket};
 use std::io::Result;
 
@@ -100,10 +99,10 @@ impl<Id, Msg, State> ActorResult<Id, Msg, State> {
 /// likely be added.
 pub trait Actor<Id> {
     /// The type of messages sent and received by this actor.
-    type Msg: Clone + Debug + Eq + Hash + Ord;
+    type Msg;
 
     /// The type of state maintained by this actor.
-    type State: Clone + Debug + Eq + Hash + Ord;
+    type State;
 
     /// Indicates the initial state and outputs for the actor.
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State>;
@@ -115,7 +114,8 @@ pub trait Actor<Id> {
 /// Runs an actor by mapping messages to JSON over UDP.
 pub fn spawn<A: Actor<SocketAddr>>(actor: &A, id: SocketAddr) -> Result<()>
 where
-    A::Msg: DeserializeOwned + Serialize,
+    A::Msg: Debug + DeserializeOwned + Serialize,
+    A::State: Debug,
 {
     let socket = UdpSocket::bind(id)?; // bubble up if unable to bind
     let mut in_buf = [0; 65_535];
@@ -214,7 +214,6 @@ macro_rules! actor {
 pub mod model {
     use ::*;
     use ::actor::*;
-    use std::hash::Hash;
 
     /// A performant ID type for model checking.
     pub type ModelId = usize;
@@ -234,12 +233,16 @@ pub mod model {
 
     /// Represents a snapshot in time for the entire actor system.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    pub struct ActorSystemSnapshot<Msg: Hash + Eq + Clone + Ord, State: Hash + Eq + Clone + Ord> {
+    pub struct ActorSystemSnapshot<Msg, State> {
          pub actor_states: Vec<State>,
          pub network: Network<Msg>,
     }
 
-    impl<A: Actor<ModelId>> StateMachine for ActorSystem<A> {
+    impl<A: Actor<ModelId>> StateMachine for ActorSystem<A>
+    where
+        A::Msg: Clone + Ord,
+        A::State: Clone,
+    {
         type State = ActorSystemSnapshot<A::Msg, A::State>;
 
         fn init(&self, results: &mut StepVec<Self::State>) {

@@ -59,7 +59,7 @@ pub type StepVec<State> = Vec<Step<State>>;
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
     /// The type of state upon which this machine operates.
-    type State: Debug + Hash;
+    type State;
 
     /// Collects the initial possible action-state pairs.
     fn init(&self, results: &mut StepVec<Self::State>);
@@ -68,7 +68,9 @@ pub trait StateMachine: Sized {
     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
 
     /// Initializes a fresh checker for a state machine.
-    fn checker(&self, keep_paths: KeepPaths, invariant: fn(&Self, &Self::State) -> bool) -> Checker<Self> {
+    fn checker(&self, keep_paths: KeepPaths, invariant: fn(&Self, &Self::State) -> bool) -> Checker<Self>
+    where Self::State: Hash
+    {
         const STARTING_CAPACITY: usize = 1_000_000;
 
         let mut results = StepVec::new();
@@ -128,7 +130,7 @@ pub struct Checker<'a, SM: 'a + StateMachine> {
     pub visited: FxHashSet<u64>,
 }
 
-impl<'a, M: StateMachine> Checker<'a, M> {
+impl<'a, M: StateMachine> Checker<'a, M> where M::State: Hash {
     /// Visits up to a specified number of states checking the model's invariant. May return
     /// earlier when all states have been visited or a state is found in which the invariant fails
     /// to hold.
@@ -212,7 +214,7 @@ impl<'a, M: StateMachine> Checker<'a, M> {
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
     /// checking, tailoring the block size to the checking speed. Emits a report when complete.
-    pub fn check_and_report(&mut self) {
+    pub fn check_and_report(&mut self) where M::State: Debug {
         use std::time::Instant;
         let method_start = Instant::now();
         let mut block_size = 32_768;
