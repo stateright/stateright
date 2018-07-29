@@ -1,14 +1,10 @@
 #[macro_use]
 extern crate clap;
-#[macro_use]
-extern crate serde_derive;
 extern crate stateright;
 
 mod state_machines;
 
 use clap::{Arg, App, AppSettings, SubCommand};
-use state_machines::two_phase_commit;
-use state_machines::write_once_register;
 use stateright::*;
 use std::collections::BTreeSet;
 use std::iter::FromIterator;
@@ -31,6 +27,8 @@ fn main() {
         .get_matches();
     match args.subcommand() {
         ("2pc", Some(args)) => {
+            use state_machines::two_phase_commit;
+
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             println!("Benchmarking two phase commit with {} resource managers.", rm_count);
 
@@ -40,20 +38,23 @@ fn main() {
             sys.checker(KeepPaths::Yes, two_phase_commit::is_consistent).check_and_report();
         }
         ("wor", Some(args)) => {
+            use state_machines::write_once_register::*;
+            use stateright::actor::register::*;
+
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
             println!("Benchmarking a write-once register with {} clients.", client_count);
 
-            let mut actors = vec![write_once_register::Cfg::Server];
+            let mut actors = vec![RegisterCfg::Server(ServerCfg)];
             for i in 0..client_count {
-                actors.push(write_once_register::Cfg::Client {
-                    server_id: 0, desired_value: ('A' as u8 + i) as char
+                actors.push(RegisterCfg::Client {
+                    server_ids: vec![0], desired_value: ('A' as u8 + i) as char
                 });
             }
 
             let sys = stateright::actor::model::ActorSystem { actors, init_network: Vec::new() };
             let mut checker = sys.checker(KeepPaths::Yes, |_sys, state| {
-                let values = write_once_register::response_values(&state);
+                let values = response_values(&state);
                 match values.as_slice() {
                     [] => true,
                     // Should have a tighter bound. Could recompute count but probably cleaner to

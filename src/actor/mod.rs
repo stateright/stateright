@@ -50,6 +50,8 @@
 //!     });
 //! ```
 
+pub mod register;
+
 use serde::de::*;
 use serde::ser::*;
 use serde_json;

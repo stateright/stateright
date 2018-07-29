@@ -36,7 +36,6 @@ extern crate difference;
 extern crate fxhash;
 extern crate regex;
 extern crate serde;
-#[cfg(test)]
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;

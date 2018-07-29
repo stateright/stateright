@@ -1,12 +1,11 @@
-#[macro_use]
-extern crate serde_derive;
 extern crate serde_json;
 extern crate stateright;
 
 mod state_machines;
 
-use state_machines::write_once_register;
+use state_machines::write_once_register::*;
 use stateright::actor;
+use stateright::actor::register::*;
 
 fn main() {
     let port = 3000;
@@ -15,9 +14,9 @@ fn main() {
     println!("  The server implements a single write-once register.");
     println!("  You can interact with the server using netcat. Example:");
     println!("$ nc -u 0 {}", port);
-    println!("{}", serde_json::to_string(&write_once_register::Msg::Put { value: 'X' }).unwrap());
-    println!("{}", serde_json::to_string(&write_once_register::Msg::Get).unwrap());
+    println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()> { value: 'X' }).unwrap());
+    println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
     println!();
 
-    actor::spawn(write_once_register::Cfg::Server, ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
+    actor::spawn(RegisterCfg::Server(ServerCfg), ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
 }

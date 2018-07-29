@@ -3,78 +3,52 @@
 #[allow(unused_imports)] // false warning
 use stateright::*;
 use stateright::actor::*;
-use stateright::actor::model::*;
+use stateright::actor::register::*;
 
 pub type Value = char;
 
-actor! {
-    Cfg<Id> {
-        #[allow(dead_code)] // not constructed here (only used for model checking)
-        Client { desired_value: Value, server_id: Id },
-        Server,
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ServerState { maybe_value: Option<Value> }
+
+pub struct ServerCfg;
+
+impl<Id> Actor<Id> for ServerCfg {
+    type Msg = RegisterMsg<Value, ()>;
+    type State = ServerState;
+
+    fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+        ActorResult::new(ServerState { maybe_value: None })
     }
-    State {
-        Client,
-        Server { maybe_value: Option<Value> },
-    }
-    Msg {
-        Put { value: Value },
-        Get,
-        Respond { value: Value },
-    }
-    Start() {
-        Cfg::Client { desired_value, server_id } => {
-            let mut result = ActorResult::new(State::Client);
-            result.outputs.send(*server_id, Msg::Put { value: desired_value.clone() });
-            result.outputs.send(*server_id, Msg::Get);
-            result
-        },
-        Cfg::Server => ActorResult::new(State::Server { maybe_value: None }),
-    }
-    Advance(src, msg, actor) {
-        Cfg::Server => {
-            if let State::Server { ref mut maybe_value } = actor.state {
-                match msg {
-                    Msg::Put { value } => {
-                        actor.action = "SERVER ACCEPTS PUT";
-                        if let None = maybe_value {
-                            *maybe_value = Some(value.clone());
-                        }
-                    }
-                    Msg::Get => {
-                        actor.action = "SERVER RESPONDS TO GET";
-                        if let Some(value) = maybe_value {
-                            actor.outputs.send(src, Msg::Respond { value: value.clone() });
-                        }
-                    }
-                    _ => {}
+
+    fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
+        let ActorInput::Deliver { src, msg } = input;
+        match msg {
+            RegisterMsg::Put { value } => {
+                actor.action = "SERVER ACCEPTS PUT";
+                if let None = actor.state.maybe_value {
+                    actor.state.maybe_value = Some(value.clone());
                 }
             }
+            RegisterMsg::Get => {
+                actor.action = "SERVER RESPONDS TO GET";
+                if let Some(value) = actor.state.maybe_value {
+                    actor.outputs.send(src, RegisterMsg::Respond { value: value.clone() });
+                }
+            }
+            _ => {}
         }
-        _ => {}
     }
-}
-
-/// Indicates unique values with which the server has responded.
-#[allow(dead_code)] // not used by `serve.rs`
-pub fn response_values(state: &ActorSystemSnapshot<Msg, State>) -> Vec<Value> {
-    let mut values: Vec<Value> = state.network.iter().filter_map(
-        |env| match env.msg {
-            Msg::Respond { value } => Some(value),
-            _ => None,
-        }).collect();
-    values.sort();
-    values.dedup();
-    values
 }
 
 #[test]
 fn can_model_wor() {
+    use stateright::actor::model::*;
+
     let system = ActorSystem {
         actors: vec![
-            Cfg::Server,
-            Cfg::Client { server_id: 0, desired_value: 'X' },
-            Cfg::Client { server_id: 0, desired_value: 'Y' },
+            RegisterCfg::Server(ServerCfg),
+            RegisterCfg::Client { server_ids: vec![0], desired_value: 'X' },
+            RegisterCfg::Client { server_ids: vec![0], desired_value: 'Y' },
         ],
         init_network: Vec::new(),
     };
@@ -89,4 +63,3 @@ fn can_model_wor() {
     assert_eq!(checker.check(10_000), CheckResult::Pass);
     assert_eq!(checker.visited.len(), 144);
 }
-
