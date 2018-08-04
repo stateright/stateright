@@ -43,7 +43,7 @@ where
 
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
         match self {
-            &RegisterCfg::Client { ref server_ids, ref desired_value } => {
+            RegisterCfg::Client { ref server_ids, ref desired_value } => {
                 let mut actor = ActorResult::new(RegisterState::Client);
                 for server_id in server_ids {
                     actor.outputs.send(*server_id, RegisterMsg::Put { value: desired_value.clone() });
@@ -51,7 +51,7 @@ where
                 }
                 actor
             }
-            &RegisterCfg::Server(ref server_cfg) => {
+            RegisterCfg::Server(ref server_cfg) => {
                 let result = server_cfg.start();
                 let mut actor = ActorResult::new(RegisterState::Server(result.state));
                 for output in result.outputs.0 {

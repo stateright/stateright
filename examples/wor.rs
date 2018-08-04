@@ -8,7 +8,9 @@ extern crate stateright;
 use clap::*;
 use stateright::*;
 use stateright::actor::*;
+use stateright::actor::model::*;
 use stateright::actor::register::*;
+
 
 pub type Value = char;
 
@@ -48,8 +50,6 @@ impl<Id> Actor<Id> for ServerCfg {
 #[cfg(test)]
 #[test]
 fn can_model_wor() {
-    use stateright::actor::model::*;
-
     let system = ActorSystem {
         actors: vec![
             RegisterCfg::Server(ServerCfg),
@@ -96,7 +96,7 @@ fn main() {
                 });
             }
 
-            let sys = stateright::actor::model::ActorSystem { actors, init_network: Vec::new() };
+            let sys = ActorSystem { actors, init_network: Vec::new() };
             let mut checker = sys.checker(KeepPaths::Yes, |_sys, state| {
                 let values = response_values(&state);
                 match values.as_slice() {
