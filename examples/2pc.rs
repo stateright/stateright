@@ -2,10 +2,16 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
+#[macro_use]
+extern crate clap;
+extern crate stateright;
+
+use clap::*;
 use stateright::*;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
+use std::iter::FromIterator;
 use std::hash::Hash;
 
 pub struct TwoPhaseSys<R> { pub rms: BTreeSet<R> }
@@ -109,7 +115,6 @@ impl<R: Clone + Debug + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
     }
 }
 
-#[allow(dead_code)] // not used by `serve.rs`
 pub fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &TwoPhaseState<R>) -> bool {
     !sys.rms.iter().any(|rm1|
         sys.rms.iter().any(|rm2|
@@ -117,23 +122,36 @@ pub fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &T
 }
 
 #[cfg(test)]
-mod test {
-    use state_machines::two_phase_commit::*;
-
-    #[test]
-    fn can_model_2pc() {
-        let mut rms = BTreeSet::new();
-        for rm in 1..(5+1) {
-            rms.insert(rm);
-        }
-        let sys = TwoPhaseSys { rms };
-        let mut checker = sys.checker(KeepPaths::No, is_consistent);
-        assert_eq!(
-            checker.check(1_000_000),
-            CheckResult::Pass);
-        assert_eq!(
-            checker.visited.len(),
-            8832);
+#[test]
+fn can_model_2pc() {
+    let mut rms = BTreeSet::new();
+    for rm in 1..(5+1) {
+        rms.insert(rm);
     }
+    let sys = TwoPhaseSys { rms };
+    let mut checker = sys.checker(KeepPaths::No, is_consistent);
+    assert_eq!(
+        checker.check(1_000_000),
+        CheckResult::Pass);
+    assert_eq!(
+        checker.visited.len(),
+        8832);
+}
+
+fn main() {
+    let args = App::new("2pc")
+        .about("model check abstract two phase commit")
+        .arg(Arg::with_name("rm_count")
+             .help("number of resource managers")
+             .default_value("7"))
+        .get_matches();
+
+    let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
+    println!("Benchmarking two phase commit with {} resource managers.", rm_count);
+
+    let sys = TwoPhaseSys {
+        rms: BTreeSet::from_iter(0..rm_count)
+    };
+    sys.checker(KeepPaths::Yes, is_consistent).check_and_report();
 }
 
