@@ -54,6 +54,7 @@ where
             RegisterCfg::Server(ref server_cfg) => {
                 let result = server_cfg.start();
                 let mut actor = ActorResult::new(RegisterState::Server(result.state));
+                actor.action = result.action;
                 for output in result.outputs.0 {
                     let ActorOutput::Send { dst, msg } = output;
                     actor.outputs.send(dst, msg);
@@ -69,6 +70,7 @@ where
                 // `ActorResult` takes ownership of state, so we're forced to clone.
                 let mut result = ActorResult::new(server_state.clone());
                 server_cfg.advance(input, &mut result);
+                actor.action = result.action;
                 for output in result.outputs.0 {
                     let ActorOutput::Send { dst, msg } = output;
                     actor.outputs.send(dst, msg);
