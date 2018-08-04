@@ -11,13 +11,12 @@ use stateright::actor::*;
 use stateright::actor::model::*;
 use stateright::actor::register::*;
 
-
-pub type Value = char;
+type Value = char;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ServerState { maybe_value: Option<Value> }
+struct ServerState { maybe_value: Option<Value> }
 
-pub struct ServerCfg;
+struct ServerCfg;
 
 impl<Id> Actor<Id> for ServerCfg {
     type Msg = RegisterMsg<Value, ()>;

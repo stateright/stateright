@@ -14,10 +14,10 @@ use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::hash::Hash;
 
-pub struct TwoPhaseSys<R> { pub rms: BTreeSet<R> }
+struct TwoPhaseSys<R> { pub rms: BTreeSet<R> }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct TwoPhaseState<R> {
+struct TwoPhaseState<R> {
     rm_state: BTreeMap<R, RmState>,
     tm_state: TmState,
     tm_prepared: BTreeSet<R>,
@@ -25,13 +25,13 @@ pub struct TwoPhaseState<R> {
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialOrd, PartialEq)]
-pub enum Message<R> { Prepared { rm: R }, Commit, Abort }
+enum Message<R> { Prepared { rm: R }, Commit, Abort }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum RmState { Working, Prepared, Committed, Aborted }
+enum RmState { Working, Prepared, Committed, Aborted }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum TmState { Init, Committed, Aborted }
+enum TmState { Init, Committed, Aborted }
 
 impl<R: Clone + Debug + Eq + Hash + Ord> TwoPhaseSys<R> {
     fn tm_rcv_prepared(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
@@ -115,7 +115,7 @@ impl<R: Clone + Debug + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
     }
 }
 
-pub fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &TwoPhaseState<R>) -> bool {
+fn is_consistent<R: Clone + Eq + Hash + Ord>(sys: &TwoPhaseSys<R>, state: &TwoPhaseState<R>) -> bool {
     !sys.rms.iter().any(|rm1|
         sys.rms.iter().any(|rm2|
             state.rm_state[rm1] == RmState::Aborted && state.rm_state[rm2] == RmState::Committed))
