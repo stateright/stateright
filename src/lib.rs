@@ -67,8 +67,10 @@ pub trait StateMachine: Sized {
     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
 
     /// Initializes a fresh checker for a state machine.
-    fn checker(&self, keep_paths: KeepPaths, invariant: fn(&Self, &Self::State) -> bool) -> Checker<Self>
-    where Self::State: Hash
+    fn checker<I>(&self, keep_paths: KeepPaths, invariant: I) -> Checker<Self, I>
+    where
+        Self::State: Hash,
+        I: Fn(&Self, &Self::State) -> bool,
     {
         const STARTING_CAPACITY: usize = 1_000_000;
 
@@ -117,11 +119,15 @@ pub enum CheckResult<State> {
 pub enum KeepPaths { Yes, No }
 
 /// Visits every state reachable by a state machine, and verifies that an invariant holds.
-pub struct Checker<'a, SM: 'a + StateMachine> {
+pub struct Checker<'a, SM, I>
+where
+    SM: 'a + StateMachine,
+    I: Fn(&SM, &SM::State) -> bool,
+{
     // immutable cfg
     keep_paths: KeepPaths,
     state_machine: &'a SM,
-    invariant: fn(&SM, &SM::State) -> bool,
+    invariant: I,
 
     // mutable checking state
     pending: VecDeque<SM::State>,
@@ -129,11 +135,16 @@ pub struct Checker<'a, SM: 'a + StateMachine> {
     pub visited: FxHashSet<u64>,
 }
 
-impl<'a, M: StateMachine> Checker<'a, M> where M::State: Hash {
+impl<'a, SM, I> Checker<'a, SM, I>
+where
+    SM: 'a + StateMachine,
+    SM::State: Hash,
+    I: Fn(&SM, &SM::State) -> bool,
+{
     /// Visits up to a specified number of states checking the model's invariant. May return
     /// earlier when all states have been visited or a state is found in which the invariant fails
     /// to hold.
-    pub fn check(&mut self, max_count: usize) -> CheckResult<M::State> {
+    pub fn check(&mut self, max_count: usize) -> CheckResult<SM::State> {
         let mut remaining = max_count;
 
         while let Some(state) = self.pending.pop_front() {
@@ -155,7 +166,7 @@ impl<'a, M: StateMachine> Checker<'a, M> where M::State: Hash {
             for r in results { self.pending.push_back(r.1); }
 
             // exit if invariant fails to hold or we've reached the max count
-            let inv = self.invariant;
+            let inv = &self.invariant;
             if !inv(&self.state_machine, &state) { return CheckResult::Fail { state }; }
             remaining -= 1;
             if remaining == 0 { return CheckResult::Incomplete }
@@ -165,7 +176,7 @@ impl<'a, M: StateMachine> Checker<'a, M> where M::State: Hash {
     }
 
     /// Identifies the action-state "behavior" path by which a visited state was reached.
-    pub fn path_to(&self, state: &M::State) -> Option<Vec<Step<M::State>>> {
+    pub fn path_to(&self, state: &SM::State) -> Option<Vec<Step<SM::State>>> {
         // First build a stack of digests representing the path (with the init digest at top of
         // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
@@ -173,7 +184,7 @@ impl<'a, M: StateMachine> Checker<'a, M> where M::State: Hash {
 
         if self.keep_paths == KeepPaths::No { return None }
 
-        let find_step = |steps: StepVec<M::State>, digest: u64|
+        let find_step = |steps: StepVec<SM::State>, digest: u64|
             steps.into_iter()
                 .find(|step| hash(&step.1) == digest)
                 .expect("step with state matching recorded digest");
@@ -213,7 +224,7 @@ impl<'a, M: StateMachine> Checker<'a, M> where M::State: Hash {
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
     /// checking, tailoring the block size to the checking speed. Emits a report when complete.
-    pub fn check_and_report(&mut self) where M::State: Debug {
+    pub fn check_and_report(&mut self) where SM::State: Debug {
         use std::time::Instant;
         let method_start = Instant::now();
         let mut block_size = 32_768;

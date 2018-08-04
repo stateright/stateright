@@ -57,9 +57,7 @@ fn main() {
                 let values = response_values(&state);
                 match values.as_slice() {
                     [] => true,
-                    // Should have a tighter bound. Could recompute count but probably cleaner to
-                    // update the checker to accept a `Fn` instead of a `fn`.
-                    [v] => 'A' <= *v && *v <= 'Z',
+                    [v] => 'A' <= *v && *v <= ('A' as u8 + client_count - 1) as char,
                     _ => false
                 }
             });
