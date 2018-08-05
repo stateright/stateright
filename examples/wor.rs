@@ -56,6 +56,7 @@ fn can_model_wor() {
             RegisterCfg::Client { server_ids: vec![0], desired_value: 'Y' },
         ],
         init_network: Vec::new(),
+        lossy_network: LossyNetwork::Yes,
     };
     let mut checker = system.checker(KeepPaths::Yes, |_sys, state| {
         let values = response_values(&state);
@@ -95,7 +96,7 @@ fn main() {
                 });
             }
 
-            let sys = ActorSystem { actors, init_network: Vec::new() };
+            let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::Yes };
             let mut checker = sys.checker(KeepPaths::Yes, |_sys, state| {
                 let values = response_values(&state);
                 match values.as_slice() {

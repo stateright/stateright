@@ -31,6 +31,7 @@
 //! let sys = ActorSystem {
 //!     actors: vec![ClockActor, ClockActor],
 //!     init_network: vec![Envelope { src: 1, dst: 0, msg: 1 }],
+//!     lossy_network: LossyNetwork::Yes,
 //! };
 //! let mut checker = sys.checker(
 //!     KeepPaths::Yes,
@@ -234,10 +235,17 @@ pub mod model {
     /// Represents a network of messages.
     pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
 
+    /// Indicates whether the network loses messages. Note that as long as invariants do not check
+    /// the network state, losing a message is indistinguishable from an unlimited delay, so in
+    /// many cases you can improve model checking performance by not modeling message loss.
+    #[derive(PartialEq)]
+    pub enum LossyNetwork { Yes, No }
+
     /// A collection of actors on a lossy network.
     pub struct ActorSystem<A: Actor<ModelId>> {
         pub init_network: Vec<Envelope<A::Msg>>,
         pub actors: Vec<A>,
+        pub lossy_network: LossyNetwork,
     }
 
     /// Indicates the source and destination for a message.
@@ -286,9 +294,11 @@ pub mod model {
                 let id = env.dst;
 
                 // option 1: message is lost
-                let mut message_lost = state.clone();
-                message_lost.network.remove(env);
-                results.push(("message lost", message_lost));
+                if self.lossy_network == LossyNetwork::Yes {
+                    let mut message_lost = state.clone();
+                    message_lost.network.remove(env);
+                    results.push(("message lost", message_lost));
+                }
 
                 // option 2: message is delivered
                 let mut result = ActorResult::new(state.actor_states[id].clone());
@@ -372,6 +382,7 @@ mod test {
                 Cfg::Ponger { max_nat: 1 },
             ],
             init_network: Vec::new(),
+            lossy_network: LossyNetwork::Yes,
         };
         let mut checker = system.checker(KeepPaths::Yes, invariant);
         checker.check(1_000);
@@ -477,6 +488,7 @@ mod test {
                 Cfg::Ponger { max_nat: 5 },
             ],
             init_network: Vec::new(),
+            lossy_network: LossyNetwork::Yes,
         };
         let mut checker = sys.checker(KeepPaths::No, invariant);
         let result = checker.check(1_000_000);
