@@ -80,6 +80,16 @@ impl<Id, Msg> ActorOutputVec<Id, Msg> {
         let ActorOutputVec(outputs) = self;
         outputs.push(ActorOutput::Send { dst, msg })
     }
+
+    pub fn broadcast(&mut self, dsts: &[Id], msg: &Msg)
+    where
+        Id: Clone,
+        Msg: Clone,
+    {
+        for id in dsts {
+            self.send(id.clone(), msg.clone());
+        }
+    }
 }
 
 /// Packages up the action, state, and outputs for an actor step.

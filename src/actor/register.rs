@@ -21,7 +21,7 @@ pub enum RegisterMsg<Value, ServerMsg> {
     Put { value: Value },
     Get,
     Respond { value: Value},
-    Internal { contents: ServerMsg },
+    Internal(ServerMsg),
 }
 
 /// A wrapper state for model-checking a register-like actor.

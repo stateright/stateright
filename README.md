@@ -48,21 +48,22 @@ assert_eq!(
 ## More Examples
 
 See the [examples](https://github.com/stateright/stateright/tree/master/examples)
-directory for additional state machines, such as an actor based write-once register
-and an abstract two phase commit state machine.
+directory for additional state machines, such as an actor based Single Decree
+Paxos cluster and an abstract two phase commit state machine.
 
 To model check, run:
 
 ```sh
-cargo run --release --example 2pc 3       # 2 phase commit, 3 resource managers
-cargo run --release --example wor check 3 # write-once register, 3 clients
+cargo run --release --example 2pc 3         # 2 phase commit, 3 resource managers
+cargo run --release --example paxos check 2 # paxos, 2 clients
+cargo run --release --example wor check 3   # write-once register, 3 clients
 ```
 
 Stateright also includes a simple runtime for executing an actor state machine
 mapping messages to JSON over UDP:
 
 ```sh
-cargo run --example wor spawn
+cargo run --example paxos spawn
 ```
 
 ## Performance
@@ -71,6 +72,7 @@ To benchmark model checking speed, run with larger state spaces:
 
 ```sh
 cargo run --release --example 2pc 8
+cargo run --release --example paxos check 3
 cargo run --release --example wor check 6
 ```
 
