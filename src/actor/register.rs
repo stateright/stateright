@@ -36,7 +36,6 @@ where
     Id: Copy + Ord,
     Value: Clone,
     ServerCfg: Actor<Id, Msg = RegisterMsg<Value, ServerMsg>>,
-    ServerCfg::State: Clone,
 {
     type Msg = ServerCfg::Msg;
     type State = RegisterState<ServerCfg::State>;
@@ -44,40 +43,37 @@ where
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
         match self {
             RegisterCfg::Client { ref server_ids, ref desired_value } => {
-                let mut actor = ActorResult::new(RegisterState::Client);
-                for server_id in server_ids {
-                    actor.outputs.send(*server_id, RegisterMsg::Put { value: desired_value.clone() });
-                    actor.outputs.send(*server_id, RegisterMsg::Get);
-                }
-                actor
+                ActorResult::start(RegisterState::Client, |outputs| {
+                    for server_id in server_ids {
+                        outputs.send(*server_id, RegisterMsg::Put { value: desired_value.clone() });
+                        outputs.send(*server_id, RegisterMsg::Get);
+                    }
+                })
             }
             RegisterCfg::Server(ref server_cfg) => {
-                let result = server_cfg.start();
-                let mut actor = ActorResult::new(RegisterState::Server(result.state));
-                actor.action = result.action;
-                for output in result.outputs.0 {
-                    let ActorOutput::Send { dst, msg } = output;
-                    actor.outputs.send(dst, msg);
+                let server_result = server_cfg.start();
+                ActorResult {
+                    action: server_result.action,
+                    state: RegisterState::Server(server_result.state),
+                    outputs: server_result.outputs,
                 }
-                actor
             }
         }
     }
 
-    fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
+    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         if let RegisterCfg::Server(server_cfg) = self {
-            if let RegisterState::Server(ref mut server_state) = &mut actor.state {
-                // `ActorResult` takes ownership of state, so we're forced to clone.
-                let mut result = ActorResult::new(server_state.clone());
-                server_cfg.advance(input, &mut result);
-                actor.action = result.action;
-                for output in result.outputs.0 {
-                    let ActorOutput::Send { dst, msg } = output;
-                    actor.outputs.send(dst, msg);
+            if let RegisterState::Server(server_state) = state {
+                if let Some(server_result) = server_cfg.advance(server_state, input) {
+                    return Some(ActorResult {
+                        action: server_result.action,
+                        state: RegisterState::Server(server_result.state),
+                        outputs: server_result.outputs,
+                    });
                 }
-                *server_state = result.state.clone();
             }
         }
+        return None;
     }
 }
 

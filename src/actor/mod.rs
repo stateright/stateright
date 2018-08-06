@@ -16,15 +16,19 @@
 //!     type State = u32;
 //!
 //!     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
-//!         ActorResult::new(0)
+//!         ActorResult::start(0, |_outputs| {})
 //!     }
 //!
-//!     fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
+//!     fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
 //!         let ActorInput::Deliver { src, msg: timestamp } = input;
-//!         if timestamp > actor.state {
-//!             actor.state = timestamp;
-//!             actor.outputs.send(src, timestamp + 1);
+//!         if timestamp > *state {
+//!             return ActorResult::advance(state, |action, state, outputs| {
+//!                 *action = "clock tick";
+//!                 *state = timestamp;
+//!                 outputs.send(src, timestamp + 1);
+//!             });
 //!         }
+//!         return None;
 //!     }
 //! }
 //!
@@ -101,8 +105,27 @@ pub struct ActorResult<Id, Msg, State> {
 }
 
 impl<Id, Msg, State> ActorResult<Id, Msg, State> {
-    pub fn new(state: State) -> Self {
-        ActorResult { action: "actor step", state, outputs: ActorOutputVec(Vec::new()) }
+    /// Helper for creating a starting result.
+    pub fn start<M>(state: State, mutation: M) -> Self
+    where M: Fn(&mut ActorOutputVec<Id, Msg>) -> ()
+    {
+        let action = "(INIT)";
+        let mut outputs = ActorOutputVec(Vec::new());
+        mutation(&mut outputs);
+        ActorResult { action, state, outputs }
+    }
+
+    /// Helper for creating a subsequent result.
+    pub fn advance<M>(state: &State, mutation: M) -> Option<Self>
+    where
+        State: Clone,
+        M: Fn(&mut &'static str, &mut State, &mut ActorOutputVec<Id, Msg>) -> ()
+    {
+        let mut action = "(ACTION NOT SPECIFIED)";
+        let mut state = state.clone();
+        let mut outputs = ActorOutputVec(Vec::new());
+        mutation(&mut action, &mut state, &mut outputs);
+        Some(ActorResult { action, state, outputs })
     }
 }
 
@@ -121,7 +144,7 @@ pub trait Actor<Id> {
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State>;
 
     /// Indicates the updated state and outputs for the actor when it receives an input.
-    fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>);
+    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>>;
 }
 
 /// An ID type for an actor identified by an IP address and port.
@@ -158,13 +181,13 @@ where
                     continue
                 }
             };
-            result.action = "UNSPECIFIED";
-            result.outputs.0.clear();
-            actor.advance(
-                ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg },
-                &mut result);
-            println!("Actor advanced. id={}, result={:#?}", fmt(&id), result);
-            handle_outputs(&result.outputs, &id, &socket);
+            if let Some(new_result) = actor.advance(
+                    &result.state,
+                    ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg }) {
+                println!("Actor advanced. id={}, result={:#?}", fmt(&id), new_result);
+                handle_outputs(&new_result.outputs, &id, &socket);
+                result = new_result;
+            }
         }
     })
 }
@@ -202,7 +225,7 @@ macro_rules! actor {
     State $(<$tstate:ident>)* { $($state:tt)* }
     Msg $(<$tmsg:ident>)* { $($msg:tt)* }
     Start() { $($start:tt)* }
-    Advance($src:ident, $msg_advance:ident, $actor:ident) { $($advance:tt)* }
+    Advance($state_advance:ident, $src:ident, $msg_advance:ident) { $($advance:tt)* }
     ) => (
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub enum Cfg $(<$tcfg>)* { $($cfg)* }
@@ -224,7 +247,7 @@ macro_rules! actor {
                 }
             }
 
-            fn advance(&self, input: ActorInput<Id, Self::Msg>, $actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
+            fn advance(&self, $state_advance: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
                 let ActorInput::Deliver { $src, $msg_advance } = input;
                 match self {
                     $($advance)*
@@ -311,18 +334,18 @@ pub mod model {
                 }
 
                 // option 2: message is delivered
-                let mut result = ActorResult::new(state.actor_states[id].clone());
-                self.actors[id].advance(
-                    ActorInput::Deliver { src: env.src, msg: env.msg.clone() },
-                    &mut result);
-                let mut message_delivered = state.clone();
-                message_delivered.actor_states[id] = result.state;
-                for output in result.outputs.0 {
-                    match output {
-                        ActorOutput::Send {dst, msg} => { message_delivered.network.insert(Envelope {src: id, dst, msg}); },
+                if let Some(result) = self.actors[id].advance(
+                        &state.actor_states[id],
+                        ActorInput::Deliver { src: env.src, msg: env.msg.clone() }) {
+                    let mut message_delivered = state.clone(); 
+                    message_delivered.actor_states[id] = result.state;
+                    for output in result.outputs.0 {
+                        match output {
+                            ActorOutput::Send {dst, msg} => { message_delivered.network.insert(Envelope {src: id, dst, msg}); },
+                        }
                     }
+                    results.push((result.action, message_delivered));
                 }
-                results.push((result.action, message_delivered));
             }
         }
     }
@@ -338,33 +361,41 @@ mod test {
         State { PingerState(u32), PongerState(u32) }
         Msg { Ping(u32), Pong(u32) }
         Start() {
-            Cfg::Pinger { ponger_id, .. } => {
-                let mut result = ActorResult::new(State::PingerState(0));
-                result.outputs.send(*ponger_id, Msg::Ping(0));
-                result
-            }
-            Cfg::Ponger { .. } => ActorResult::new(State::PongerState(0))
+            Cfg::Pinger { ponger_id, .. } => ActorResult::start(
+                State::PingerState(0),
+                |outputs| outputs.send(*ponger_id, Msg::Ping(0))),
+            Cfg::Ponger { .. } => ActorResult::start(
+                State::PongerState(0),
+                |_outputs| {}),
         }
-        Advance(src, msg, actor) {
-            Cfg::Pinger { max_nat, .. } => {
-                if let State::PingerState(ref mut actor_value) = actor.state {
+        Advance(state, src, msg) {
+            &Cfg::Pinger { max_nat, .. } => {
+                if let &State::PingerState(actor_value) = state {
                     if let Msg::Pong(msg_value) = msg {
-                        if *actor_value == msg_value && *actor_value < *max_nat {
-                            *actor_value += 1;
-                            actor.outputs.send(src, Msg::Ping(msg_value + 1));
+                        if actor_value == msg_value && actor_value < max_nat {
+                            return ActorResult::advance(state, |action, state, outputs| {
+                                *action = "ping";
+                                *state = State::PingerState(actor_value + 1);
+                                outputs.send(src, Msg::Ping(msg_value + 1));
+                            });
                         }
                     }
                 }
+                return None;
             }
-            Cfg::Ponger { max_nat, .. } => {
-                if let State::PongerState(ref mut actor_value) = actor.state {
+            &Cfg::Ponger { max_nat, .. } => {
+                if let &State::PongerState(actor_value) = state {
                     if let Msg::Ping(msg_value) = msg {
-                        if *actor_value == msg_value && *actor_value < *max_nat {
-                            *actor_value += 1;
-                            actor.outputs.send(src, Msg::Pong(msg_value));
+                        if actor_value == msg_value && actor_value < max_nat {
+                            return ActorResult::advance(state, |action, state, outputs| {
+                                *action = "pong";
+                                *state = State::PongerState(actor_value + 1);
+                                outputs.send(src, Msg::Pong(msg_value));
+                            });
                         }
                     }
                 }
+                return None;
             }
         }
     }

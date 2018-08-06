@@ -18,31 +18,36 @@ struct ServerState { maybe_value: Option<Value> }
 
 struct ServerCfg;
 
-impl<Id> Actor<Id> for ServerCfg {
+impl<Id: Copy> Actor<Id> for ServerCfg {
     type Msg = RegisterMsg<Value, ()>;
     type State = ServerState;
 
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
-        ActorResult::new(ServerState { maybe_value: None })
+        ActorResult::start(ServerState { maybe_value: None }, |_outputs| {})
     }
 
-    fn advance(&self, input: ActorInput<Id, Self::Msg>, actor: &mut ActorResult<Id, Self::Msg, Self::State>) {
+    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         let ActorInput::Deliver { src, msg } = input;
         match msg {
             RegisterMsg::Put { value } => {
-                actor.action = "SERVER ACCEPTS PUT";
-                if let None = actor.state.maybe_value {
-                    actor.state.maybe_value = Some(value.clone());
+                if state.maybe_value.is_none() {
+                    return ActorResult::advance(state, |action, state, _outputs| {
+                        *action = "SERVER ACCEPTS PUT";
+                        state.maybe_value = Some(value);
+                    });
                 }
             }
             RegisterMsg::Get => {
-                actor.action = "SERVER RESPONDS TO GET";
-                if let Some(value) = actor.state.maybe_value {
-                    actor.outputs.send(src, RegisterMsg::Respond { value: value.clone() });
+                if let Some(value) = state.maybe_value {
+                    return ActorResult::advance(state, |action, _state, outputs| {
+                        *action = "SERVER RESPONDS TO GET";
+                        outputs.send(src, RegisterMsg::Respond { value });
+                    });
                 }
             }
             _ => {}
         }
+        return None;
     }
 }
 
