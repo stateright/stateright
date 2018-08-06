@@ -74,89 +74,77 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
 
         let ActorInput::Deliver { src, msg } = input;
         match msg {
-            Put { value } => {
-                if !state.is_decided {
-                    // reduce state space until upcoming model checking optimizations land
-                    if state.proposal.is_some() || state.ballot.0 == 3 { return None; }
+            Put { value } if !state.is_decided => {
+                // reduce state space until upcoming model checking optimizations land
+                if state.proposal.is_some() || state.ballot.0 == 3 { return None; }
 
-                    return ActorResult::advance(state, |action, state, outputs| {
-                        *action = "Got Put. Leading new ballot by requesting Prepares.";
-                        state.ballot = (state.ballot.0 + 1, self.rank);
-                        state.proposal = Some(value);
-                        state.prepares = Default::default();
-                        state.accepts = Default::default();
-                        outputs.broadcast(
-                            &self.peer_ids,
-                            &Internal(Prepare { ballot: state.ballot }));
-                    });
-                }
+                return ActorResult::advance(state, |action, state, outputs| {
+                    *action = "Got Put. Leading new ballot by requesting Prepares.";
+                    state.ballot = (state.ballot.0 + 1, self.rank);
+                    state.proposal = Some(value);
+                    state.prepares = Default::default();
+                    state.accepts = Default::default();
+                    outputs.broadcast(
+                        &self.peer_ids,
+                        &Internal(Prepare { ballot: state.ballot }));
+                });
             }
-            Get => {
+            Get if state.is_decided => {
                 if let Some((_ballot, value)) = state.accepted {
-                    if state.is_decided {
-                        return ActorResult::advance(state, |action, _state, outputs| {
-                            *action = "Responding to Get.";
-                            outputs.send(src, Respond { value });
-                        });
-                    }
+                    return ActorResult::advance(state, |action, _state, outputs| {
+                        *action = "Responding to Get.";
+                        outputs.send(src, Respond { value });
+                    });
                 }
             }
-            Internal(Prepare { ballot }) => {
-                if state.ballot < ballot {
-                    return ActorResult::advance(state, |action, state, outputs| {
-                        *action = "Preparing.";
-                        state.ballot = ballot;
-                        outputs.send(src, Internal(Prepared {
+            Internal(Prepare { ballot }) if state.ballot < ballot => {
+                return ActorResult::advance(state, |action, state, outputs| {
+                    *action = "Preparing.";
+                    state.ballot = ballot;
+                    outputs.send(src, Internal(Prepared {
+                        ballot,
+                        last_accepted: state.accepted,
+                    }));
+                });
+            }
+            Internal(Prepared { ballot, last_accepted }) if ballot == state.ballot => {
+                return ActorResult::advance(state, |action, state, outputs| {
+                    *action = "Recording Prepared.";
+                    state.prepares.insert(src, last_accepted);
+                    if state.prepares.len() > (self.peer_ids.len() + 1)/2 {
+                        *action = "Recording Prepared. Got quorum. Requesting Accepts.";
+                        state.proposal = state.prepares
+                            .values().max().unwrap().map(|(_b,v)| v)
+                            .or(state.proposal);
+                        state.accepted = Some((ballot, state.proposal.unwrap()));
+                        outputs.broadcast(&self.peer_ids, &Internal(Accept {
                             ballot,
-                            last_accepted: state.accepted,
+                            value: state.proposal.unwrap(),
                         }));
-                    });
-                }
+                    }
+                });
             }
-            Internal(Prepared { ballot, last_accepted }) => {
-                if ballot == state.ballot {
-                    return ActorResult::advance(state, |action, state, outputs| {
-                        *action = "Recording Prepared.";
-                        state.prepares.insert(src, last_accepted);
-                        if state.prepares.len() > (self.peer_ids.len() + 1)/2 {
-                            *action = "Recording Prepared. Got quorum. Requesting Accepts.";
-                            state.proposal = state.prepares
-                                .values().max().unwrap().map(|(_b,v)| v)
-                                .or(state.proposal);
-                            state.accepted = Some((ballot, state.proposal.unwrap()));
-                            outputs.broadcast(&self.peer_ids, &Internal(Accept {
-                                ballot,
-                                value: state.proposal.unwrap(),
-                            }));
-                        }
-                    });
-                }
+            Internal(Accept { ballot, value }) if state.ballot <= ballot => {
+                return ActorResult::advance(state, |action, state, outputs| {
+                    *action = "Accepting.";
+                    state.ballot = ballot;
+                    state.accepted = Some((ballot, value));
+                    outputs.send(src, Internal(Accepted { ballot }));
+                });
             }
-            Internal(Accept { ballot, value }) => {
-                if state.ballot <= ballot {
-                    return ActorResult::advance(state, |action, state, outputs| {
-                        *action = "Accepting.";
-                        state.ballot = ballot;
-                        state.accepted = Some((ballot, value));
-                        outputs.send(src, Internal(Accepted { ballot }));
-                    });
-                }
-            }
-            Internal(Accepted { ballot }) => {
-                if ballot == state.ballot {
-                    return ActorResult::advance(state, |action, state, outputs| {
-                        *action = "Recording Accepted.";
-                        state.accepts.insert(src);
-                        if state.accepts.len() > (self.peer_ids.len() + 1)/2 {
-                            *action = "Recording Accepted. Got quorum. Deciding.";
-                            state.is_decided = true;
-                            outputs.broadcast(&self.peer_ids, &Internal(Decided {
-                                ballot,
-                                value: state.proposal.unwrap()
-                            }));
-                        }
-                    });
-                }
+            Internal(Accepted { ballot }) if ballot == state.ballot => {
+                return ActorResult::advance(state, |action, state, outputs| {
+                    *action = "Recording Accepted.";
+                    state.accepts.insert(src);
+                    if state.accepts.len() > (self.peer_ids.len() + 1)/2 {
+                        *action = "Recording Accepted. Got quorum. Deciding.";
+                        state.is_decided = true;
+                        outputs.broadcast(&self.peer_ids, &Internal(Decided {
+                            ballot,
+                            value: state.proposal.unwrap()
+                        }));
+                    }
+                });
             }
             Internal(Decided { ballot, value }) => {
                 return ActorResult::advance(state, |action, state, _outputs| {

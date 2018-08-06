@@ -29,13 +29,11 @@ impl<Id: Copy> Actor<Id> for ServerCfg {
     fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         let ActorInput::Deliver { src, msg } = input;
         match msg {
-            RegisterMsg::Put { value } => {
-                if state.maybe_value.is_none() {
-                    return ActorResult::advance(state, |action, state, _outputs| {
-                        *action = "SERVER ACCEPTS PUT";
-                        state.maybe_value = Some(value);
-                    });
-                }
+            RegisterMsg::Put { value } if state.maybe_value.is_none() => {
+                return ActorResult::advance(state, |action, state, _outputs| {
+                    *action = "SERVER ACCEPTS PUT";
+                    state.maybe_value = Some(value);
+                });
             }
             RegisterMsg::Get => {
                 if let Some(value) = state.maybe_value {
