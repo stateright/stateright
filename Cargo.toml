@@ -1,14 +1,14 @@
 [package]
 name = "stateright"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Jonathan Nadal <jon.nadal@gmail.com>"]
 license = "MIT"
 
 description = "A library for specifying state machines and model checking invariants."
 repository = "https://github.com/stateright/stateright"
 readme = "README.md"
-categories = ["development-tools"]
-keywords = ["model-checking"]
+categories = ["algorithms", "concurrency", "development-tools", "network-programming", "simulation"]
+keywords = ["actor", "distributed-systems", "model-checking", "paxos"]
 
 [dependencies]
 difference = "2.0.0"
