@@ -115,7 +115,7 @@ pub enum CheckResult<State> {
 }
 
 /// Use `KeepPaths::No` for faster model checking.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum KeepPaths { Yes, No }
 
 /// Visits every state reachable by a state machine, and verifies that an invariant holds.

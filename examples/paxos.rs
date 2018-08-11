@@ -193,7 +193,11 @@ fn main() {
             .about("model check")
             .arg(Arg::with_name("client_count")
                  .help("number of clients proposing values")
-                 .default_value("2")))
+                 .default_value("2"))
+            .arg(Arg::with_name("keep_paths")
+                 .help("path retention enables debugging but slows checking")
+                 .possible_values(&["KeepPaths::Yes", "KeepPaths::No"])
+                 .default_value("KeepPaths::Yes")))
         .subcommand(SubCommand::with_name("spawn")
             .about("spawn with messaging over UDP"))
         .get_matches();
@@ -202,7 +206,11 @@ fn main() {
         ("check", Some(args)) => {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
-            println!("Benchmarking Single Decree Paxos with {} clients.", client_count);
+            let keep_paths =
+                if args.value_of("keep_paths").expect("keep_paths") == "KeepPaths::Yes" { KeepPaths::Yes }
+                else { KeepPaths::No };
+            println!("Benchmarking Single Decree Paxos with {} clients (keep_paths: {:?}).",
+                client_count, keep_paths);
 
             let mut actors = vec![
                 RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
@@ -217,7 +225,7 @@ fn main() {
             }
 
             let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
-            let mut checker = sys.checker(KeepPaths::Yes, |_sys, state| {
+            let mut checker = sys.checker(keep_paths, |_sys, state| {
                 let values = response_values(&state);
                 match values.as_slice() {
                     [] => true,
