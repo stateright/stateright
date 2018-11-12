@@ -8,7 +8,7 @@
 //! use stateright::actor::*;
 //! use stateright::actor::model::*;
 //! use std::iter::FromIterator;
-//! use std::rc::Rc;
+//! use std::sync::Arc;
 //!
 //! struct ClockActor;
 //!
@@ -45,7 +45,7 @@
 //!     checker.check(100),
 //!     CheckResult::Fail {
 //!         state: ActorSystemSnapshot {
-//!             actor_states: vec![Rc::new(3), Rc::new(2)],
+//!             actor_states: vec![Arc::new(3), Arc::new(2)],
 //!             network: Network::from_iter(vec![
 //!                 Envelope { src: 1, dst: 0, msg: 1 },
 //!                 Envelope { src: 0, dst: 1, msg: 2 },
@@ -63,7 +63,7 @@ use serde::ser::*;
 use serde_json;
 use std::fmt::Debug;
 use std::net::{IpAddr, UdpSocket};
-use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 
 /// Inputs to which an actor can respond.
@@ -290,7 +290,7 @@ pub mod model {
     /// Represents a snapshot in time for the entire actor system.
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct ActorSystemSnapshot<Msg, State> {
-        pub actor_states: Vec<Rc<State>>,
+        pub actor_states: Vec<Arc<State>>,
         pub network: Network<Msg>,
     }
 
@@ -313,7 +313,7 @@ pub mod model {
             // init each actor collecting state and messages
             for (src, actor) in self.actors.iter().enumerate() {
                 let result = actor.start();
-                actor_states.push(Rc::new(result.state));
+                actor_states.push(Arc::new(result.state));
                 for o in result.outputs.0 {
                     match o {
                         ActorOutput::Send { dst, msg } => { network.insert(Envelope { src, dst, msg }); },
@@ -340,7 +340,7 @@ pub mod model {
                         &state.actor_states[id],
                         ActorInput::Deliver { src: env.src, msg: env.msg.clone() }) {
                     let mut message_delivered = state.clone(); 
-                    message_delivered.actor_states[id] = Rc::new(result.state);
+                    message_delivered.actor_states[id] = Arc::new(result.state);
                     for output in result.outputs.0 {
                         match output {
                             ActorOutput::Send {dst, msg} => { message_delivered.network.insert(Envelope {src: id, dst, msg}); },
@@ -404,7 +404,7 @@ mod test {
 
     fn invariant(_sys: &ActorSystem<Cfg<ModelId>>, state: &ActorSystemSnapshot<Msg, State>) -> bool {
         let &ActorSystemSnapshot { ref actor_states, .. } = state;
-        fn extract_value(a: &Rc<State>) -> u32 {
+        fn extract_value(a: &Arc<State>) -> u32 {
             match **a {
                 State::PingerState(value) => value,
                 State::PongerState(value) => value,
@@ -421,7 +421,7 @@ mod test {
         use std::iter::FromIterator;
         let snapshot_hash = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
             hash(&ActorSystemSnapshot {
-                actor_states: states.iter().map(|s| Rc::new(s)).collect::<Vec<_>>(),
+                actor_states: states.iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
             })
         };
