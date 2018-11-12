@@ -22,14 +22,13 @@
 //! }
 //!
 //! let mut checker = BinaryClock { start: 1 }.checker(
-//!     KeepPaths::Yes,
 //!     |clock, time| 0 <= *time && *time <= 1);
 //! assert_eq!(
 //!     checker.check(100),
 //!     CheckResult::Pass);
 //! assert_eq!(
 //!     checker.path_to(&0),
-//!     Some(vec![("start", 1), ("flip bit", 0)]));
+//!     vec![("start", 1), ("flip bit", 0)]);
 //! ```
 
 extern crate difference;
@@ -40,9 +39,10 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::FxHashMap;
 use regex::Regex;
 use std::cmp::max;
+use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -67,7 +67,7 @@ pub trait StateMachine: Sized {
     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
 
     /// Initializes a fresh checker for a state machine.
-    fn checker<I>(&self, keep_paths: KeepPaths, invariant: I) -> Checker<Self, I>
+    fn checker<I>(&self, invariant: I) -> Checker<Self, I>
     where
         Self::State: Hash,
         I: Fn(&Self, &Self::State) -> bool,
@@ -77,25 +77,21 @@ pub trait StateMachine: Sized {
         let mut results = StepVec::new();
         self.init(&mut results);
         let mut pending = VecDeque::new();
-        for r in results { pending.push_back(r.1); }
-
-        let mut source = FxHashMap::default();
-        if keep_paths == KeepPaths::Yes {
-            source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
-            for init_state in &pending {
-                let init_digest = hash(init_state);
-                source.entry(init_digest).or_insert(None);
+        let mut source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
+        for (_, init_state) in results {
+            let init_digest = hash(&init_state);
+            if let Entry::Vacant(init_entry) = source.entry(init_digest) {
+                init_entry.insert(None);
+                pending.push_back(init_state);
             }
         }
 
         Checker {
             invariant,
-            keep_paths,
             state_machine: self,
 
             pending,
             source,
-            visited: FxHashSet::with_capacity_and_hasher(STARTING_CAPACITY, Default::default()),
         }
     }
 }
@@ -114,25 +110,19 @@ pub enum CheckResult<State> {
     Fail { state: State }
 }
 
-/// Use `KeepPaths::No` for faster model checking.
-#[derive(Debug, PartialEq)]
-pub enum KeepPaths { Yes, No }
-
-/// Visits every state reachable by a state machine, and verifies that an invariant holds.
+/// Generates every state reachable by a state machine, and verifies that an invariant holds.
 pub struct Checker<'a, SM, I>
 where
     SM: 'a + StateMachine,
     I: Fn(&SM, &SM::State) -> bool,
 {
     // immutable cfg
-    keep_paths: KeepPaths,
     state_machine: &'a SM,
     invariant: I,
 
     // mutable checking state
     pending: VecDeque<SM::State>,
-    source: FxHashMap<u64, Option<u64>>,
-    pub visited: FxHashSet<u64>,
+    pub source: FxHashMap<u64, Option<u64>>,
 }
 
 impl<'a, SM, I> Checker<'a, SM, I>
@@ -142,7 +132,7 @@ where
     I: Fn(&SM, &SM::State) -> bool,
 {
     /// Visits up to a specified number of states checking the model's invariant. May return
-    /// earlier when all states have been visited or a state is found in which the invariant fails
+    /// earlier when all states have been checked or a state is found in which the invariant fails
     /// to hold.
     pub fn check(&mut self, max_count: usize) -> CheckResult<SM::State> {
         let mut remaining = max_count;
@@ -150,20 +140,16 @@ where
         while let Some(state) = self.pending.pop_front() {
             let digest = hash(&state);
 
-            // skip if already visited
-            if self.visited.contains(&digest) { continue; }
-            self.visited.insert(digest);
-
             // collect the next steps/states
             let mut results = StepVec::new();
             self.state_machine.next(&state, &mut results);
-            if self.keep_paths == KeepPaths::Yes {
-                for r in &results {
-                    let next_digest = hash(&r.1);
-                    self.source.entry(next_digest).or_insert_with(|| Some(digest));
+            for (_, next_state) in results {
+                let next_digest = hash(&next_state);
+                if let Entry::Vacant(next_entry) = self.source.entry(next_digest) {
+                    next_entry.insert(Some(digest));
+                    self.pending.push_back(next_state);
                 }
             }
-            for r in results { self.pending.push_back(r.1); }
 
             // exit if invariant fails to hold or we've reached the max count
             let inv = &self.invariant;
@@ -175,14 +161,12 @@ where
         CheckResult::Pass
     }
 
-    /// Identifies the action-state "behavior" path by which a visited state was reached.
-    pub fn path_to(&self, state: &SM::State) -> Option<Vec<Step<SM::State>>> {
+    /// Identifies the action-state "behavior" path by which a generated state was reached.
+    pub fn path_to(&self, state: &SM::State) -> Vec<Step<SM::State>> {
         // First build a stack of digests representing the path (with the init digest at top of
         // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
         // Specifications" by Yu, Manolios, and Lamport.
-
-        if self.keep_paths == KeepPaths::No { return None }
 
         let find_step = |steps: StepVec<SM::State>, digest: u64|
             steps.into_iter()
@@ -219,7 +203,7 @@ where
                 &mut next_steps);
             output.push(find_step(next_steps, next_digest));
         }
-        Some(output)
+        output
     }
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
@@ -232,41 +216,38 @@ where
             let block_start = Instant::now();
             match self.check(block_size) {
                 CheckResult::Fail { state } => {
-                    println!("{} unique states visited after {} sec. Invariant violated{}.",
-                             self.visited.len(),
+                    println!("{} unique states generated after {} sec. Invariant violated by path of length {}.",
+                             self.source.len(),
                              method_start.elapsed().as_secs(),
-                             self.path_to(&state)
-                                 .map(|path| format!(" by path of length {}", path.len()))
-                                 .unwrap_or_default());
-                    if let Some(path) = self.path_to(&state) {
-                        let newline_re = Regex::new(r"\n *").unwrap();
-                        let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
-                        let mut maybe_last_state_str: Option<String> = None;
-                        for (action, state) in path {
-                            // Pretty-print as that results in a more sane diff, then collapse the
-                            // lines to keep the output more concise.
-                            let state_str: String = format!("{:#?}", state);
-                            print!("    \x1B[33m|{}|\x1B[0m ", action);
-                            match maybe_last_state_str {
-                                None => {
-                                    println!("{}", newline_re.replace_all(&state_str, " "));
-                                }
-                                Some(last_str) => {
-                                    let diff = format!("{}", difference::Changeset::new(&last_str, &state_str, "\n"));
-                                    println!("{}",
-                                             newline_re.replace_all(
-                                                 &control_re.replace_all(&diff, "$c "),
-                                                 " "));
-                                }
+                             self.path_to(&state).len());
+                    let path = self.path_to(&state);
+                    let newline_re = Regex::new(r"\n *").unwrap();
+                    let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
+                    let mut maybe_last_state_str: Option<String> = None;
+                    for (action, state) in path {
+                        // Pretty-print as that results in a more sane diff, then collapse the
+                        // lines to keep the output more concise.
+                        let state_str: String = format!("{:#?}", state);
+                        print!("    \x1B[33m|{}|\x1B[0m ", action);
+                        match maybe_last_state_str {
+                            None => {
+                                println!("{}", newline_re.replace_all(&state_str, " "));
                             }
-                            maybe_last_state_str = Some(state_str);
+                            Some(last_str) => {
+                                let diff = format!("{}", difference::Changeset::new(&last_str, &state_str, "\n"));
+                                println!("{}",
+                                         newline_re.replace_all(
+                                             &control_re.replace_all(&diff, "$c "),
+                                             " "));
+                            }
                         }
+                        maybe_last_state_str = Some(state_str);
                     }
                     return;
                 },
                 CheckResult::Pass => {
-                    println!("{} unique states visited after {} sec. Passed.",
-                             self.visited.len(),
+                    println!("{} unique states generated after {} sec. Passed.",
+                             self.source.len(),
                              method_start.elapsed().as_secs());
                     return;
                 },
@@ -275,8 +256,8 @@ where
 
             let block_elapsed = block_start.elapsed().as_secs();
             if block_elapsed > 0 {
-                println!("{} unique states visited after {} sec. Continuing.",
-                         self.visited.len(),
+                println!("{} unique states generated after {} sec. Continuing.",
+                         self.source.len(),
                          method_start.elapsed().as_secs());
             }
 
@@ -323,43 +304,50 @@ mod test {
         }
     }
 
+
     #[test]
     fn model_check_records_states() {
+        use fxhash::FxHashSet;
         use std::iter::FromIterator;
+
         let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(KeepPaths::No, invariant);
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(invariant);
         checker.check(100);
-        assert_eq!(checker.visited, FxHashSet::from_iter(vec![
-            h(0, 0),
-            h(1, 0), h(0, 1),
-            h(2, 0), h(1, 1), h(0, 2),
-            h(3, 0), h(2, 1),
-        ]));
+        let state_space = FxHashSet::from_iter(checker.source.keys().cloned());
+        assert!(state_space.contains(&h(0, 0)));
+        assert!(state_space.contains(&h(1, 0)));
+        assert!(state_space.contains(&h(0, 1)));
+        assert!(state_space.contains(&h(2, 0)));
+        assert!(state_space.contains(&h(1, 1)));
+        assert!(state_space.contains(&h(0, 2)));
+        assert!(state_space.contains(&h(3, 0)));
+        assert!(state_space.contains(&h(2, 1)));
+        assert_eq!(state_space.len(), 13); // not all generated were checked
     }
 
     #[test]
     fn model_check_can_pass() {
-        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(KeepPaths::No, invariant);
+        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
-        assert_eq!(checker.visited.len(), 100);
+        assert_eq!(checker.source.len(), 115); // not all generated were checked
         assert_eq!(checker.check(100_000), CheckResult::Pass);
-        assert_eq!(checker.visited.len(), 256 * 256);
+        assert_eq!(checker.source.len(), 256 * 256);
     }
 
     #[test]
     fn model_check_can_fail() {
-        let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(KeepPaths::No, invariant);
+        let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
-        assert_eq!(checker.visited.len(), 100);
+        assert_eq!(checker.source.len(), 115); // not all generated were checked
         assert_eq!(
             checker.check(100_000),
             CheckResult::Fail { state: (Wrapping(3), Wrapping(15)) });
-        assert_eq!(checker.visited.len(), 187);
+        assert_eq!(checker.source.len(), 207); // only 187 were checked
     }
 
     #[test]
     fn model_check_can_resume_after_failing() {
-        let mut checker = LinearEquation { a: 0, b: 0, c: 0 }.checker(KeepPaths::No, invariant);
+        let mut checker = LinearEquation { a: 0, b: 0, c: 0 }.checker(invariant);
         // init case
         assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(0)) });
         // distance==1 cases
@@ -373,28 +361,17 @@ mod test {
 
     #[test]
     fn model_check_can_indicate_path() {
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(KeepPaths::Yes, invariant);
+        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(invariant);
         match checker.check(100_000) {
             CheckResult::Fail { state } => {
                 assert_eq!(
                     checker.path_to(&state),
-                    Some(vec![
+                    vec![
                         ("guess",      (Wrapping(0), Wrapping(0))),
                         ("increase x", (Wrapping(1), Wrapping(0))),
                         ("increase x", (Wrapping(2), Wrapping(0))),
                         ("increase y", (Wrapping(2), Wrapping(1))),
-                    ]));
-            },
-            _ => panic!("expected solution")
-        }
-    }
-
-    #[test]
-    fn model_check_can_omit_path() {
-        let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(KeepPaths::No, invariant);
-        match checker.check(100_000) {
-            CheckResult::Fail { state } => {
-                assert_eq!(checker.path_to(&state), None); // b/c not recorded
+                    ]);
             },
             _ => panic!("expected solution")
         }

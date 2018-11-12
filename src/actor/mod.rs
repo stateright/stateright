@@ -39,7 +39,6 @@
 //!     lossy_network: LossyNetwork::Yes,
 //! };
 //! let mut checker = sys.checker(
-//!     KeepPaths::Yes,
 //!     |sys, snapshot| snapshot.actor_states.iter().all(|s| **s < 3));
 //! assert_eq!(
 //!     checker.check(100),
@@ -418,7 +417,9 @@ mod test {
 
     #[test]
     fn visits_expected_states() {
+        use fxhash::FxHashSet;
         use std::iter::FromIterator;
+
         let snapshot_hash = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
             hash(&ActorSystemSnapshot {
                 actor_states: states.iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
@@ -433,10 +434,11 @@ mod test {
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
         };
-        let mut checker = system.checker(KeepPaths::Yes, invariant);
+        let mut checker = system.checker(invariant);
         checker.check(1_000);
-        assert_eq!(checker.visited.len(), 14);
-        assert_eq!(checker.visited, FxHashSet::from_iter(vec![
+        assert_eq!(checker.source.len(), 14);
+        let state_space = FxHashSet::from_iter(checker.source.keys().cloned());
+        assert_eq!(state_space, FxHashSet::from_iter(vec![
             // When the network loses no messages...
             snapshot_hash(
                 vec![State::PingerState(0), State::PongerState(0)],
@@ -515,10 +517,10 @@ mod test {
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
         };
-        let mut checker = sys.checker(KeepPaths::No, invariant);
+        let mut checker = sys.checker(invariant);
         let result = checker.check(1_000_000);
         assert_eq!(result, CheckResult::Pass);
-        assert_eq!(checker.visited.len(), 4094);
+        assert_eq!(checker.source.len(), 4094);
     }
 }
 }

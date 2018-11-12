@@ -173,7 +173,7 @@ fn can_model_paxos() {
         init_network: Vec::new(),
         lossy_network: LossyNetwork::No,
     };
-    let mut checker = system.checker(KeepPaths::Yes, |_sys, state| {
+    let mut checker = system.checker(|_sys, state| {
         let values = response_values(&state);
         match values.as_slice() {
             [] => true,
@@ -182,7 +182,7 @@ fn can_model_paxos() {
         }
     });
     assert_eq!(checker.check(10_000), CheckResult::Pass);
-    assert_eq!(checker.visited.len(), 1529);
+    assert_eq!(checker.source.len(), 1529);
 }
 
 fn main() {
@@ -193,11 +193,7 @@ fn main() {
             .about("model check")
             .arg(Arg::with_name("client_count")
                  .help("number of clients proposing values")
-                 .default_value("2"))
-            .arg(Arg::with_name("keep_paths")
-                 .help("path retention enables debugging but slows checking")
-                 .possible_values(&["KeepPaths::Yes", "KeepPaths::No"])
-                 .default_value("KeepPaths::Yes")))
+                 .default_value("2")))
         .subcommand(SubCommand::with_name("spawn")
             .about("spawn with messaging over UDP"))
         .get_matches();
@@ -206,11 +202,7 @@ fn main() {
         ("check", Some(args)) => {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
-            let keep_paths =
-                if args.value_of("keep_paths").expect("keep_paths") == "KeepPaths::Yes" { KeepPaths::Yes }
-                else { KeepPaths::No };
-            println!("Benchmarking Single Decree Paxos with {} clients (keep_paths: {:?}).",
-                client_count, keep_paths);
+            println!("Benchmarking Single Decree Paxos with {} clients.", client_count);
 
             let mut actors = vec![
                 RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
@@ -225,7 +217,7 @@ fn main() {
             }
 
             let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
-            let mut checker = sys.checker(keep_paths, |_sys, state| {
+            let mut checker = sys.checker(|_sys, state| {
                 let values = response_values(&state);
                 match values.as_slice() {
                     [] => true,

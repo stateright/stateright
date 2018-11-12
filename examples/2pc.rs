@@ -129,12 +129,12 @@ fn can_model_2pc() {
         rms.insert(rm);
     }
     let sys = TwoPhaseSys { rms };
-    let mut checker = sys.checker(KeepPaths::No, is_consistent);
+    let mut checker = sys.checker(is_consistent);
     assert_eq!(
         checker.check(1_000_000),
         CheckResult::Pass);
     assert_eq!(
-        checker.visited.len(),
+        checker.source.len(),
         8832);
 }
 
@@ -152,6 +152,6 @@ fn main() {
     let sys = TwoPhaseSys {
         rms: BTreeSet::from_iter(0..rm_count)
     };
-    sys.checker(KeepPaths::Yes, is_consistent).check_and_report();
+    sys.checker(is_consistent).check_and_report();
 }
 

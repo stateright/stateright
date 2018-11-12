@@ -61,7 +61,7 @@ fn can_model_wor() {
         init_network: Vec::new(),
         lossy_network: LossyNetwork::Yes,
     };
-    let mut checker = system.checker(KeepPaths::Yes, |_sys, state| {
+    let mut checker = system.checker(|_sys, state| {
         let values = response_values(&state);
         match values.as_slice() {
             [] => true,
@@ -70,7 +70,7 @@ fn can_model_wor() {
         }
     });
     assert_eq!(checker.check(10_000), CheckResult::Pass);
-    assert_eq!(checker.visited.len(), 144);
+    assert_eq!(checker.source.len(), 144);
 }
 
 fn main() {
@@ -100,7 +100,7 @@ fn main() {
             }
 
             let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::Yes };
-            let mut checker = sys.checker(KeepPaths::Yes, |_sys, state| {
+            let mut checker = sys.checker(|_sys, state| {
                 let values = response_values(&state);
                 match values.as_slice() {
                     [] => true,

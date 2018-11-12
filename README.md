@@ -35,14 +35,13 @@ impl StateMachine for BinaryClock {
 }
 
 let mut checker = BinaryClock { start: 1 }.checker(
-    KeepPaths::Yes,
     |clock, time| 0 <= *time && *time <= 1);
 assert_eq!(
     checker.check(100),
     CheckResult::Pass);
 assert_eq!(
     checker.path_to(&0),
-    Some(vec![("start", 1), ("flip bit", 0)]));
+    vec![("start", 1), ("flip bit", 0)]);
 ```
 
 ## More Examples
@@ -72,7 +71,7 @@ To benchmark model checking speed, run with larger state spaces:
 
 ```sh
 cargo run --release --example 2pc 8
-cargo run --release --example paxos check 3
+cargo run --release --example paxos check 4
 cargo run --release --example wor check 6
 ```
 
