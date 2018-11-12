@@ -73,7 +73,7 @@ where
                 }
             }
         }
-        return None;
+        None
     }
 }
 

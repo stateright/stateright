@@ -1,6 +1,5 @@
 //! A cluster that implements Single Decree Paxos.
 
-#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate serde_derive;

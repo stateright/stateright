@@ -1,6 +1,5 @@
 //! A simple server exposing a single register that can only be written once.
 
-#[macro_use]
 extern crate clap;
 extern crate serde_json;
 extern crate stateright;
