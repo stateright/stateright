@@ -133,7 +133,7 @@ fn can_model_2pc() {
         checker.check(1_000_000),
         CheckResult::Pass);
     assert_eq!(
-        checker.source.len(),
+        checker.sources().len(),
         8832);
 }
 

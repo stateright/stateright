@@ -69,7 +69,7 @@ fn can_model_wor() {
         }
     });
     assert_eq!(checker.check(10_000), CheckResult::Pass);
-    assert_eq!(checker.source.len(), 144);
+    assert_eq!(checker.sources().len(), 144);
 }
 
 fn main() {

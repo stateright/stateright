@@ -436,8 +436,8 @@ mod test {
         };
         let mut checker = system.checker(invariant);
         checker.check(1_000);
-        assert_eq!(checker.source.len(), 14);
-        let state_space = FxHashSet::from_iter(checker.source.keys().cloned());
+        assert_eq!(checker.sources().len(), 14);
+        let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
         assert_eq!(state_space, FxHashSet::from_iter(vec![
             // When the network loses no messages...
             snapshot_hash(
@@ -520,7 +520,7 @@ mod test {
         let mut checker = sys.checker(invariant);
         let result = checker.check(1_000_000);
         assert_eq!(result, CheckResult::Pass);
-        assert_eq!(checker.source.len(), 4094);
+        assert_eq!(checker.sources().len(), 4094);
     }
 }
 }

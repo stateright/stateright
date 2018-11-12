@@ -181,7 +181,7 @@ fn can_model_paxos() {
         }
     });
     assert_eq!(checker.check(10_000), CheckResult::Pass);
-    assert_eq!(checker.source.len(), 1529);
+    assert_eq!(checker.sources().len(), 1529);
 }
 
 fn main() {

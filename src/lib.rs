@@ -72,27 +72,7 @@ pub trait StateMachine: Sized {
         Self::State: Hash,
         I: Fn(&Self, &Self::State) -> bool,
     {
-        const STARTING_CAPACITY: usize = 1_000_000;
-
-        let mut results = StepVec::new();
-        self.init(&mut results);
-        let mut pending = VecDeque::new();
-        let mut source = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
-        for (_, init_state) in results {
-            let init_digest = hash(&init_state);
-            if let Entry::Vacant(init_entry) = source.entry(init_digest) {
-                init_entry.insert(None);
-                pending.push_back(init_state);
-            }
-        }
-
-        Checker {
-            invariant,
-            state_machine: self,
-
-            pending,
-            source,
-        }
+        Checker { workers: vec![Worker::init(self, invariant)] }
     }
 }
 
@@ -116,13 +96,7 @@ where
     SM: 'a + StateMachine,
     I: Fn(&SM, &SM::State) -> bool,
 {
-    // immutable cfg
-    state_machine: &'a SM,
-    invariant: I,
-
-    // mutable checking state
-    pending: VecDeque<SM::State>,
-    pub source: FxHashMap<u64, Option<u64>>,
+    workers: Vec<Worker<'a, SM, I>>,
 }
 
 impl<'a, SM, I> Checker<'a, SM, I>
@@ -133,32 +107,39 @@ where
 {
     /// Visits up to a specified number of states checking the model's invariant. May return
     /// earlier when all states have been checked or a state is found in which the invariant fails
-    /// to hold.
-    pub fn check(&mut self, max_count: usize) -> CheckResult<SM::State> {
-        let mut remaining = max_count;
-
-        while let Some(state) = self.pending.pop_front() {
-            let digest = hash(&state);
-
-            // collect the next steps/states
-            let mut results = StepVec::new();
-            self.state_machine.next(&state, &mut results);
-            for (_, next_state) in results {
-                let next_digest = hash(&next_state);
-                if let Entry::Vacant(next_entry) = self.source.entry(next_digest) {
-                    next_entry.insert(Some(digest));
-                    self.pending.push_back(next_state);
-                }
+    /// to hold. If the checker is using multiple workers, then each will visit the specified
+    /// number of states.
+    pub fn check(&mut self, max_count: usize) -> CheckResult<SM::State>
+    where I: Send, SM: Sync, SM::State: Debug + Send
+    {
+        crossbeam_utils::thread::scope(|scope| {
+            // 1. Kick off every worker.
+            let mut threads = Vec::new();
+            for worker in self.workers.iter_mut() {
+                threads.push(scope.spawn(move |_| worker.check(max_count)));
             }
 
-            // exit if invariant fails to hold or we've reached the max count
-            let inv = &self.invariant;
-            if !inv(&self.state_machine, &state) { return CheckResult::Fail { state }; }
-            remaining -= 1;
-            if remaining == 0 { return CheckResult::Incomplete }
-        }
+            // 2. Join.
+            let mut results = Vec::new();
+            for thread in threads {
+                results.push(thread.join().unwrap());
+            }
 
-        CheckResult::Pass
+            // 3. Consolidate results.
+            let all_passed = results.iter().all(|r| {
+                match r {
+                    CheckResult::Pass => true,
+                    _ => false,
+                }
+            });
+            if all_passed { return CheckResult::Pass }
+            for result in results {
+                if let CheckResult::Fail { state } = result {
+                    return CheckResult::Fail { state };
+                }
+            }
+            CheckResult::Incomplete
+        }).unwrap()
     }
 
     /// Identifies the action-state "behavior" path by which a generated state was reached.
@@ -172,11 +153,13 @@ where
             steps.into_iter()
                 .find(|step| hash(&step.1) == digest)
                 .expect("step with state matching recorded digest");
+        let state_machine = self.workers.first().unwrap().state_machine;
+        let sources = self.sources();
 
         // 1. Build a stack of digests.
         let mut digests = Vec::new();
         let mut next_digest = hash(&state);
-        while let Some(source) = self.source.get(&next_digest) {
+        while let Some(source) = sources.get(&next_digest) {
             match *source {
                 Some(prev_digest) => {
                     digests.push(next_digest);
@@ -192,13 +175,13 @@ where
         // 2. Begin unwinding by determining the init step.
         let mut output = Vec::new();
         let mut steps = StepVec::new();
-        self.state_machine.init(&mut steps);
+        state_machine.init(&mut steps);
         output.push(find_step(steps, digests.pop().expect("at least one state due to param")));
 
         // 3. Then continue with the remaining steps.
         while let Some(next_digest) = digests.pop() {
             let mut next_steps = StepVec::new();
-            self.state_machine.next(
+            state_machine.next(
                 &output.last().expect("nonempty (b/c step was already enqueued)").1,
                 &mut next_steps);
             output.push(find_step(next_steps, next_digest));
@@ -208,19 +191,25 @@ where
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
     /// checking, tailoring the block size to the checking speed. Emits a report when complete.
-    pub fn check_and_report(&mut self) where SM::State: Debug {
+    pub fn check_and_report(&mut self)
+    where I: Copy + Send, SM: Sync, SM::State: Debug + Send
+    {
         use std::time::Instant;
+        let num_cpus = num_cpus::get();
         let method_start = Instant::now();
         let mut block_size = 32_768;
         loop {
             let block_start = Instant::now();
             match self.check(block_size) {
                 CheckResult::Fail { state } => {
-                    println!("{} unique states generated after {} sec. Invariant violated by path of length {}.",
-                             self.source.len(),
-                             method_start.elapsed().as_secs(),
-                             self.path_to(&state).len());
+                    // First a quick summary.
                     let path = self.path_to(&state);
+                    println!("{} states pending after {} sec. Invariant violated by path of length {}.",
+                             self.pending_count(),
+                             method_start.elapsed().as_secs(),
+                             path.len());
+
+                    // Then show the path.
                     let newline_re = Regex::new(r"\n *").unwrap();
                     let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
                     let mut maybe_last_state_str: Option<String> = None;
@@ -246,8 +235,7 @@ where
                     return;
                 },
                 CheckResult::Pass => {
-                    println!("{} unique states generated after {} sec. Passed.",
-                             self.source.len(),
+                    println!("Passed after {} sec.",
                              method_start.elapsed().as_secs());
                     return;
                 },
@@ -256,16 +244,145 @@ where
 
             let block_elapsed = block_start.elapsed().as_secs();
             if block_elapsed > 0 {
-                println!("{} unique states generated after {} sec. Continuing.",
-                         self.source.len(),
+                println!("{} states pending after {} sec. Continuing.",
+                         self.pending_count(),
                          method_start.elapsed().as_secs());
             }
 
-            if block_elapsed < 3 { block_size *= 2; }
+            // Shrink or grow block if necessary. Otherwise adjust workers based on block size.
+            if block_elapsed < 2 { block_size = 3 * block_size / 2; }
             else if block_elapsed > 10 { block_size = max(1, block_size / 2); }
+            else {
+                let threshold = max(1, block_size / num_cpus / 2);
+                let queues: Vec<_> = self.workers.iter()
+                    .map(|w| w.pending.len()).collect();
+                println!("  cores={} threshold={} queues={:?}",
+                         num_cpus, threshold, queues);
+                self.adjust_worker_count(num_cpus, threshold);
+            }
         }
     }
+
+    /// By default a checker has one worker. This method forks workers whose pending queue size
+    /// exceeds a specified threshold (while staying below a target worker count).
+    pub fn adjust_worker_count(&mut self, target: usize, min_pending: usize)
+    where I: Copy
+    {
+        let mut added = Vec::new();
+        loop {
+            let existing_count = self.workers.iter()
+                .filter(|w| !w.pending.is_empty()).count();
+            for worker in &mut self.workers {
+                if existing_count + added.len() >= target { break }
+                if worker.pending.len() < min_pending { continue }
+                added.push(worker.fork());
+            }
+
+            if added.is_empty() { return }
+            self.workers.append(&mut added);
+        }
+    }
+
+    /// Indicates how many states are pending. If extra workers were created, this number may
+    /// include duplicates.
+    pub fn pending_count(&self) -> usize {
+        self.workers.iter().map(|w| w.pending.len()).sum()
+    }
+
+    /// Indicates state sources by digest.
+    pub fn sources(&self) -> FxHashMap<u64, Option<u64>> {
+        let max_capacity = self.workers.iter().map(|w| w.sources.capacity()).max().unwrap();
+        let mut sources = FxHashMap::with_capacity_and_hasher(2 * max_capacity, Default::default());
+        for worker in &self.workers { sources.extend(worker.sources.clone()); }
+        sources
+    }
 }
+
+struct Worker<'a, SM, I>
+where
+    SM: 'a + StateMachine,
+    I: Fn(&SM, &SM::State) -> bool,
+{
+    // immutable cfg
+    invariant: I,
+    state_machine: &'a SM,
+
+    // mutable checking state
+    pending: VecDeque<SM::State>,
+    sources: FxHashMap<u64, Option<u64>>,
+}
+
+impl<'a, SM, I> Worker<'a, SM, I>
+where
+    SM: 'a + StateMachine,
+    SM::State: Hash,
+    I: Fn(&SM, &SM::State) -> bool,
+{
+    fn init(state_machine: &'a SM, invariant: I) -> Worker<'a, SM, I> {
+        const STARTING_CAPACITY: usize = 1_000_000;
+
+        let mut results = StepVec::new();
+        state_machine.init(&mut results);
+        let mut pending = VecDeque::new();
+        let mut sources = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
+        for (_, init_state) in results {
+            let init_digest = hash(&init_state);
+            if let Entry::Vacant(init_source) = sources.entry(init_digest) {
+                init_source.insert(None);
+                pending.push_back(init_state);
+            }
+        }
+
+        Worker {
+            invariant,
+            state_machine,
+
+            pending,
+            sources,
+        }
+    }
+
+    fn fork(&mut self) -> Worker<'a, SM, I>
+    where I: Copy
+    {
+        let len = self.pending.len() / 2;
+        Worker {
+            invariant: self.invariant,
+            state_machine: self.state_machine,
+
+            pending: self.pending.split_off(len),
+            sources: self.sources.clone(),
+        }
+    }
+
+    fn check(&mut self, max_count: usize) -> CheckResult<SM::State> {
+        let mut remaining = max_count;
+
+        while let Some(state) = self.pending.pop_front() {
+            let digest = hash(&state);
+
+            // collect the next steps/states
+            let mut results = StepVec::new();
+            self.state_machine.next(&state, &mut results);
+            for (_, next_state) in results {
+                let next_digest = hash(&next_state);
+                if let Entry::Vacant(next_entry) = self.sources.entry(next_digest) {
+                    next_entry.insert(Some(digest));
+                    self.pending.push_back(next_state);
+                }
+            }
+
+            // exit if invariant fails to hold or we've reached the max count
+            let inv = &self.invariant;
+            if !inv(&self.state_machine, &state) { return CheckResult::Fail { state }; }
+            remaining -= 1;
+            if remaining == 0 { return CheckResult::Incomplete }
+        }
+
+        CheckResult::Pass
+    }
+}
+
 
 fn hash<T: Hash>(value: &T) -> u64 {
     fxhash::hash64(value)
@@ -313,7 +430,7 @@ mod test {
         let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
         let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(invariant);
         checker.check(100);
-        let state_space = FxHashSet::from_iter(checker.source.keys().cloned());
+        let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
         assert!(state_space.contains(&h(0, 0)));
         assert!(state_space.contains(&h(1, 0)));
         assert!(state_space.contains(&h(0, 1)));
@@ -329,20 +446,20 @@ mod test {
     fn model_check_can_pass() {
         let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker(invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
-        assert_eq!(checker.source.len(), 115); // not all generated were checked
+        assert_eq!(checker.sources().len(), 115); // not all generated were checked
         assert_eq!(checker.check(100_000), CheckResult::Pass);
-        assert_eq!(checker.source.len(), 256 * 256);
+        assert_eq!(checker.sources().len(), 256 * 256);
     }
 
     #[test]
     fn model_check_can_fail() {
         let mut checker = LinearEquation { a: 2, b: 7, c: 111 }.checker(invariant);
         assert_eq!(checker.check(100), CheckResult::Incomplete);
-        assert_eq!(checker.source.len(), 115); // not all generated were checked
+        assert_eq!(checker.sources().len(), 115); // not all generated were checked
         assert_eq!(
             checker.check(100_000),
             CheckResult::Fail { state: (Wrapping(3), Wrapping(15)) });
-        assert_eq!(checker.source.len(), 207); // only 187 were checked
+        assert_eq!(checker.sources().len(), 207); // only 187 were checked
     }
 
     #[test]
