@@ -53,7 +53,6 @@ where
             RegisterCfg::Server(ref server_cfg) => {
                 let server_result = server_cfg.start();
                 ActorResult {
-                    action: server_result.action,
                     state: RegisterState::Server(server_result.state),
                     outputs: server_result.outputs,
                 }
@@ -61,12 +60,11 @@ where
         }
     }
 
-    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         if let RegisterCfg::Server(server_cfg) = self {
             if let RegisterState::Server(server_state) = state {
                 if let Some(server_result) = server_cfg.advance(server_state, input) {
                     return Some(ActorResult {
-                        action: server_result.action,
                         state: RegisterState::Server(server_result.state),
                         outputs: server_result.outputs,
                     });
@@ -92,4 +90,3 @@ pub fn response_values<Value: Clone + Ord, ServerMsg, ServerState>(
     values.dedup();
     values
 }
-

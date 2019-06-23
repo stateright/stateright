@@ -1,34 +1,64 @@
 //! A library for specifying state machines and model checking invariants.
 //!
-//! A small example follows. Please see the
+//! A small example that solves a [sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle)
+//! follows. The technique involves describing how to play and then claiming that the puzzle is
+//! unsolvable, for which the model checker finds a counterexample sequence of steps that does in
+//! fact solve the puzzle. Please see the
 //! [README](https://github.com/stateright/stateright/blob/master/README.md) for a more thorough
 //! introduction.
 //!
 //! ```rust
 //! use stateright::*;
 //!
-//! struct BinaryClock { start: u8 }
+//! #[derive(Clone, Debug, Eq, PartialEq)]
+//! enum Slide { Down, Up, Right, Left }
 //!
-//! impl StateMachine for BinaryClock {
-//!     type State = u8;
-//!
-//!     fn init(&self, results: &mut StepVec<Self::State>) {
-//!         results.push(("start", self.start));
+//! let puzzle = QuickMachine {
+//!     init_states: || vec![vec![1, 4, 2,
+//!                               3, 5, 8,
+//!                               6, 7, 0]],
+//!     actions: |_, actions| {
+//!         actions.append(&mut vec![
+//!             Slide::Down, Slide::Up, Slide::Right, Slide::Left
+//!         ]);
+//!     },
+//!     next_state: |last_state, action| {
+//!         let empty = last_state.iter().position(|x| *x == 0).unwrap();
+//!         let empty_y = empty / 3;
+//!         let empty_x = empty % 3;
+//!         let maybe_from = match action {
+//!             Slide::Down  if empty_y > 0 => Some(empty - 3), // above
+//!             Slide::Up    if empty_y < 2 => Some(empty + 3), // below
+//!             Slide::Right if empty_x > 0 => Some(empty - 1), // left
+//!             Slide::Left  if empty_x < 2 => Some(empty + 1), // right
+//!             _ => None
+//!         };
+//!         maybe_from.map(|from| {
+//!             let mut next_state = last_state.clone();
+//!             next_state[empty] = last_state[from];
+//!             next_state[from] = 0;
+//!             next_state
+//!         })
 //!     }
-//!
-//!     fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
-//!         results.push(("flip bit", (1 - *state)));
-//!     }
-//! }
-//!
-//! let mut checker = BinaryClock { start: 1 }.checker(
-//!     |clock, time| 0 <= *time && *time <= 1);
-//! assert_eq!(
-//!     checker.check(100),
-//!     CheckResult::Pass);
-//! assert_eq!(
-//!     checker.path_to(&0),
-//!     vec![("start", 1), ("flip bit", 0)]);
+//! };
+//! let solved = vec![0, 1, 2,
+//!                   3, 4, 5,
+//!                   6, 7, 8];
+//! let mut checker = puzzle.checker(|_, state| { state != &solved });
+//! assert_eq!(checker.check(100), CheckResult::Fail { state: solved.clone() });
+//! assert_eq!(checker.path_to(&solved), vec![
+//!     (vec![1, 4, 2,
+//!           3, 5, 8,
+//!           6, 7, 0], Slide::Down),
+//!     (vec![1, 4, 2,
+//!           3, 5, 0,
+//!           6, 7, 8], Slide::Right),
+//!     (vec![1, 4, 2,
+//!           3, 0, 5,
+//!           6, 7, 8], Slide::Down),
+//!     (vec![1, 0, 2,
+//!           3, 4, 5,
+//!           6, 7, 8], Slide::Right)]);
 //! ```
 
 extern crate difference;
@@ -49,22 +79,39 @@ use std::hash::Hash;
 
 pub mod actor;
 
-/// Represents an action-state pair.
-pub type Step<State> = (&'static str, State);
-
-/// Represents the range of action-state pairs that a state machine can follow during a step.
-pub type StepVec<State> = Vec<Step<State>>;
 
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
     /// The type of state upon which this machine operates.
     type State;
 
-    /// Collects the initial possible action-state pairs.
-    fn init(&self, results: &mut StepVec<Self::State>);
+    /// The type of action that transitions between states.
+    type Action;
 
-    /// Collects the subsequent possible action-state pairs based on a previous state.
-    fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>);
+    /// Returns the initial possible states.
+    fn init_states(&self) -> Vec<Self::State>;
+
+    /// Collects the subsequent possible actions based on a previous state.
+    fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>);
+
+    /// Converts a previous state and action to a resulting state. `None` indicates that the action
+    /// does not change the state.
+    fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State>;
+
+    /// A human-readable description of a step for the state machine.
+    fn format_step(&self, last_state: &Self::State, action: &Self::Action) -> String
+    where
+        Self::Action: Clone + Debug,
+        Self::State: Debug,
+    {
+        let action_str = format!("{:?}", action);
+        if let Some(next_state) = self.next_state(last_state, action) {
+            let diff_str = diff(last_state, &next_state);
+            format!("{} results in {}", action_str, diff_str)
+        } else {
+            format!("{} ignored", action_str)
+        }
+    }
 
     /// Initializes a fresh checker for a state machine.
     fn checker<I>(&self, invariant: I) -> Checker<Self, I>
@@ -75,6 +122,31 @@ pub trait StateMachine: Sized {
         Checker { workers: vec![Worker::init(self, invariant)] }
     }
 }
+
+/// A convenience structure for succinctly describing a throwaway `StateMachine`.
+pub struct QuickMachine<State, Action> {
+    pub init_states: fn() -> Vec<State>,
+    pub actions: fn(&State, &mut Vec<Action>),
+    pub next_state: fn(&State, &Action) -> Option<State>,
+}
+
+impl<State, Action> StateMachine for QuickMachine<State, Action> {
+    type State = State;
+    type Action = Action;
+
+    fn init_states(&self) -> Vec<Self::State> {
+        (self.init_states)()
+    }
+
+    fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+        (self.actions)(state, actions);
+    }
+
+    fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+        (self.next_state)(last_state, action)
+    }
+}
+
 
 /// Model checking can be time consuming, so the library checks up to a fixed number of states then
 /// returns. This approach allows the library to avoid tying up a thread indefinitely while still
@@ -143,16 +215,14 @@ where
     }
 
     /// Identifies the action-state "behavior" path by which a generated state was reached.
-    pub fn path_to(&self, state: &SM::State) -> Vec<Step<SM::State>> {
+    pub fn path_to(&self, state: &SM::State) -> Vec<(SM::State, SM::Action)>
+    where SM::Action: Clone
+    {
         // First build a stack of digests representing the path (with the init digest at top of
         // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
         // Specifications" by Yu, Manolios, and Lamport.
 
-        let find_step = |steps: StepVec<SM::State>, digest: u64|
-            steps.into_iter()
-                .find(|step| hash(&step.1) == digest)
-                .expect("step with state matching recorded digest");
         let state_machine = self.workers.first().unwrap().state_machine;
         let sources = self.sources();
 
@@ -173,18 +243,32 @@ where
         }
 
         // 2. Begin unwinding by determining the init step.
-        let mut output = Vec::new();
-        let mut steps = StepVec::new();
-        state_machine.init(&mut steps);
-        output.push(find_step(steps, digests.pop().expect("at least one state due to param")));
+        let init_states = state_machine.init_states();
+        let mut last_state = init_states.into_iter().find(|s| hash(&s) == digests.pop().unwrap()).unwrap();
 
         // 3. Then continue with the remaining steps.
+        let mut output = Vec::new();
         while let Some(next_digest) = digests.pop() {
-            let mut next_steps = StepVec::new();
-            state_machine.next(
-                &output.last().expect("nonempty (b/c step was already enqueued)").1,
-                &mut next_steps);
-            output.push(find_step(next_steps, next_digest));
+            let mut actions = Vec::new();
+            state_machine.actions(
+                &last_state,
+                &mut actions);
+
+            let (action, next_state) = actions.into_iter()
+                .find_map(|action| {
+                    state_machine.next_state(&last_state, &action)
+                        .and_then(|next_state| {
+                            if hash(&next_state) == next_digest {
+                                Some((action, next_state))
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .expect("state matching recorded digest");
+            output.push((last_state, action));
+
+            last_state = next_state;
         }
         output
     }
@@ -192,7 +276,7 @@ where
     /// Blocks the thread until model checking is complete. Periodically emits a status while
     /// checking, tailoring the block size to the checking speed. Emits a report when complete.
     pub fn check_and_report(&mut self)
-    where I: Copy + Send, SM: Sync, SM::State: Debug + Send
+    where I: Copy + Send, SM: Sync, SM::State: Debug + Send, SM::Action: Clone + Debug
     {
         use std::time::Instant;
         let num_cpus = num_cpus::get();
@@ -210,27 +294,9 @@ where
                              path.len());
 
                     // Then show the path.
-                    let newline_re = Regex::new(r"\n *").unwrap();
-                    let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
-                    let mut maybe_last_state_str: Option<String> = None;
-                    for (action, state) in path {
-                        // Pretty-print as that results in a more sane diff, then collapse the
-                        // lines to keep the output more concise.
-                        let state_str: String = format!("{:#?}", state);
-                        print!("    \x1B[33m|{}|\x1B[0m ", action);
-                        match maybe_last_state_str {
-                            None => {
-                                println!("{}", newline_re.replace_all(&state_str, " "));
-                            }
-                            Some(last_str) => {
-                                let diff = format!("{}", difference::Changeset::new(&last_str, &state_str, "\n"));
-                                println!("{}",
-                                         newline_re.replace_all(
-                                             &control_re.replace_all(&diff, "$c "),
-                                             " "));
-                            }
-                        }
-                        maybe_last_state_str = Some(state_str);
+                    let state_machine = self.workers[0].state_machine;
+                    for (state, action) in path {
+                        println!("{}", state_machine.format_step(&state, &action));
                     }
                     return;
                 },
@@ -321,11 +387,9 @@ where
     fn init(state_machine: &'a SM, invariant: I) -> Worker<'a, SM, I> {
         const STARTING_CAPACITY: usize = 1_000_000;
 
-        let mut results = StepVec::new();
-        state_machine.init(&mut results);
         let mut pending = VecDeque::new();
         let mut sources = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
-        for (_, init_state) in results {
+        for init_state in state_machine.init_states() {
             let init_digest = hash(&init_state);
             if let Entry::Vacant(init_source) = sources.entry(init_digest) {
                 init_source.insert(None);
@@ -357,18 +421,22 @@ where
 
     fn check(&mut self, max_count: usize) -> CheckResult<SM::State> {
         let mut remaining = max_count;
+        let mut next_actions = Vec::new(); // reused between iterations for efficiency
 
         while let Some(state) = self.pending.pop_front() {
             let digest = hash(&state);
 
-            // collect the next steps/states
-            let mut results = StepVec::new();
-            self.state_machine.next(&state, &mut results);
-            for (_, next_state) in results {
-                let next_digest = hash(&next_state);
-                if let Entry::Vacant(next_entry) = self.sources.entry(next_digest) {
-                    next_entry.insert(Some(digest));
-                    self.pending.push_back(next_state);
+            // collect the next actions, and record the corresponding states that have not been
+            // seen before
+            next_actions.clear();
+            self.state_machine.actions(&state, &mut next_actions);
+            for next_action in &next_actions {
+                if let Some(next_state) = self.state_machine.next_state(&state, &next_action) {
+                    let next_digest = hash(&next_state);
+                    if let Entry::Vacant(next_entry) = self.sources.entry(next_digest) {
+                        next_entry.insert(Some(digest));
+                        self.pending.push_back(next_state);
+                    }
                 }
             }
 
@@ -383,11 +451,20 @@ where
     }
 }
 
+fn diff(last: &Debug, next: &Debug) -> String {
+    let last = format!("{:#?}", last);
+    let next = format!("{:#?}", next);
+    let diff = format!("{}", difference::Changeset::new(&last, &next, "\n"));
+
+    let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
+    let newline_re = Regex::new(r"\n *").unwrap();
+    let diff = control_re.replace_all(&diff, "$c ");
+    newline_re.replace_all(&diff, " ").to_string()
+}
 
 fn hash<T: Hash>(value: &T) -> u64 {
     fxhash::hash64(value)
 }
-
 
 #[cfg(test)]
 mod test {
@@ -397,19 +474,26 @@ mod test {
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are
     /// in `Wrapping<u8>`.
     struct LinearEquation { a: u8, b: u8, c: u8 }
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum Guess { IncreaseX, IncreaseY }
     impl StateMachine for LinearEquation {
         type State = (Wrapping<u8>, Wrapping<u8>);
+        type Action = Guess;
 
-        fn init(&self, results: &mut StepVec<Self::State>) {
-            results.push(("guess", (Wrapping(0), Wrapping(0))));
+        fn init_states(&self) -> Vec<Self::State> {
+            vec![(Wrapping(0), Wrapping(0))]
         }
 
-        fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
-            match *state {
-                (x, y) => {
-                    results.push(("increase x", (x + Wrapping(1), y)));
-                    results.push(("increase y", (x, y + Wrapping(1))));
-                }
+        fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
+            actions.push(Guess::IncreaseX);
+            actions.push(Guess::IncreaseY);
+        }
+
+        fn next_state(&self, state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+            let (x, y) = *state;
+            match &action {
+                Guess::IncreaseX => Some((x + Wrapping(1), y)),
+                Guess::IncreaseY => Some((x, y + Wrapping(1))),
             }
         }
     }
@@ -484,10 +568,9 @@ mod test {
                 assert_eq!(
                     checker.path_to(&state),
                     vec![
-                        ("guess",      (Wrapping(0), Wrapping(0))),
-                        ("increase x", (Wrapping(1), Wrapping(0))),
-                        ("increase x", (Wrapping(2), Wrapping(0))),
-                        ("increase y", (Wrapping(2), Wrapping(1))),
+                        ((Wrapping(0), Wrapping(0)), Guess::IncreaseX),
+                        ((Wrapping(1), Wrapping(0)), Guess::IncreaseX),
+                        ((Wrapping(2), Wrapping(0)), Guess::IncreaseY),
                     ]);
             },
             _ => panic!("expected solution")

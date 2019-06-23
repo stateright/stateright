@@ -7,8 +7,7 @@ extern crate stateright;
 
 use clap::*;
 use stateright::*;
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::hash::Hash;
@@ -32,85 +31,78 @@ enum RmState { Working, Prepared, Committed, Aborted }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum TmState { Init, Committed, Aborted }
 
-impl<R: Clone + Debug + Eq + Hash + Ord> TwoPhaseSys<R> {
-    fn tm_rcv_prepared(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.tm_state == TmState::Init
-                && state.msgs.contains(&Message::Prepared { rm: rm.clone() }) {
-            let mut result = state.clone();
-            result.tm_prepared.insert(rm.clone());
-            results.push(("TM got prepared msg", result));
-        }
-    }
-    fn tm_commit(&self, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.tm_state == TmState::Init
-                && state.tm_prepared == self.rms {
-            let mut result = state.clone();
-            result.tm_state = TmState::Committed;
-            result.msgs.insert(Message::Commit);
-            results.push(("TM was able to commit and has informed RMs", result));
-        }
-    }
-    fn tm_abort(&self, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.tm_state == TmState::Init {
-            let mut result = state.clone();
-            result.tm_state = TmState::Aborted;
-            result.msgs.insert(Message::Abort);
-            results.push(("TM chose to abort", result));
-        }
-    }
-    fn rm_prepare(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.rm_state.get(rm) == Some(&RmState::Working) {
-            let mut result = state.clone();
-            result.rm_state.insert(rm.clone(), RmState::Prepared);
-            result.msgs.insert(Message::Prepared { rm: rm.clone() });
-            results.push(("RM is preparing", result));
-        }
-    }
-    fn rm_choose_to_abort(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.rm_state.get(rm) == Some(&RmState::Working) {
-            let mut result = state.clone();
-            result.rm_state.insert(rm.clone(), RmState::Aborted);
-            results.push(("RM is choosing to abort", result));
-        }
-    }
-    fn rm_rcv_commit_msg(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.msgs.contains(&Message::Commit) {
-            let mut result = state.clone();
-            result.rm_state.insert(rm.clone(), RmState::Committed);
-            results.push(("RM is being told to commit", result));
-        }
-    }
-    fn rm_rcv_abort_msg(&self, rm: &R, state: &TwoPhaseState<R>, results: &mut StepVec<TwoPhaseState<R>>) {
-        if state.msgs.contains(&Message::Abort) {
-            let mut result = state.clone();
-            result.rm_state.insert(rm.clone(), RmState::Aborted);
-            results.push(("RM is being told to abort", result));
-        }
-    }
+#[derive(Clone, Debug)]
+enum Action<R> {
+    TmRcvPrepared(R),
+    TmCommit,
+    TmAbort,
+    RmPrepare(R),
+    RmChooseToAbort(R),
+    RmRcvCommitMsg(R),
+    RmRcvAbortMsg(R),
 }
 
 impl<R: Clone + Debug + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
     type State = TwoPhaseState<R>;
-    fn init(&self, results: &mut StepVec<Self::State>) {
-        let state = TwoPhaseState {
+    type Action = Action<R>;
+
+    fn init_states(&self) -> Vec<Self::State> {
+        vec![TwoPhaseState {
             rm_state: self.rms.iter().map(|rm| (rm.clone(), RmState::Working)).collect(),
             tm_state: TmState::Init,
             tm_prepared: BTreeSet::new(),
             msgs: BTreeSet::new()
-        };
-        results.push(("init", state));
+        }]
     }
 
-    fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
-        self.tm_commit(state, results);
-        self.tm_abort(state, results);
-        for rm in &self.rms {
-            self.tm_rcv_prepared(rm, state, results);
-            self.rm_prepare(rm, state, results);
-            self.rm_choose_to_abort(rm, state, results);
-            self.rm_rcv_commit_msg(rm, state, results);
-            self.rm_rcv_abort_msg(rm, state, results);
+    fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+        if state.tm_state == TmState::Init && state.tm_prepared == self.rms {
+            actions.push(Action::TmCommit);
         }
+        if state.tm_state == TmState::Init {
+            actions.push(Action::TmAbort);
+        }
+        for rm in &self.rms {
+            if state.tm_state == TmState::Init
+                    && state.msgs.contains(&Message::Prepared { rm: rm.clone() }) {
+                actions.push(Action::TmRcvPrepared(rm.clone()));
+            }
+            if state.rm_state.get(rm) == Some(&RmState::Working) {
+                actions.push(Action::RmPrepare(rm.clone()));
+            }
+            if state.rm_state.get(rm) == Some(&RmState::Working) {
+                actions.push(Action::RmChooseToAbort(rm.clone()));
+            }
+            if state.msgs.contains(&Message::Commit) {
+                actions.push(Action::RmRcvCommitMsg(rm.clone()));
+            }
+            if state.msgs.contains(&Message::Abort) {
+                actions.push(Action::RmRcvAbortMsg(rm.clone()));
+            }
+        }
+    }
+
+    fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+        let mut state = last_state.clone();
+        match action.clone() {
+            Action::TmRcvPrepared(rm) => { state.tm_prepared.insert(rm); }
+            Action::TmCommit => {
+                state.tm_state = TmState::Committed;
+                state.msgs.insert(Message::Commit);
+            }
+            Action::TmAbort => {
+                state.tm_state = TmState::Aborted;
+                state.msgs.insert(Message::Abort);
+            },
+            Action::RmPrepare(rm) => {
+                state.rm_state.insert(rm.clone(), RmState::Prepared);
+                state.msgs.insert(Message::Prepared { rm });
+            },
+            Action::RmChooseToAbort(rm) => { state.rm_state.insert(rm, RmState::Aborted); }
+            Action::RmRcvCommitMsg(rm) => { state.rm_state.insert(rm, RmState::Committed); }
+            Action::RmRcvAbortMsg(rm) => { state.rm_state.insert(rm, RmState::Aborted); }
+        }
+        Some(state)
     }
 }
 

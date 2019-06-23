@@ -68,17 +68,16 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
         }, |_outputs| {})
     }
 
-    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         use ServerMsg::*;
 
-        let ActorInput::Deliver { src, msg } = input;
+        let ActorInput::Deliver { src, msg } = input.clone(); // clone makes following code clearer
         match msg {
             Put { value } if !state.is_decided => {
                 // reduce state space until upcoming model checking optimizations land
                 if state.proposal.is_some() || state.ballot.0 == 3 { return None; }
 
-                return ActorResult::advance(state, |action, state, outputs| {
-                    *action = "Got Put. Leading new ballot by requesting Prepares.";
+                return ActorResult::advance(state, |state, outputs| {
                     state.ballot = (state.ballot.0 + 1, self.rank);
                     state.proposal = Some(value);
                     state.prepares = Default::default();
@@ -90,15 +89,13 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
             }
             Get if state.is_decided => {
                 if let Some((_ballot, value)) = state.accepted {
-                    return ActorResult::advance(state, |action, _state, outputs| {
-                        *action = "Responding to Get.";
+                    return ActorResult::advance(state, |_state, outputs| {
                         outputs.send(src, Respond { value });
                     });
                 }
             }
             Internal(Prepare { ballot }) if state.ballot < ballot => {
-                return ActorResult::advance(state, |action, state, outputs| {
-                    *action = "Preparing.";
+                return ActorResult::advance(state, |state, outputs| {
                     state.ballot = ballot;
                     outputs.send(src, Internal(Prepared {
                         ballot,
@@ -107,11 +104,9 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
                 });
             }
             Internal(Prepared { ballot, last_accepted }) if ballot == state.ballot => {
-                return ActorResult::advance(state, |action, state, outputs| {
-                    *action = "Recording Prepared.";
+                return ActorResult::advance(state, |state, outputs| {
                     state.prepares.insert(src, last_accepted);
                     if state.prepares.len() > (self.peer_ids.len() + 1)/2 {
-                        *action = "Recording Prepared. Got quorum. Requesting Accepts.";
                         state.proposal = state.prepares
                             .values().max().unwrap().map(|(_b,v)| v)
                             .or(state.proposal);
@@ -124,19 +119,16 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
                 });
             }
             Internal(Accept { ballot, value }) if state.ballot <= ballot => {
-                return ActorResult::advance(state, |action, state, outputs| {
-                    *action = "Accepting.";
+                return ActorResult::advance(state, |state, outputs| {
                     state.ballot = ballot;
                     state.accepted = Some((ballot, value));
                     outputs.send(src, Internal(Accepted { ballot }));
                 });
             }
             Internal(Accepted { ballot }) if ballot == state.ballot => {
-                return ActorResult::advance(state, |action, state, outputs| {
-                    *action = "Recording Accepted.";
+                return ActorResult::advance(state, |state, outputs| {
                     state.accepts.insert(src);
                     if state.accepts.len() > (self.peer_ids.len() + 1)/2 {
-                        *action = "Recording Accepted. Got quorum. Deciding.";
                         state.is_decided = true;
                         outputs.broadcast(&self.peer_ids, &Internal(Decided {
                             ballot,
@@ -146,8 +138,7 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
                 });
             }
             Internal(Decided { ballot, value }) => {
-                return ActorResult::advance(state, |action, state, _outputs| {
-                    *action = "Recording Decided.";
+                return ActorResult::advance(state, |state, _outputs| {
                     state.accepted = Some((ballot, value));
                     state.is_decided = true;
                 });

@@ -25,20 +25,18 @@ impl<Id: Copy> Actor<Id> for ServerCfg {
         ActorResult::start(ServerState { maybe_value: None }, |_outputs| {})
     }
 
-    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         let ActorInput::Deliver { src, msg } = input;
         match msg {
             RegisterMsg::Put { value } if state.maybe_value.is_none() => {
-                return ActorResult::advance(state, |action, state, _outputs| {
-                    *action = "SERVER ACCEPTS PUT";
-                    state.maybe_value = Some(value);
+                return ActorResult::advance(state, |state, _outputs| {
+                    state.maybe_value = Some(*value);
                 });
             }
             RegisterMsg::Get => {
                 if let Some(value) = state.maybe_value {
-                    return ActorResult::advance(state, |action, _state, outputs| {
-                        *action = "SERVER RESPONDS TO GET";
-                        outputs.send(src, RegisterMsg::Respond { value });
+                    return ActorResult::advance(state, |_state, outputs| {
+                        outputs.send(*src, RegisterMsg::Respond { value });
                     });
                 }
             }

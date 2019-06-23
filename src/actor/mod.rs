@@ -20,13 +20,12 @@
 //!         ActorResult::start(0, |_outputs| {})
 //!     }
 //!
-//!     fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+//!     fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
 //!         let ActorInput::Deliver { src, msg: timestamp } = input;
-//!         if timestamp > *state {
-//!             return ActorResult::advance(state, |action, state, outputs| {
-//!                 *action = "clock tick";
-//!                 *state = timestamp;
-//!                 outputs.send(src, timestamp + 1);
+//!         if timestamp > state {
+//!             return ActorResult::advance(state, |state, outputs| {
+//!                 *state = *timestamp;
+//!                 outputs.send(*src, timestamp + 1);
 //!             });
 //!         }
 //!         return None;
@@ -66,6 +65,7 @@ use std::sync::Arc;
 use std::thread;
 
 /// Inputs to which an actor can respond.
+#[derive(Clone, Debug)]
 pub enum ActorInput<Id, Msg> {
     Deliver { src: Id, msg: Msg },
 }
@@ -97,10 +97,9 @@ impl<Id, Msg> ActorOutputVec<Id, Msg> {
     }
 }
 
-/// Packages up the action, state, and outputs for an actor step.
+/// Packages up the state and outputs for an actor step.
 #[derive(Debug)]
 pub struct ActorResult<Id, Msg, State> {
-    pub action: &'static str,
     pub state: State,
     pub outputs: ActorOutputVec<Id, Msg>,
 }
@@ -110,23 +109,21 @@ impl<Id, Msg, State> ActorResult<Id, Msg, State> {
     pub fn start<M>(state: State, mutation: M) -> Self
     where M: Fn(&mut ActorOutputVec<Id, Msg>) -> ()
     {
-        let action = "(INIT)";
         let mut outputs = ActorOutputVec(Vec::new());
         mutation(&mut outputs);
-        ActorResult { action, state, outputs }
+        ActorResult { state, outputs }
     }
 
     /// Helper for creating a subsequent result.
     pub fn advance<M>(state: &State, mutation: M) -> Option<Self>
     where
         State: Clone,
-        M: Fn(&mut &'static str, &mut State, &mut ActorOutputVec<Id, Msg>) -> ()
+        M: Fn(&mut State, &mut ActorOutputVec<Id, Msg>) -> ()
     {
-        let mut action = "(ACTION NOT SPECIFIED)";
         let mut state = state.clone();
         let mut outputs = ActorOutputVec(Vec::new());
-        mutation(&mut action, &mut state, &mut outputs);
-        Some(ActorResult { action, state, outputs })
+        mutation(&mut state, &mut outputs);
+        Some(ActorResult { state, outputs })
     }
 }
 
@@ -145,7 +142,7 @@ pub trait Actor<Id> {
     fn start(&self) -> ActorResult<Id, Self::Msg, Self::State>;
 
     /// Indicates the updated state and outputs for the actor when it receives an input.
-    fn advance(&self, state: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>>;
+    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>>;
 }
 
 /// An ID type for an actor identified by an IP address and port.
@@ -184,7 +181,7 @@ where
             };
             if let Some(new_result) = actor.advance(
                     &result.state,
-                    ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg }) {
+                    &ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg }) {
                 println!("Actor advanced. id={}, result={:#?}", fmt(&id), new_result);
                 handle_outputs(&new_result.outputs, &id, &socket);
                 result = new_result;
@@ -248,8 +245,8 @@ macro_rules! actor {
                 }
             }
 
-            fn advance(&self, $state_advance: &Self::State, input: ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
-                let ActorInput::Deliver { $src, $msg_advance } = input;
+            fn advance(&self, $state_advance: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+                let ActorInput::Deliver { $src, $msg_advance } = input.clone();
                 match self {
                     $($advance)*
                 }
@@ -293,14 +290,23 @@ pub mod model {
         pub network: Network<Msg>,
     }
 
+    /// Indicates possible steps that an actor system can take as it evolves.
+    //#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[derive(Clone, Debug)]
+    pub enum ActorSystemAction<Msg> {
+        Drop(Envelope<Msg>),
+        Act(ModelId, ActorInput<ModelId, Msg>),
+    }
+
     impl<A: Actor<ModelId>> StateMachine for ActorSystem<A>
     where
-        A::Msg: Clone + Ord,
-        A::State: Clone,
+        A::Msg: Clone + Debug + Ord,
+        A::State: Clone + Debug + Eq,
     {
         type State = ActorSystemSnapshot<A::Msg, A::State>;
+        type Action = ActorSystemAction<A::Msg>;
 
-        fn init(&self, results: &mut StepVec<Self::State>) {
+        fn init_states(&self) -> Vec<Self::State> {
             let mut actor_states = Vec::new();
             let mut network = Network::new();
 
@@ -320,33 +326,92 @@ pub mod model {
                 }
             }
 
-            results.push(("INIT", ActorSystemSnapshot { actor_states, network }));
+            vec![ActorSystemSnapshot { actor_states, network }]
         }
 
-        fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
+        fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
             for env in &state.network {
-                let id = env.dst;
-
                 // option 1: message is lost
                 if self.lossy_network == LossyNetwork::Yes {
-                    let mut message_lost = state.clone();
-                    message_lost.network.remove(env);
-                    results.push(("message lost", message_lost));
+                    actions.push(ActorSystemAction::Drop(env.clone()));
                 }
 
                 // option 2: message is delivered
-                if let Some(result) = self.actors[id].advance(
-                        &state.actor_states[id],
-                        ActorInput::Deliver { src: env.src, msg: env.msg.clone() }) {
-                    let mut message_delivered = state.clone(); 
-                    message_delivered.actor_states[id] = Arc::new(result.state);
-                    for output in result.outputs.0 {
-                        match output {
-                            ActorOutput::Send {dst, msg} => { message_delivered.network.insert(Envelope {src: id, dst, msg}); },
+                let input = ActorInput::Deliver { src: env.src, msg: env.msg.clone() };
+                actions.push(ActorSystemAction::Act(env.dst, input));
+            }
+        }
+
+        fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+            match action {
+                ActorSystemAction::Drop(env) => {
+                    let mut state = last_state.clone();
+                    state.network.remove(&env);
+                    Some(state)
+                },
+                ActorSystemAction::Act(id, input) => {
+                    if let Some(result) = self.actors[*id].advance(&last_state.actor_states[*id], input) {
+                        let mut state = last_state.clone();
+                        state.actor_states[*id] = Arc::new(result.state);
+                        for output in result.outputs.0 {
+                            match output {
+                                ActorOutput::Send {dst, msg} => { state.network.insert(Envelope {src: *id, dst, msg}); },
+                            }
                         }
+                        Some(state)
+                    } else {
+                        None
                     }
-                    results.push((result.action, message_delivered));
-                }
+                },
+            }
+        }
+
+        fn format_step(&self, last_state: &Self::State, action: &Self::Action) -> String
+        where
+            Self::Action: Debug,
+            Self::State: Debug,
+        {
+            match action {
+                ActorSystemAction::Drop(env) => {
+                    format!("Dropping {:?}", env)
+                },
+                ActorSystemAction::Act(id, input) => {
+                    let last_state = &last_state.actor_states[*id];
+                    if let Some(ActorResult {
+                        state: next_state,
+                        outputs: ActorOutputVec(outputs),
+                    }) = self.actors[*id].advance(last_state, input)
+                    {
+                        let mut description = String::new();
+                        {
+                            let mut out = |x: String| description.push_str(&x);
+                            let mut invert = |x: String| format!("\x1B[7m{}\x1B[0m", x);
+
+                            // describe action
+                            match input {
+                                ActorInput::Deliver { src, msg } =>
+                                    out(invert(format!("{} receives from {} message {:?}", id, src, msg)))
+                            }
+
+                            // describe state
+                            if *last_state != Arc::new(next_state.clone()) {
+                                out(format!("\n  State becomes {}", diff(&last_state, &next_state)));
+                            }
+
+                            // describe outputs
+                            for output in outputs {
+                                match output {
+                                    ActorOutput::Send { dst, msg } =>
+                                        out(format!("\n  Sends {:?} message {:?}", dst, msg))
+                                }
+                            }
+                        }
+                        description
+
+                    } else {
+                        format!("{} ignores {:?}", id, action)
+                    }
+                },
             }
         }
     }
@@ -374,8 +439,7 @@ mod test {
                 if let &State::PingerState(actor_value) = state {
                     if let Msg::Pong(msg_value) = msg {
                         if actor_value == msg_value && actor_value < max_nat {
-                            return ActorResult::advance(state, |action, state, outputs| {
-                                *action = "ping";
+                            return ActorResult::advance(state, |state, outputs| {
                                 *state = State::PingerState(actor_value + 1);
                                 outputs.send(src, Msg::Ping(msg_value + 1));
                             });
@@ -388,8 +452,7 @@ mod test {
                 if let &State::PongerState(actor_value) = state {
                     if let Msg::Ping(msg_value) = msg {
                         if actor_value == msg_value && actor_value < max_nat {
-                            return ActorResult::advance(state, |action, state, outputs| {
-                                *action = "pong";
+                            return ActorResult::advance(state, |state, outputs| {
                                 *state = State::PongerState(actor_value + 1);
                                 outputs.send(src, Msg::Pong(msg_value));
                             });

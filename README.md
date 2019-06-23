@@ -4,47 +4,71 @@
 [![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
 [![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
 
-Stateright is a library for specifying state machines and [model
-checking](https://en.wikipedia.org/wiki/Model_checking) invariants. Embedding a
-model checker into a general purpose programming language allows consumers to
-formally verify product implementations in addition to abstract models.
+Stateright is a library for specifying actor systems and validating invariants.
+It features an embedded [model checker](https://en.wikipedia.org/wiki/Model_checking)
+that can verify both abstract models and real systems.
 
-## Example
+## Examples
 
-As a simple example of an abstract model, we can simulate a minimal "clock"
-that alternates between two hours: zero and one. Then we can enumerate all
-possible states verifying that the time is always within bounds and that a path
-to the other hour begins at the `start` hour (a model input) followed by a step
-for flipping the hour bit.
+As a simple example of an abstract model, we can indicate how to play a
+[sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle) game.
+Running the model checker against a false invariant indicating that the game is
+unsolvable results in the discovery of a counterexample: a sequence of steps
+that does solve the game.
 
 ```rust
 use stateright::*;
 
-struct BinaryClock { start: u8 }
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Slide { Down, Up, Right, Left }
 
-impl StateMachine for BinaryClock {
-    type State = u8;
-
-    fn init(&self, results: &mut StepVec<Self::State>) {
-        results.push(("start", self.start));
+let puzzle = QuickMachine {
+    init_states: || vec![vec![1, 4, 2,
+                              3, 5, 8,
+                              6, 7, 0]],
+    actions: |_, actions| {
+        actions.append(&mut vec![
+            Slide::Down, Slide::Up, Slide::Right, Slide::Left
+        ]);
+    },
+    next_state: |last_state, action| {
+        let empty = last_state.iter().position(|x| *x == 0).unwrap();
+        let empty_y = empty / 3;
+        let empty_x = empty % 3;
+        let maybe_from = match action {
+            Slide::Down  if empty_y > 0 => Some(empty - 3), // above
+            Slide::Up    if empty_y < 2 => Some(empty + 3), // below
+            Slide::Right if empty_x > 0 => Some(empty - 1), // left
+            Slide::Left  if empty_x < 2 => Some(empty + 1), // right
+            _ => None
+        };
+        maybe_from.map(|from| {
+            let mut next_state = last_state.clone();
+            next_state[empty] = last_state[from];
+            next_state[from] = 0;
+            next_state
+        })
     }
-
-    fn next(&self, state: &Self::State, results: &mut StepVec<Self::State>) {
-        results.push(("flip bit", (1 - *state)));
-    }
-}
-
-let mut checker = BinaryClock { start: 1 }.checker(
-    |clock, time| 0 <= *time && *time <= 1);
-assert_eq!(
-    checker.check(100),
-    CheckResult::Pass);
-assert_eq!(
-    checker.path_to(&0),
-    vec![("start", 1), ("flip bit", 0)]);
+};
+let solved = vec![0, 1, 2,
+                  3, 4, 5,
+                  6, 7, 8];
+let mut checker = puzzle.checker(|_, state| { state != &solved });
+assert_eq!(checker.check(100), CheckResult::Fail { state: solved.clone() });
+assert_eq!(checker.path_to(&solved), vec![
+    (vec![1, 4, 2,
+          3, 5, 8,
+          6, 7, 0], Slide::Down),
+    (vec![1, 4, 2,
+          3, 5, 0,
+          6, 7, 8], Slide::Right),
+    (vec![1, 4, 2,
+          3, 0, 5,
+          6, 7, 8], Slide::Down),
+    (vec![1, 0, 2,
+          3, 4, 5,
+          6, 7, 8], Slide::Right)]);
 ```
-
-## More Examples
 
 See the [examples](https://github.com/stateright/stateright/tree/master/examples)
 directory for additional state machines, such as an actor based Single Decree
