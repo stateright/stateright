@@ -31,7 +31,7 @@ pub enum RegisterState<ServerState> {
     Server(ServerState),
 }
 
-impl<Id, Value, ServerCfg, ServerMsg> Actor<Id> for RegisterCfg<Id, Value, ServerCfg>
+impl<Id, Value, ServerCfg, ServerMsg: Serialize + DeserializeOwned> Actor<Id> for RegisterCfg<Id, Value, ServerCfg>
 where
     Id: Copy + Ord,
     Value: Clone,
@@ -72,6 +72,21 @@ where
             }
         }
         None
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> serde_json::Result<Self::Msg> where Self::Msg: DeserializeOwned {
+        if let Ok(msg) = serde_json::from_slice::<ServerMsg>(bytes) {
+            Ok(RegisterMsg::Internal(msg))
+        } else {
+            serde_json::from_slice(bytes)
+        }
+    }
+
+    fn serialize(&self, msg: &Self::Msg) -> serde_json::Result<Vec<u8>> where Self::Msg: Serialize {
+        match msg {
+            RegisterMsg::Internal(msg) => serde_json::to_vec(msg),
+            _ => serde_json::to_vec(msg),
+        }
     }
 }
 

@@ -56,9 +56,8 @@
 
 pub mod register;
 
-use serde::de::*;
-use serde::ser::*;
-use serde_json;
+use serde::de::DeserializeOwned;
+use serde::ser::Serialize;
 use std::fmt::Debug;
 use std::net::{IpAddr, UdpSocket};
 use std::sync::Arc;
@@ -143,6 +142,35 @@ pub trait Actor<Id> {
 
     /// Indicates the updated state and outputs for the actor when it receives an input.
     fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>>;
+
+    /// Indicates how to deserialize messages received by a spawned actor.
+    fn deserialize(&self, bytes: &[u8]) -> serde_json::Result<Self::Msg> where Self::Msg: DeserializeOwned {
+        serde_json::from_slice(bytes)
+    }
+
+    /// Indicates how to serialize messages sent by a spawned actor.
+    fn serialize(&self, msg: &Self::Msg) -> serde_json::Result<Vec<u8>> where Self::Msg: Serialize {
+        serde_json::to_vec(msg)
+    }
+
+    /// The effect to perform in response to spawned actor outputs.
+    fn on_output(&self, output: &ActorOutput<SpawnId, Self::Msg>, id: &SpawnId, socket: &UdpSocket)
+    where Self::Msg: Debug + Serialize
+    {
+        let ActorOutput::Send { dst, msg } = output;
+        match self.serialize(msg) {
+            Err(e) => {
+                println!("Unable to serialize. Ignoring. id={}, dst={}, msg={:?}, err={}",
+                         fmt(id), fmt(dst), msg, e);
+            },
+            Ok(out_buf) => {
+                if let Err(e) = socket.send_to(&out_buf, &dst) {
+                    println!("Unable to send. Ignoring. id={}, dst={}, msg={:?}, err={}",
+                             fmt(id), fmt(dst), msg, e);
+                }
+            },
+        }
+    }
 }
 
 /// An ID type for an actor identified by an IP address and port.
@@ -164,55 +192,28 @@ where
 
         let mut result = actor.start();
         println!("Actor started. id={}, result={:#?}", fmt(&id), result);
-        handle_outputs(&result.outputs, &id, &socket);
+        for o in &result.outputs.0 { actor.on_output(o, &id, &socket); }
 
         loop {
             let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
-            let msg: A::Msg = match serde_json::from_slice(&in_buf[..count]) {
-                Ok(v) => {
-                    println!("Received message. id={}, src={}, msg={:?}", fmt(&id), src_addr, v);
-                    v
+            match actor.deserialize(&in_buf[..count]) {
+                Ok(msg) => {
+                    println!("Received message. id={}, src={}, msg={:?}", fmt(&id), src_addr, msg);
+
+                    let input = ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg };
+                    if let Some(new_result) = actor.advance(&result.state, &input) {
+                        println!("Actor advanced. id={}, result={:#?}", fmt(&id), new_result);
+                        result = new_result;
+                        for o in &result.outputs.0 { actor.on_output(o, &id, &socket); }
+                    }
                 },
                 Err(e) => {
                     println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
                             fmt(&id), src_addr, &in_buf[..count], e);
-                    continue
                 }
-            };
-            if let Some(new_result) = actor.advance(
-                    &result.state,
-                    &ActorInput::Deliver { src: (src_addr.ip(), src_addr.port()), msg }) {
-                println!("Actor advanced. id={}, result={:#?}", fmt(&id), new_result);
-                handle_outputs(&new_result.outputs, &id, &socket);
-                result = new_result;
             }
         }
     })
-}
-
-fn handle_outputs<Msg>(
-    outputs: &ActorOutputVec<SpawnId, Msg>, id: &SpawnId, socket: &UdpSocket)
-where Msg: Debug + Serialize
-{
-    for o in &outputs.0 {
-        let ActorOutput::Send { dst, msg } = o;
-        let out_buf = match serde_json::to_vec(msg) {
-            Ok(v) => v,
-            Err(e) => {
-                println!("Unable to serialize. Ignoring. id={}, dst={}, msg={:?}, err={}",
-                         fmt(id), fmt(dst), msg, e);
-                continue
-            },
-        };
-        match socket.send_to(&out_buf, &dst) {
-            Ok(_) => {}
-            Err(e) => {
-                println!("Unable to send. Ignoring. id={}, dst={}, msg={:?}, err={}",
-                         fmt(id), fmt(dst), msg, e);
-                continue
-            }
-        }
-    }
 }
 
 /// Provides a DSL to eliminate some boilerplate for defining an actor.
@@ -385,7 +386,7 @@ pub mod model {
                         let mut description = String::new();
                         {
                             let mut out = |x: String| description.push_str(&x);
-                            let mut invert = |x: String| format!("\x1B[7m{}\x1B[0m", x);
+                            let invert = |x: String| format!("\x1B[7m{}\x1B[0m", x);
 
                             // describe action
                             match input {

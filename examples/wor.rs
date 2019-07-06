@@ -118,7 +118,7 @@ fn main() {
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<char, ()>).unwrap());
             println!();
 
-            actor::spawn(RegisterCfg::Server(ServerCfg), ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
+            spawn(RegisterCfg::Server(ServerCfg), ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
         }
         _ => panic!("expected subcommand")
     }

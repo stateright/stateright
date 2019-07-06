@@ -221,7 +221,8 @@ fn main() {
             let port = 3000;
 
             println!("  A set of servers that implement Single Decree Paxos.");
-            println!("  You can interact with the servers using netcat. Example:");
+            println!("  You can monitor and interact using tcpdump and netcat. Examples:");
+            println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
             println!("$ nc -u 0 {}", port);
             println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()> { value: 'X' }).unwrap());
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
@@ -232,9 +233,9 @@ fn main() {
             let id1 = (localhost, port + 1);
             let id2 = (localhost, port + 2);
             let actors = vec![
-                actor::spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
-                actor::spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),
-                actor::spawn(RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![id0, id1] }), id2),
+                spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
+                spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),
+                spawn(RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![id0, id1] }), id2),
             ];
             for actor in actors {
                 actor.join().unwrap();
