@@ -216,46 +216,6 @@ where
     })
 }
 
-/// Provides a DSL to eliminate some boilerplate for defining an actor.
-#[macro_export]
-macro_rules! actor {
-    (
-    Cfg $(<$tcfg:ident>)* { $($cfg:tt)* }
-    State $(<$tstate:ident>)* { $($state:tt)* }
-    Msg $(<$tmsg:ident>)* { $($msg:tt)* }
-    Start() { $($start:tt)* }
-    Advance($state_advance:ident, $src:ident, $msg_advance:ident) { $($advance:tt)* }
-    ) => (
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub enum Cfg $(<$tcfg>)* { $($cfg)* }
-
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub enum State $(<$tstate>)* { $($state)* }
-
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        #[derive(Serialize, Deserialize)]
-        pub enum Msg $(<$tmsg>)* { $($msg)* }
-
-        impl<Id: Copy> Actor<Id> for Cfg $(<$tcfg>)* {
-            type Msg = Msg $(<$tmsg>)*;
-            type State = State $(<$tstate>)*;
-
-            fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
-                match self {
-                    $($start)*
-                }
-            }
-
-            fn advance(&self, $state_advance: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
-                let ActorInput::Deliver { $src, $msg_advance } = input.clone();
-                match self {
-                    $($advance)*
-                }
-            }
-        }
-    )
-}
-
 /// Models semantics for an actor system on a lossy network that can redeliver messages.
 pub mod model {
     use ::*;
@@ -423,44 +383,59 @@ mod test {
     use ::actor::*;
     use ::actor::model::*;
 
-    actor! {
-        Cfg<Id> { Pinger { max_nat: u32, ponger_id: Id } , Ponger { max_nat: u32 } }
-        State { PingerState(u32), PongerState(u32) }
-        Msg { Ping(u32), Pong(u32) }
-        Start() {
-            Cfg::Pinger { ponger_id, .. } => ActorResult::start(
-                State::PingerState(0),
-                |outputs| outputs.send(*ponger_id, Msg::Ping(0))),
-            Cfg::Ponger { .. } => ActorResult::start(
-                State::PongerState(0),
-                |_outputs| {}),
-        }
-        Advance(state, src, msg) {
-            &Cfg::Pinger { max_nat, .. } => {
-                if let &State::PingerState(actor_value) = state {
-                    if let Msg::Pong(msg_value) = msg {
-                        if actor_value == msg_value && actor_value < max_nat {
-                            return ActorResult::advance(state, |state, outputs| {
-                                *state = State::PingerState(actor_value + 1);
-                                outputs.send(src, Msg::Ping(msg_value + 1));
-                            });
-                        }
-                    }
-                }
-                return None;
+    enum Cfg<Id> {
+        Pinger { max_nat: u32, ponger_id: Id },
+        Ponger { max_nat: u32 }
+    }
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    enum State { Pinger(u32), Ponger(u32) }
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    enum Msg { Ping(u32), Pong(u32) }
+
+    impl<Id: Copy> Actor<Id> for Cfg<Id> {
+        type Msg = Msg;
+        type State = State;
+
+        fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+            match self {
+                Cfg::Pinger { ponger_id, .. } => ActorResult::start(
+                    State::Pinger(0),
+                    |outputs| outputs.send(*ponger_id, Msg::Ping(0))),
+                Cfg::Ponger { .. } => ActorResult::start(
+                    State::Ponger(0),
+                    |_outputs| {}),
             }
-            &Cfg::Ponger { max_nat, .. } => {
-                if let &State::PongerState(actor_value) = state {
-                    if let Msg::Ping(msg_value) = msg {
-                        if actor_value == msg_value && actor_value < max_nat {
-                            return ActorResult::advance(state, |state, outputs| {
-                                *state = State::PongerState(actor_value + 1);
-                                outputs.send(src, Msg::Pong(msg_value));
-                            });
+        }
+
+        fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+            let ActorInput::Deliver { src, msg } = input.clone();
+            match self {
+                &Cfg::Pinger { max_nat, .. } => {
+                    if let &State::Pinger(actor_value) = state {
+                        if let Msg::Pong(msg_value) = msg {
+                            if actor_value == msg_value && actor_value < max_nat {
+                                return ActorResult::advance(state, |state, outputs| {
+                                    *state = State::Pinger(actor_value + 1);
+                                    outputs.send(src, Msg::Ping(msg_value + 1));
+                                });
+                            }
                         }
                     }
+                    return None;
                 }
-                return None;
+                &Cfg::Ponger { max_nat, .. } => {
+                    if let &State::Ponger(actor_value) = state {
+                        if let Msg::Ping(msg_value) = msg {
+                            if actor_value == msg_value && actor_value < max_nat {
+                                return ActorResult::advance(state, |state, outputs| {
+                                    *state = State::Ponger(actor_value + 1);
+                                    outputs.send(src, Msg::Pong(msg_value));
+                                });
+                            }
+                        }
+                    }
+                    return None;
+                }
             }
         }
     }
@@ -469,8 +444,8 @@ mod test {
         let &ActorSystemSnapshot { ref actor_states, .. } = state;
         fn extract_value(a: &Arc<State>) -> u32 {
             match **a {
-                State::PingerState(value) => value,
-                State::PongerState(value) => value,
+                State::Pinger(value) => value,
+                State::Ponger(value) => value,
             }
         };
 
@@ -505,16 +480,16 @@ mod test {
         assert_eq!(state_space, FxHashSet::from_iter(vec![
             // When the network loses no messages...
             snapshot_hash(
-                vec![State::PingerState(0), State::PongerState(0)],
+                vec![State::Pinger(0), State::Ponger(0)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
             snapshot_hash(
-                vec![State::PingerState(0), State::PongerState(1)],
+                vec![State::Pinger(0), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
@@ -523,50 +498,50 @@ mod test {
 
             // When the network loses the message for pinger-ponger state (0, 0)...
             snapshot_hash(
-                vec![State::PingerState(0), State::PongerState(0)],
+                vec![State::Pinger(0), State::Ponger(0)],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (0, 1)
             snapshot_hash(
-                vec![State::PingerState(0), State::PongerState(1)],
+                vec![State::Pinger(0), State::Ponger(1)],
                 vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
             snapshot_hash(
-                vec![State::PingerState(0), State::PongerState(1)],
+                vec![State::Pinger(0), State::Ponger(1)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
             snapshot_hash(
-                vec![State::PingerState(0), State::PongerState(1)],
+                vec![State::Pinger(0), State::Ponger(1)],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (1, 1)
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(1) }]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
             snapshot_hash(
-                vec![State::PingerState(1), State::PongerState(1)],
+                vec![State::Pinger(1), State::Ponger(1)],
                 Vec::new()),
         ]));
     }
