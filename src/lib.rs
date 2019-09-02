@@ -61,14 +61,6 @@
 //!           6, 7, 8], Slide::Right)]);
 //! ```
 
-extern crate difference;
-extern crate fxhash;
-extern crate regex;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-
 use fxhash::FxHashMap;
 use regex::Regex;
 use std::cmp::max;
@@ -78,7 +70,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub mod actor;
-
 
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
@@ -468,7 +459,7 @@ fn hash<T: Hash>(value: &T) -> u64 {
 
 #[cfg(test)]
 mod test {
-    use ::*;
+    use crate::*;
     use std::num::Wrapping;
 
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are

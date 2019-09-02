@@ -218,8 +218,8 @@ where
 
 /// Models semantics for an actor system on a lossy network that can redeliver messages.
 pub mod model {
-    use ::*;
-    use ::actor::*;
+    use crate::*;
+    use crate::actor::*;
 
     /// A performant ID type for model checking.
     pub type ModelId = usize;
@@ -379,9 +379,9 @@ pub mod model {
 
 #[cfg(test)]
 mod test {
-    use ::*;
-    use ::actor::*;
-    use ::actor::model::*;
+    use crate::*;
+    use crate::actor::*;
+    use crate::actor::model::*;
 
     enum Cfg<Id> {
         Pinger { max_nat: u32, ponger_id: Id },

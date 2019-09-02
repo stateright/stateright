@@ -1,12 +1,8 @@
 //! A cluster that implements Single Decree Paxos.
 
-extern crate clap;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate stateright;
-
 use clap::*;
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 use stateright::*;
 use stateright::actor::*;
 use stateright::actor::model::*;
@@ -69,7 +65,7 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
     }
 
     fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
-        use ServerMsg::*;
+        use crate::ServerMsg::*;
 
         let ActorInput::Deliver { src, msg } = input.clone(); // clone makes following code clearer
         match msg {

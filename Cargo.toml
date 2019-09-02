@@ -3,6 +3,7 @@ name = "stateright"
 version = "0.3.0"
 authors = ["Jonathan Nadal <jon.nadal@gmail.com>"]
 license = "MIT"
+edition = "2018"
 
 description = "A library for specifying state machines and model checking invariants."
 repository = "https://github.com/stateright/stateright"

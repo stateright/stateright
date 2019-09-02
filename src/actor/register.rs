@@ -2,8 +2,10 @@
 //! `Actor` (via `RegisterCfg`) that implements client behavior for model checking a register
 //! implementation.
 
-use ::actor::*;
-use ::actor::model::*;
+use crate::actor::*;
+use crate::actor::model::*;
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 
 /// A wrapper configuration for model-checking a register-like actor.
 pub enum RegisterCfg<Id, Value, ServerCfg> {
