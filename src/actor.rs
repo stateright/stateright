@@ -230,10 +230,11 @@ pub mod model {
     /// Indicates whether the network loses messages. Note that as long as invariants do not check
     /// the network state, losing a message is indistinguishable from an unlimited delay, so in
     /// many cases you can improve model checking performance by not modeling message loss.
-    #[derive(PartialEq)]
+    #[derive(Clone, PartialEq)]
     pub enum LossyNetwork { Yes, No }
 
     /// A collection of actors on a lossy network.
+    #[derive(Clone)]
     pub struct ActorSystem<A: Actor<ModelId>> {
         pub init_network: Vec<Envelope<A::Msg>>,
         pub actors: Vec<A>,
@@ -252,7 +253,6 @@ pub mod model {
     }
 
     /// Indicates possible steps that an actor system can take as it evolves.
-    //#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[derive(Clone, Debug)]
     pub enum ActorSystemAction<Msg> {
         Drop(Envelope<Msg>),

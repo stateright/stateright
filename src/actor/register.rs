@@ -8,6 +8,7 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
 /// A wrapper configuration for model-checking a register-like actor.
+#[derive(Clone)]
 pub enum RegisterCfg<Id, Value, ServerCfg> {
     Client {
         server_ids: Vec<Id>,

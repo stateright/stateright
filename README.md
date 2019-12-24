@@ -77,7 +77,7 @@ Paxos cluster and an abstract two phase commit state machine.
 To model check, run:
 
 ```sh
-cargo run --release --example 2pc 3         # 2 phase commit, 3 resource managers
+cargo run --release --example 2pc check 3   # 2 phase commit, 3 resource managers
 cargo run --release --example paxos check 2 # paxos, 2 clients
 cargo run --release --example wor check 3   # write-once register, 3 clients
 ```
@@ -94,7 +94,7 @@ cargo run --example paxos spawn
 To benchmark model checking speed, run with larger state spaces:
 
 ```sh
-cargo run --release --example 2pc 8
+cargo run --release --example 2pc check 8
 cargo run --release --example paxos check 4
 cargo run --release --example wor check 6
 ```

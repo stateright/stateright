@@ -8,6 +8,7 @@ use stateright::actor::*;
 use stateright::actor::model::*;
 use stateright::actor::register::*;
 use stateright::actor::register::RegisterMsg::*;
+use stateright::explorer::*;
 use std::collections::*;
 
 type Round = u32;
@@ -42,6 +43,7 @@ struct ServerState<Id> {
     is_decided: bool,
 }
 
+#[derive(Clone)]
 struct ServerCfg<Id> { rank: Rank, peer_ids: Vec<Id> }
 
 impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
@@ -172,7 +174,7 @@ fn can_model_paxos() {
 }
 
 fn main() {
-    let args = App::new("paxos")
+    let mut app = clap::App::new("paxos")
         .about("single decree paxos")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name("check")
@@ -180,63 +182,104 @@ fn main() {
             .arg(Arg::with_name("client_count")
                  .help("number of clients proposing values")
                  .default_value("2")))
+        .subcommand(SubCommand::with_name("explore")
+            .about("interactively explore state space")
+            .arg(Arg::with_name("client_count")
+                .help("number of clients proposing values")
+                .default_value("2"))
+            .arg(Arg::with_name("address")
+                .help("address Explorer service should listen upon")
+                .default_value("localhost:3000")))
         .subcommand(SubCommand::with_name("spawn")
-            .about("spawn with messaging over UDP"))
-        .get_matches();
+            .about("spawn with messaging over UDP"));
+    let args = app.clone().get_matches();
 
     match args.subcommand() {
         ("check", Some(args)) => {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
-            println!("Benchmarking Single Decree Paxos with {} clients.", client_count);
-
-            let mut actors = vec![
-                RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
-                RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
-                RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
-            ];
-            for i in 0..client_count {
-                actors.push(RegisterCfg::Client {
-                    server_ids: vec![(i % 3) as usize],
-                    desired_value: ('A' as u8 + i) as char
-                });
-            }
-
-            let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
-            let mut checker = sys.checker(|_sys, state| {
-                let values = response_values(&state);
-                match values.as_slice() {
-                    [] => true,
-                    [v] => 'A' <= *v && *v <= ('A' as u8 + client_count - 1) as char,
-                    _ => false
-                }
-            });
-            checker.check_and_report();
+            check_paxos(client_count)
+        }
+        ("explore", Some(args)) => {
+            let client_count = std::cmp::min(
+                26, value_t!(args, "client_count", u8).expect("client_count"));
+            let address = value_t!(args, "address", String).expect("address");
+            explore_paxos(client_count, address)
         }
         ("spawn", Some(_args)) => {
-            let port = 3000;
-
-            println!("  A set of servers that implement Single Decree Paxos.");
-            println!("  You can monitor and interact using tcpdump and netcat. Examples:");
-            println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
-            println!("$ nc -u 0 {}", port);
-            println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()> { value: 'X' }).unwrap());
-            println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
-            println!();
-
-            let localhost = "127.0.0.1".parse().unwrap();
-            let id0 = (localhost, port + 0);
-            let id1 = (localhost, port + 1);
-            let id2 = (localhost, port + 2);
-            let actors = vec![
-                spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
-                spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),
-                spawn(RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![id0, id1] }), id2),
-            ];
-            for actor in actors {
-                actor.join().unwrap();
-            }
+            spawn_paxos()
         }
-        _ => panic!("expected subcommand")
+        _ => app.print_help().unwrap(),
+    }
+}
+
+fn check_paxos(client_count: u8) {
+    println!("Model checking Single Decree Paxos with {} clients.", client_count);
+
+    let mut actors = vec![
+        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
+        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
+        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
+    ];
+    for i in 0..client_count {
+        actors.push(RegisterCfg::Client {
+            server_ids: vec![(i % 3) as usize],
+            desired_value: ('A' as u8 + i) as char
+        });
+    }
+    let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
+
+    let mut checker = sys.checker(|_sys, state| {
+        let values = response_values(&state);
+        match values.as_slice() {
+            [] => true,
+            [v] => 'A' <= *v && *v <= ('A' as u8 + client_count - 1) as char,
+            _ => false
+        }
+    });
+    checker.check_and_report();
+}
+
+fn explore_paxos(client_count: u8, address: String) {
+    println!("Exploring state space for Single Decree Paxos with {} clients on {}.", client_count, address);
+
+    let mut actors = vec![
+        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
+        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
+        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
+    ];
+    for i in 0..client_count {
+        actors.push(RegisterCfg::Client {
+            server_ids: vec![(i % 3) as usize],
+            desired_value: ('A' as u8 + i) as char
+        });
+    }
+    let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
+
+    Explorer(sys).serve(address).unwrap();
+}
+
+fn spawn_paxos() {
+    let port = 3000;
+
+    println!("  A set of servers that implement Single Decree Paxos.");
+    println!("  You can monitor and interact using tcpdump and netcat. Examples:");
+    println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
+    println!("$ nc -u 0 {}", port);
+    println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()> { value: 'X' }).unwrap());
+    println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
+    println!();
+
+    let localhost = "127.0.0.1".parse().unwrap();
+    let id0 = (localhost, port + 0);
+    let id1 = (localhost, port + 1);
+    let id2 = (localhost, port + 2);
+    let actors = vec![
+        spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
+        spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),
+        spawn(RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![id0, id1] }), id2),
+    ];
+    for actor in actors {
+        actor.join().unwrap();
     }
 }

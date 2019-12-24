@@ -62,14 +62,18 @@
 //! ```
 
 use fxhash::FxHashMap;
-use regex::Regex;
-use std::cmp::max;
 use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 pub mod actor;
+pub mod explorer;
+#[cfg(test)]
+pub mod test_util;
+
+/// A state identifier based on `hash`.
+type Fingerprint = u64;
 
 /// Defines how a state begins and evolves, possibly nondeterministically.
 pub trait StateMachine: Sized {
@@ -92,7 +96,7 @@ pub trait StateMachine: Sized {
     /// A human-readable description of a step for the state machine.
     fn format_step(&self, last_state: &Self::State, action: &Self::Action) -> String
     where
-        Self::Action: Clone + Debug,
+        Self::Action: Debug,
         Self::State: Debug,
     {
         let action_str = format!("{:?}", action);
@@ -112,12 +116,67 @@ pub trait StateMachine: Sized {
     {
         Checker { workers: vec![Worker::init(self, invariant)] }
     }
+
+    /// Indicates the steps (action-state pairs) that follow a particular state.
+    fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)>
+    where Self::State: Hash
+    {
+        let mut actions = Vec::new();
+        self.actions(&last_state, &mut actions);
+        actions.into_iter()
+            .filter_map(|action| {
+                // Not every action results in a state, so we filter the actions by those that
+                // generate a state. We also attach the action.
+                self.next_state(&last_state, &action)
+                    .map(|next_state| (action, next_state))
+            })
+            .collect()
+    }
+
+    /// Indicates the states that follow a particular state. Slightly more efficient than calling
+    /// `next_steps` and projecting out the states.
+    fn next_states(&self, last_state: &Self::State) -> Vec<Self::State> {
+        let mut actions = Vec::new();
+        self.actions(&last_state, &mut actions);
+        actions.into_iter()
+            .filter_map(|action| self.next_state(&last_state, &action))
+            .collect()
+    }
+
+    /// Determines the final state associated with a particular fingerprint path.
+    fn follow_fingerprints(&self, init_states: Vec<Self::State>, fingerprints: Vec<Fingerprint>) -> Option<Self::State>
+    where Self::State: Hash
+    {
+        // Split the fingerprints into a head and tail. There are more efficient ways to do this,
+        // but since this function is not performance sensitive, the implementation favors clarity.
+        let mut remaining_fps = fingerprints.clone();
+        let expected_fp = remaining_fps.remove(0);
+
+        for init_state in init_states {
+            if hash(&init_state) == expected_fp {
+                let next_states = self.next_states(&init_state);
+                return if remaining_fps.is_empty() {
+                    Some(init_state)
+                } else {
+                    self.follow_fingerprints(next_states, remaining_fps)
+                }
+            }
+        }
+        None
+    }
 }
 
 /// A convenience structure for succinctly describing a throwaway `StateMachine`.
+#[derive(Clone)]
 pub struct QuickMachine<State, Action> {
+    /// Returns the initial possible states.
     pub init_states: fn() -> Vec<State>,
+
+    /// Collects the subsequent possible actions based on a previous state.
     pub actions: fn(&State, &mut Vec<Action>),
+
+    /// Converts a previous state and action to a resulting state. `None` indicates that the action
+    /// does not change the state.
     pub next_state: fn(&State, &Action) -> Option<State>,
 }
 
@@ -138,7 +197,6 @@ impl<State, Action> StateMachine for QuickMachine<State, Action> {
     }
 }
 
-
 /// Model checking can be time consuming, so the library checks up to a fixed number of states then
 /// returns. This approach allows the library to avoid tying up a thread indefinitely while still
 /// maintaining adequate performance. This type represents the result of one of those checking
@@ -150,7 +208,10 @@ pub enum CheckResult<State> {
     /// Indicates that checking completed, and the invariant was not violated.
     Pass,
     /// Indicates that checking completed, and the invariant did not hold.
-    Fail { state: State }
+    Fail {
+        /// A state that violates the invariant.
+        state: State
+    }
 }
 
 /// Generates every state reachable by a state machine, and verifies that an invariant holds.
@@ -173,7 +234,7 @@ where
     /// to hold. If the checker is using multiple workers, then each will visit the specified
     /// number of states.
     pub fn check(&mut self, max_count: usize) -> CheckResult<SM::State>
-    where I: Send, SM: Sync, SM::State: Debug + Send
+    where I: Send, SM: Sync, SM::State: Send
     {
         crossbeam_utils::thread::scope(|scope| {
             // 1. Kick off every worker.
@@ -206,9 +267,7 @@ where
     }
 
     /// Identifies the action-state "behavior" path by which a generated state was reached.
-    pub fn path_to(&self, state: &SM::State) -> Vec<(SM::State, SM::Action)>
-    where SM::Action: Clone
-    {
+    pub fn path_to(&self, state: &SM::State) -> Vec<(SM::State, SM::Action)> {
         // First build a stack of digests representing the path (with the init digest at top of
         // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
@@ -267,9 +326,15 @@ where
     /// Blocks the thread until model checking is complete. Periodically emits a status while
     /// checking, tailoring the block size to the checking speed. Emits a report when complete.
     pub fn check_and_report(&mut self)
-    where I: Copy + Send, SM: Sync, SM::State: Debug + Send, SM::Action: Clone + Debug
+    where
+        I: Copy + Send,
+        SM: Sync,
+        SM::State: Debug + Send,
+        SM::Action: Debug,
     {
+        use std::cmp::max;
         use std::time::Instant;
+
         let num_cpus = num_cpus::get();
         let method_start = Instant::now();
         let mut block_size = 32_768;
@@ -442,7 +507,8 @@ where
     }
 }
 
-fn diff(last: &Debug, next: &Debug) -> String {
+fn diff(last: impl Debug, next: impl Debug) -> String {
+    use regex::Regex;
     let last = format!("{:#?}", last);
     let next = format!("{:#?}", next);
     let diff = format!("{}", difference::Changeset::new(&last, &next, "\n"));
@@ -453,13 +519,14 @@ fn diff(last: &Debug, next: &Debug) -> String {
     newline_re.replace_all(&diff, " ").to_string()
 }
 
-fn hash<T: Hash>(value: &T) -> u64 {
+/// Converts a state to a fingerprint.
+pub fn hash<T: Hash>(value: &T) -> Fingerprint {
     fxhash::hash64(value)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::*;
+    use super::*;
     use std::num::Wrapping;
 
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are

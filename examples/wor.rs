@@ -71,7 +71,7 @@ fn can_model_wor() {
 }
 
 fn main() {
-    let args = App::new("wor")
+    let mut app = App::new("wor")
         .about("write-once register")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name("check")
@@ -80,8 +80,8 @@ fn main() {
                  .help("number of clients proposing values")
                  .default_value("5")))
         .subcommand(SubCommand::with_name("spawn")
-            .about("spawn with messaging over UDP"))
-        .get_matches();
+            .about("spawn with messaging over UDP"));
+    let args = app.clone().get_matches();
 
     match args.subcommand() {
         ("check", Some(args)) => {
@@ -120,7 +120,7 @@ fn main() {
 
             spawn(RegisterCfg::Server(ServerCfg), ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
         }
-        _ => panic!("expected subcommand")
+        _ => app.print_help().unwrap(),
     }
 }
 

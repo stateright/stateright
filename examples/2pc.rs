@@ -7,11 +7,13 @@ extern crate stateright;
 
 use clap::*;
 use stateright::*;
+use stateright::explorer::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::hash::Hash;
 
+#[derive(Clone)]
 struct TwoPhaseSys<R> { pub rms: BTreeSet<R> }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -130,19 +132,44 @@ fn can_model_2pc() {
 }
 
 fn main() {
-    let args = App::new("2pc")
+    let mut app = App::new("2pc")
         .about("model check abstract two phase commit")
-        .arg(Arg::with_name("rm_count")
-             .help("number of resource managers")
-             .default_value("7"))
-        .get_matches();
+        .subcommand(SubCommand::with_name("check")
+            .about("model check")
+            .arg(Arg::with_name("rm_count")
+                 .help("number of resource managers")
+                 .default_value("7")))
+        .subcommand(SubCommand::with_name("explore")
+            .about("interactively explore state space")
+            .arg(Arg::with_name("rm_count")
+                 .help("number of resource managers")
+                 .default_value("7"))
+            .arg(Arg::with_name("address")
+                .help("address Explorer service should listen upon")
+                .default_value("localhost:3000")));
+    let args = app.clone().get_matches();
 
-    let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
-    println!("Benchmarking two phase commit with {} resource managers.", rm_count);
+    match args.subcommand() {
+        ("check", Some(args)) => {
+            let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
+            println!("Checking two phase commit with {} resource managers.", rm_count);
 
-    let sys = TwoPhaseSys {
-        rms: BTreeSet::from_iter(0..rm_count)
-    };
-    sys.checker(is_consistent).check_and_report();
+            let sys = TwoPhaseSys {
+                rms: BTreeSet::from_iter(0..rm_count)
+            };
+            sys.checker(is_consistent).check_and_report();
+        }
+        ("explore", Some(args)) => {
+            let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
+            let address = value_t!(args, "address", String).expect("address");
+            println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
+
+            let sys = TwoPhaseSys {
+                rms: BTreeSet::from_iter(0..rm_count)
+            };
+            Explorer(sys).serve(address).unwrap();
+        }
+        _ => app.print_help().unwrap(),
+    }
 }
 
