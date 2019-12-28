@@ -128,4 +128,13 @@ cargo run --release --example wor check 6
 
 ## License
 
-Copyright 2018 Jonathan Nadal and made available under the MIT License.
+Stateright is copyright 2018 Jonathan Nadal and made available under the MIT
+License.
+
+To avoid the need for a Javascript package manager, the Stateright repository
+includes code for the following Javascript dependencies used by Stateright
+Explorer:
+
+- [KnockoutJS](https://knockoutjs.com/) is copyright 2010 Steven Sanderson, the
+  Knockout.js team, and other contributors. It is made available under the MIT
+  License.
