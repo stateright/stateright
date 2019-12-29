@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en_US">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Stateright Explorer</title>
+    <link rel="stylesheet" href="app.css" />
+    <script src="knockout-3.5.0.js"></script>
+</head>
+<body class="color-med">
+    <header class="header color-dark">
+        <h1>Stateright Explorer</h1>
+        <span class="header-links-container">
+            <a href="https://crates.io/crates/stateright">Crate</a>
+            <a href="https://docs.rs/stateright">Docs</a>
+            <a href="https://github.com/stateright/stateright">Source</a>
+        </span>
+    </header>
+    <main class="main-flex">
+        <nav class="main-flex-left">
+            <h2>Path</h2>
+            <ol class="font-small"
+                data-bind="foreach: selectedStep().pathSteps()">
+                <li>
+                    <a class="font-code" href="#"
+                       data-bind="attr: {href: '#/steps' + $data.path},
+                                  css: {'is-no-op': $root.isStepNoOp($data)},
+                                  text: $data.action">PREV</a>
+                </li>
+            </ol>
+        </nav>
+        <section class="main-flex-right">
+            <h2>Current State</h2>
+            <div class="font-code font-small color-dark padding-small"
+                 data-bind="text: selectedStep().state">CURR STATE</div>
+
+            <h2>Next Steps</h2>
+            <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">
+                <li>
+                    <a class="font-code" href="#"
+                       data-bind="attr: {href: '#/steps' + $data.path},
+                                  css: {'is-no-op': $root.isStepNoOp($data)},
+                                  text: $data.action">NEXT</a>
+                </li>
+            </ul>
+        </section>
+    </main>
+    <script src="app.js"></script>
+</body>
+</html>

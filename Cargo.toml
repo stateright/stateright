@@ -12,6 +12,7 @@ categories = ["algorithms", "concurrency", "development-tools", "network-program
 keywords = ["actor", "distributed-systems", "model-checking", "paxos"]
 
 [dependencies]
+actix-files = "0.1"
 actix-web = "1.0.9"
 crossbeam-utils = "0.7.0"
 difference = "2.0.0"

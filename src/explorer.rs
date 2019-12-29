@@ -61,6 +61,7 @@ where
             App::new()
                 .data(sm.clone())
                 .route("/.states{fingerprints:.*}", web::get().to(Self::states))
+                .service(actix_files::Files::new("/", "./ui").index_file("index.htm"))
         })
         .bind(addr)?
         .run()?;

@@ -1,0 +1,74 @@
+/* GENERAL STYLES */
+
+a {
+    color: #fff;
+    text-decoration: none;
+}
+a:hover {
+    color: #c3f;
+    text-decoration: underline;
+}
+a.is-no-op {
+    color: #bbb;
+}
+body {
+    font-family: sans-serif;
+    font-size: 14px;
+    margin: 0;
+}
+h1, h2, ul {
+    margin-bottom: 0.1em;
+    margin-top: 0.3em;
+}
+ul {
+    margin: 0;
+}
+.color-med {
+    background: #222;
+    color: #bbb;
+}
+.color-dark {
+    background: #111;
+    border: solid #c3f 1px;
+    color: #bbb;
+}
+.font-code {
+    font-family: "Lucida Console", Monaco, monospace;
+}
+.font-small {
+    font-size: 0.8em;
+}
+.padding-small {
+    padding: 5px;
+}
+
+/* SECTION-SPECIFIC STYLES */
+
+.header {
+    border: 0 !important;
+    border-bottom: solid #c3f 1px !important;
+    padding-left: 5px;
+}
+.header h1 {
+    display: inline-block;
+    margin-right: 10px;
+}
+.header-links-container a {
+    padding: 5px;
+}
+
+.main-flex {
+    display: flex;
+    flex-wrap: wrap;
+}
+.main-flex-left {
+    flex-basis: 200px;
+    flex-grow: 1;
+    padding-left: 5px;
+}
+.main-flex-right {
+    flex-basis: 200px;
+    flex-grow: 2;
+    padding-left: 5px;
+    padding-right: 5px;
+}
