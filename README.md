@@ -1,78 +1,46 @@
-# Stateright
-
 [![crates.io](https://img.shields.io/crates/v/stateright.svg)](https://crates.io/crates/stateright)
 [![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
 [![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
 
-Stateright is a library for specifying actor systems and validating invariants.
-It features an embedded [model checker](https://en.wikipedia.org/wiki/Model_checking)
-that can verify both abstract models and real systems.
+Correctly implementing distributed algorithms such as the
+[Paxos](https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) and
+[Raft](https://en.wikipedia.org/wiki/Raft_%28computer_science%29) consensus
+protocols is notoriously difficult due to the presence of nondeterminism,
+whereby nodes lack perfectly synchronized clocks and the network reorders and
+drops messages.  Stateright is a library and tool for designing, implementing,
+and verifying the correctness of distributed systems by leveraging a technique
+called [model checking](https://en.wikipedia.org/wiki/Model_checking).  Unlike
+with traditional model checkers, systems implemented using Stateright can also
+be run on a real network without being reimplemented in a different language.
+It also features a web browser UI that can be used to interactively explore how
+a system behaves, which is useful for both learning and debugging.
+
+![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
+
+A typical workflow might involve:
+
+```sh
+# 1. Interactively explore reachable states in a web browser.
+cargo run --release --example paxos explore 2 localhost:3000
+
+# 2. Then model check to ensure all edge cases are addressed.
+cargo run --release --example paxos check 3
+
+# 3. Finally, run the service on a real network, with JSON messages over UDP...
+cargo run --release --example paxos spawn
+
+# ... and send it commands.
+nc -u 0 3000
+{"Put":{"value":"X"}}
+"Get"
+```
 
 ## Examples
 
-As a simple example of an abstract model, we can indicate how to play a
-[sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle) game.
-Running the model checker against a false invariant indicating that the game is
-unsolvable results in the discovery of a counterexample: a sequence of steps
-that does solve the game.
-
-```rust
-use stateright::*;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Slide { Down, Up, Right, Left }
-
-let puzzle = QuickMachine {
-    init_states: || vec![vec![1, 4, 2,
-                              3, 5, 8,
-                              6, 7, 0]],
-    actions: |_, actions| {
-        actions.append(&mut vec![
-            Slide::Down, Slide::Up, Slide::Right, Slide::Left
-        ]);
-    },
-    next_state: |last_state, action| {
-        let empty = last_state.iter().position(|x| *x == 0).unwrap();
-        let empty_y = empty / 3;
-        let empty_x = empty % 3;
-        let maybe_from = match action {
-            Slide::Down  if empty_y > 0 => Some(empty - 3), // above
-            Slide::Up    if empty_y < 2 => Some(empty + 3), // below
-            Slide::Right if empty_x > 0 => Some(empty - 1), // left
-            Slide::Left  if empty_x < 2 => Some(empty + 1), // right
-            _ => None
-        };
-        maybe_from.map(|from| {
-            let mut next_state = last_state.clone();
-            next_state[empty] = last_state[from];
-            next_state[from] = 0;
-            next_state
-        })
-    }
-};
-let solved = vec![0, 1, 2,
-                  3, 4, 5,
-                  6, 7, 8];
-let mut checker = puzzle.checker(|_, state| { state != &solved });
-assert_eq!(checker.check(100), CheckResult::Fail { state: solved.clone() });
-assert_eq!(checker.path_to(&solved), vec![
-    (vec![1, 4, 2,
-          3, 5, 8,
-          6, 7, 0], Slide::Down),
-    (vec![1, 4, 2,
-          3, 5, 0,
-          6, 7, 8], Slide::Right),
-    (vec![1, 4, 2,
-          3, 0, 5,
-          6, 7, 8], Slide::Down),
-    (vec![1, 0, 2,
-          3, 4, 5,
-          6, 7, 8], Slide::Right)]);
-```
-
-See the [examples](https://github.com/stateright/stateright/tree/master/examples)
-directory for additional state machines, such as an actor based Single Decree
-Paxos cluster and an abstract two phase commit state machine.
+Stateright includes a variety of
+[examples](https://github.com/stateright/stateright/tree/master/examples), such
+as an actor based Single Decree Paxos cluster and an abstract two phase commit
+state machine.
 
 To model check, run:
 
@@ -82,11 +50,20 @@ cargo run --release --example paxos check 2 # paxos, 2 clients
 cargo run --release --example wor check 3   # write-once register, 3 clients
 ```
 
+To interactively explore a model's state space in a web browser UI, run:
+
+```sh
+cargo run --release --example 2pc explore
+cargo run --release --example paxos explore
+cargo run --release --example wor explore
+```
+
 Stateright also includes a simple runtime for executing an actor state machine
 mapping messages to JSON over UDP:
 
 ```sh
-cargo run --example paxos spawn
+cargo run --release --example paxos spawn
+cargo run --release --example wor spawn
 ```
 
 ## Performance
