@@ -62,13 +62,13 @@ ul {
     flex-wrap: wrap;
 }
 .main-flex-left {
-    flex-basis: 200px;
+    flex-basis: 400px;
     flex-grow: 1;
     padding-left: 5px;
 }
 .main-flex-right {
-    flex-basis: 200px;
-    flex-grow: 2;
+    flex-basis: 400px;
+    flex-grow: 3;
     padding-left: 5px;
     padding-right: 5px;
 }
