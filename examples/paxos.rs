@@ -8,6 +8,7 @@ use stateright::actor::*;
 use stateright::actor::model::*;
 use stateright::actor::register::*;
 use stateright::actor::register::RegisterMsg::*;
+use stateright::actor::spawn::*;
 use stateright::explorer::*;
 use std::collections::*;
 

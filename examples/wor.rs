@@ -9,6 +9,7 @@ use stateright::*;
 use stateright::actor::*;
 use stateright::actor::model::*;
 use stateright::actor::register::*;
+use stateright::actor::spawn::*;
 
 type Value = char;
 
