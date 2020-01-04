@@ -2,9 +2,6 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-extern crate clap;
-extern crate stateright;
-
 use clap::*;
 use stateright::*;
 use stateright::checker::*;

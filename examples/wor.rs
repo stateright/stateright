@@ -1,9 +1,5 @@
 //! A simple server exposing a single register that can only be written once.
 
-extern crate clap;
-extern crate serde_json;
-extern crate stateright;
-
 use clap::*;
 use stateright::checker::*;
 use stateright::actor::*;
