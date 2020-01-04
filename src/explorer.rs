@@ -29,7 +29,7 @@ impl<Action, State> StateView<State, Action>
 where State: Hash
 {
     fn fingerprint(&self) -> Fingerprint {
-        hash(&self.state)
+        fingerprint(&self.state)
     }
 }
 

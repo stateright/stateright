@@ -152,7 +152,7 @@ where
 
         // 1. Build a stack of digests.
         let mut digests = Vec::new();
-        let mut next_digest = hash(&state);
+        let mut next_digest = fingerprint(&state);
         while let Some(source) = sources.get(&next_digest) {
             match *source {
                 Some(prev_digest) => {
@@ -168,7 +168,7 @@ where
 
         // 2. Begin unwinding by determining the init step.
         let init_states = state_machine.init_states();
-        let mut last_state = init_states.into_iter().find(|s| hash(&s) == digests.pop().unwrap()).unwrap();
+        let mut last_state = init_states.into_iter().find(|s| fingerprint(&s) == digests.pop().unwrap()).unwrap();
 
         // 3. Then continue with the remaining steps.
         let mut output = Vec::new();
@@ -182,7 +182,7 @@ where
                 .find_map(|action| {
                     state_machine.next_state(&last_state, &action)
                         .and_then(|next_state| {
-                            if hash(&next_state) == next_digest {
+                            if fingerprint(&next_state) == next_digest {
                                 Some((action, next_state))
                             } else {
                                 None
@@ -320,7 +320,7 @@ where
         let mut pending = VecDeque::new();
         let mut sources = FxHashMap::with_capacity_and_hasher(STARTING_CAPACITY, Default::default());
         for init_state in state_machine.init_states() {
-            let init_digest = hash(&init_state);
+            let init_digest = fingerprint(&init_state);
             if let Entry::Vacant(init_source) = sources.entry(init_digest) {
                 init_source.insert(None);
                 pending.push_back(init_state);
@@ -354,7 +354,7 @@ where
         let mut next_actions = Vec::new(); // reused between iterations for efficiency
 
         while let Some(state) = self.pending.pop_front() {
-            let digest = hash(&state);
+            let digest = fingerprint(&state);
 
             // collect the next actions, and record the corresponding states that have not been
             // seen before
@@ -362,7 +362,7 @@ where
             self.state_machine.actions(&state, &mut next_actions);
             for next_action in &next_actions {
                 if let Some(next_state) = self.state_machine.next_state(&state, &next_action) {
-                    let next_digest = hash(&next_state);
+                    let next_digest = fingerprint(&next_state);
                     if let Entry::Vacant(next_entry) = self.sources.entry(next_digest) {
                         next_entry.insert(Some(digest));
                         self.pending.push_back(next_state);
@@ -391,7 +391,7 @@ mod test {
         use fxhash::FxHashSet;
         use std::iter::FromIterator;
 
-        let h = |a: u8, b: u8| hash(&(a, b));
+        let h = |a: u8, b: u8| fingerprint(&(a, b));
         let mut checker = Checker::new(&LinearEquation { a: 2, b: 10, c: 14 }, invariant);
         checker.check(100);
         let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());

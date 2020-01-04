@@ -172,8 +172,8 @@ mod test {
         use fxhash::FxHashSet;
         use std::iter::FromIterator;
 
-        let snapshot_hash = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
-            hash(&ActorSystemSnapshot {
+        let fingerprint = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
+            fingerprint(&ActorSystemSnapshot {
                 actor_states: states.iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
             })
@@ -192,16 +192,16 @@ mod test {
         let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
         assert_eq!(state_space, FxHashSet::from_iter(vec![
             // When the network loses no messages...
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(0), State::Ponger(0)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
@@ -210,50 +210,50 @@ mod test {
                 ]),
 
             // When the network loses the message for pinger-ponger state (0, 0)...
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(0), State::Ponger(0)],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (0, 1)
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
                 vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (1, 1)
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
                 ]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
                     Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
                     Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
                 ]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(1) }]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
-            snapshot_hash(
+            fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 Vec::new()),
         ]));

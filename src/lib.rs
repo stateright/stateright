@@ -83,7 +83,7 @@ pub trait StateMachine: Sized {
         let expected_fp = remaining_fps.remove(0);
 
         for init_state in init_states {
-            if hash(&init_state) == expected_fp {
+            if fingerprint(&init_state) == expected_fp {
                 let next_states = self.next_states(&init_state);
                 return if remaining_fps.is_empty() {
                     Some(init_state)
@@ -139,10 +139,10 @@ fn diff(last: impl Debug, next: impl Debug) -> String {
     newline_re.replace_all(&diff, " ").to_string()
 }
 
-/// A state identifier based on `hash`.
-type Fingerprint = u64;
+/// A state identifier. See `fingerprint`.
+pub type Fingerprint = u64;
 
 /// Converts a state to a fingerprint.
-pub fn hash<T: Hash>(value: &T) -> Fingerprint {
+pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
     fxhash::hash64(value)
 }
