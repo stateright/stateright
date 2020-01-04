@@ -528,14 +528,13 @@ pub fn hash<T: Hash>(value: &T) -> Fingerprint {
 mod test {
     use super::*;
     use crate::test_util::linear_equation_solver::*;
-    use std::num::Wrapping;
 
     #[test]
     fn model_check_records_states() {
         use fxhash::FxHashSet;
         use std::iter::FromIterator;
 
-        let h = |a: u8, b: u8| hash(&(Wrapping(a), Wrapping(b)));
+        let h = |a: u8, b: u8| hash(&(a, b));
         let mut checker = LinearEquation { a: 2, b: 10, c: 14 }.checker(invariant);
         checker.check(100);
         let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
@@ -566,7 +565,7 @@ mod test {
         assert_eq!(checker.sources().len(), 115); // not all generated were checked
         assert_eq!(
             checker.check(100_000),
-            CheckResult::Fail { state: (Wrapping(3), Wrapping(15)) });
+            CheckResult::Fail { state: (3, 15) });
         assert_eq!(checker.sources().len(), 207); // only 187 were checked
     }
 
@@ -574,14 +573,14 @@ mod test {
     fn model_check_can_resume_after_failing() {
         let mut checker = LinearEquation { a: 0, b: 0, c: 0 }.checker(invariant);
         // init case
-        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(0)) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (0, 0) });
         // distance==1 cases
-        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(1), Wrapping(0)) });
-        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(1)) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (1, 0) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (0, 1) });
         // subset of distance==2 cases
-        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(2), Wrapping(0)) });
-        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(1), Wrapping(1)) });
-        assert_eq!(checker.check(100), CheckResult::Fail { state: (Wrapping(0), Wrapping(2)) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (2, 0) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (1, 1) });
+        assert_eq!(checker.check(100), CheckResult::Fail { state: (0, 2) });
     }
 
     #[test]
@@ -592,9 +591,9 @@ mod test {
                 assert_eq!(
                     checker.path_to(&state),
                     vec![
-                        ((Wrapping(0), Wrapping(0)), Guess::IncreaseX),
-                        ((Wrapping(1), Wrapping(0)), Guess::IncreaseX),
-                        ((Wrapping(2), Wrapping(0)), Guess::IncreaseY),
+                        ((0, 0), Guess::IncreaseX),
+                        ((1, 0), Guess::IncreaseX),
+                        ((2, 0), Guess::IncreaseY),
                     ]);
             },
             _ => panic!("expected solution")
