@@ -1,6 +1,9 @@
 //! A web service for interactively exploring a state machine.
 //!
+//! ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
+//!
 //! API summary:
+//! - `GET /` returns a web browser UI as HTML.
 //! - `GET /.states` returns available initial states and fingerprints.
 //! - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
 //!   path of fingerprints and returns available actions with resulting
