@@ -163,6 +163,7 @@ where
 mod test {
     use crate::*;
     use crate::actor::system::*;
+    use crate::checker::*;
     use crate::test_util::ping_pong::*;
     use std::sync::Arc;
 
@@ -185,7 +186,7 @@ mod test {
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
         };
-        let mut checker = system.checker(invariant);
+        let mut checker = Checker::new(&system, invariant);
         checker.check(1_000);
         assert_eq!(checker.sources().len(), 14);
         let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
@@ -268,7 +269,7 @@ mod test {
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
         };
-        let mut checker = sys.checker(invariant);
+        let mut checker = Checker::new(&sys, invariant);
         let result = checker.check(1_000_000);
         assert_eq!(result, CheckResult::Pass);
         assert_eq!(checker.sources().len(), 4094);

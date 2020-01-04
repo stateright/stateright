@@ -3,12 +3,12 @@
 use clap::*;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use stateright::*;
 use stateright::actor::*;
 use stateright::actor::register::*;
 use stateright::actor::register::RegisterMsg::*;
 use stateright::actor::spawn::*;
 use stateright::actor::system::*;
+use stateright::checker::*;
 use stateright::explorer::*;
 use std::collections::*;
 
@@ -162,7 +162,7 @@ fn can_model_paxos() {
         init_network: Vec::new(),
         lossy_network: LossyNetwork::No,
     };
-    let mut checker = system.checker(|_sys, state| {
+    let mut checker = Checker::new(&system, |_sys, state| {
         let values = response_values(&state);
         match values.as_slice() {
             [] => true,
@@ -230,7 +230,7 @@ fn check_paxos(client_count: u8) {
     }
     let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
 
-    let mut checker = sys.checker(|_sys, state| {
+    let mut checker = Checker::new(&sys, |_sys, state| {
         let values = response_values(&state);
         match values.as_slice() {
             [] => true,

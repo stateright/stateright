@@ -8,6 +8,7 @@
 //! use stateright::*;
 //! use stateright::actor::*;
 //! use stateright::actor::system::*;
+//! use stateright::checker::*;
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
@@ -38,8 +39,9 @@
 //!     init_network: vec![Envelope { src: 1, dst: 0, msg: 1 }],
 //!     lossy_network: LossyNetwork::Yes,
 //! };
-//! let mut checker = sys.checker(
-//!     |sys, snapshot| snapshot.actor_states.iter().all(|s| **s < 3));
+//! let mut checker = Checker::new(
+//!     &sys,
+//!     |_sys, snapshot| snapshot.actor_states.iter().all(|s| **s < 3));
 //! assert_eq!(
 //!     checker.check(100),
 //!     CheckResult::Fail {

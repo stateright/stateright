@@ -5,7 +5,7 @@ extern crate serde_json;
 extern crate stateright;
 
 use clap::*;
-use stateright::*;
+use stateright::checker::*;
 use stateright::actor::*;
 use stateright::actor::register::*;
 use stateright::actor::spawn::*;
@@ -59,7 +59,7 @@ fn can_model_wor() {
         init_network: Vec::new(),
         lossy_network: LossyNetwork::Yes,
     };
-    let mut checker = system.checker(|_sys, state| {
+    let mut checker = Checker::new(&system, |_sys, state| {
         let values = response_values(&state);
         match values.as_slice() {
             [] => true,
@@ -98,7 +98,7 @@ fn main() {
             }
 
             let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::Yes };
-            let mut checker = sys.checker(|_sys, state| {
+            let mut checker = Checker::new(&sys, |_sys, state| {
                 let values = response_values(&state);
                 match values.as_slice() {
                     [] => true,
