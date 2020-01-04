@@ -20,7 +20,7 @@ pub struct Explorer<SM>(pub SM);
 
 /// Summarizes a state and the action that was taken to obtain that state.
 #[derive(Debug, Eq, PartialEq)]
-pub struct StateView<State, Action> {
+struct StateView<State, Action> {
     state: State,
     action: Option<Action>,
 }
