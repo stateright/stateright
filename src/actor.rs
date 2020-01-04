@@ -377,190 +377,190 @@ pub mod model {
         }
     }
 
-#[cfg(test)]
-mod test {
-    use crate::*;
-    use crate::actor::*;
-    use crate::actor::model::*;
+    #[cfg(test)]
+    mod test {
+        use crate::*;
+        use crate::actor::*;
+        use crate::actor::model::*;
 
-    enum Cfg<Id> {
-        Pinger { max_nat: u32, ponger_id: Id },
-        Ponger { max_nat: u32 }
-    }
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    enum State { Pinger(u32), Ponger(u32) }
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    enum Msg { Ping(u32), Pong(u32) }
+        enum Cfg<Id> {
+            Pinger { max_nat: u32, ponger_id: Id },
+            Ponger { max_nat: u32 }
+        }
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        enum State { Pinger(u32), Ponger(u32) }
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        enum Msg { Ping(u32), Pong(u32) }
 
-    impl<Id: Copy> Actor<Id> for Cfg<Id> {
-        type Msg = Msg;
-        type State = State;
+        impl<Id: Copy> Actor<Id> for Cfg<Id> {
+            type Msg = Msg;
+            type State = State;
 
-        fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
-            match self {
-                Cfg::Pinger { ponger_id, .. } => ActorResult::start(
-                    State::Pinger(0),
-                    |outputs| outputs.send(*ponger_id, Msg::Ping(0))),
-                Cfg::Ponger { .. } => ActorResult::start(
-                    State::Ponger(0),
-                    |_outputs| {}),
+            fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+                match self {
+                    Cfg::Pinger { ponger_id, .. } => ActorResult::start(
+                        State::Pinger(0),
+                        |outputs| outputs.send(*ponger_id, Msg::Ping(0))),
+                    Cfg::Ponger { .. } => ActorResult::start(
+                        State::Ponger(0),
+                        |_outputs| {}),
+                }
+            }
+
+            fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+                let ActorInput::Deliver { src, msg } = input.clone();
+                match self {
+                    &Cfg::Pinger { max_nat, .. } => {
+                        if let &State::Pinger(actor_value) = state {
+                            if let Msg::Pong(msg_value) = msg {
+                                if actor_value == msg_value && actor_value < max_nat {
+                                    return ActorResult::advance(state, |state, outputs| {
+                                        *state = State::Pinger(actor_value + 1);
+                                        outputs.send(src, Msg::Ping(msg_value + 1));
+                                    });
+                                }
+                            }
+                        }
+                        return None;
+                    }
+                    &Cfg::Ponger { max_nat, .. } => {
+                        if let &State::Ponger(actor_value) = state {
+                            if let Msg::Ping(msg_value) = msg {
+                                if actor_value == msg_value && actor_value < max_nat {
+                                    return ActorResult::advance(state, |state, outputs| {
+                                        *state = State::Ponger(actor_value + 1);
+                                        outputs.send(src, Msg::Pong(msg_value));
+                                    });
+                                }
+                            }
+                        }
+                        return None;
+                    }
+                }
             }
         }
 
-        fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
-            let ActorInput::Deliver { src, msg } = input.clone();
-            match self {
-                &Cfg::Pinger { max_nat, .. } => {
-                    if let &State::Pinger(actor_value) = state {
-                        if let Msg::Pong(msg_value) = msg {
-                            if actor_value == msg_value && actor_value < max_nat {
-                                return ActorResult::advance(state, |state, outputs| {
-                                    *state = State::Pinger(actor_value + 1);
-                                    outputs.send(src, Msg::Ping(msg_value + 1));
-                                });
-                            }
-                        }
-                    }
-                    return None;
+        fn invariant(_sys: &ActorSystem<Cfg<ModelId>>, state: &ActorSystemSnapshot<Msg, State>) -> bool {
+            let &ActorSystemSnapshot { ref actor_states, .. } = state;
+            fn extract_value(a: &Arc<State>) -> u32 {
+                match **a {
+                    State::Pinger(value) => value,
+                    State::Ponger(value) => value,
                 }
-                &Cfg::Ponger { max_nat, .. } => {
-                    if let &State::Ponger(actor_value) = state {
-                        if let Msg::Ping(msg_value) = msg {
-                            if actor_value == msg_value && actor_value < max_nat {
-                                return ActorResult::advance(state, |state, outputs| {
-                                    *state = State::Ponger(actor_value + 1);
-                                    outputs.send(src, Msg::Pong(msg_value));
-                                });
-                            }
-                        }
-                    }
-                    return None;
-                }
-            }
+            };
+
+            let max = actor_states.iter().map(extract_value).max().unwrap();
+            let min = actor_states.iter().map(extract_value).min().unwrap();
+            max - min <= 1
+        }
+
+        #[test]
+        fn visits_expected_states() {
+            use fxhash::FxHashSet;
+            use std::iter::FromIterator;
+
+            let snapshot_hash = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
+                hash(&ActorSystemSnapshot {
+                    actor_states: states.iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
+                    network: Network::from_iter(envelopes),
+                })
+            };
+            let system = ActorSystem {
+                actors: vec![
+                    Cfg::Pinger { max_nat: 1, ponger_id: 1 },
+                    Cfg::Ponger { max_nat: 1 },
+                ],
+                init_network: Vec::new(),
+                lossy_network: LossyNetwork::Yes,
+            };
+            let mut checker = system.checker(invariant);
+            checker.check(1_000);
+            assert_eq!(checker.sources().len(), 14);
+            let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
+            assert_eq!(state_space, FxHashSet::from_iter(vec![
+                // When the network loses no messages...
+                snapshot_hash(
+                    vec![State::Pinger(0), State::Ponger(0)],
+                    vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
+                snapshot_hash(
+                    vec![State::Pinger(0), State::Ponger(1)],
+                    vec![
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                        Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                    ]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                        Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
+                    ]),
+
+                // When the network loses the message for pinger-ponger state (0, 0)...
+                snapshot_hash(
+                    vec![State::Pinger(0), State::Ponger(0)],
+                    Vec::new()),
+
+                // When the network loses a message for pinger-ponger state (0, 1)
+                snapshot_hash(
+                    vec![State::Pinger(0), State::Ponger(1)],
+                    vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
+                snapshot_hash(
+                    vec![State::Pinger(0), State::Ponger(1)],
+                    vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
+                snapshot_hash(
+                    vec![State::Pinger(0), State::Ponger(1)],
+                    Vec::new()),
+
+                // When the network loses a message for pinger-ponger state (1, 1)
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![
+                        Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
+                    ]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
+                    ]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![
+                        Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
+                        Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                    ]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(1) }]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
+                snapshot_hash(
+                    vec![State::Pinger(1), State::Ponger(1)],
+                    Vec::new()),
+            ]));
+        }
+
+        #[test]
+        fn can_play_ping_pong() {
+            let sys = ActorSystem {
+                actors: vec![
+                    Cfg::Pinger { max_nat: 5, ponger_id: 1 },
+                    Cfg::Ponger { max_nat: 5 },
+                ],
+                init_network: Vec::new(),
+                lossy_network: LossyNetwork::Yes,
+            };
+            let mut checker = sys.checker(invariant);
+            let result = checker.check(1_000_000);
+            assert_eq!(result, CheckResult::Pass);
+            assert_eq!(checker.sources().len(), 4094);
         }
     }
-
-    fn invariant(_sys: &ActorSystem<Cfg<ModelId>>, state: &ActorSystemSnapshot<Msg, State>) -> bool {
-        let &ActorSystemSnapshot { ref actor_states, .. } = state;
-        fn extract_value(a: &Arc<State>) -> u32 {
-            match **a {
-                State::Pinger(value) => value,
-                State::Ponger(value) => value,
-            }
-        };
-
-        let max = actor_states.iter().map(extract_value).max().unwrap();
-        let min = actor_states.iter().map(extract_value).min().unwrap();
-        max - min <= 1
-    }
-
-    #[test]
-    fn visits_expected_states() {
-        use fxhash::FxHashSet;
-        use std::iter::FromIterator;
-
-        let snapshot_hash = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
-            hash(&ActorSystemSnapshot {
-                actor_states: states.iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
-                network: Network::from_iter(envelopes),
-            })
-        };
-        let system = ActorSystem {
-            actors: vec![
-                Cfg::Pinger { max_nat: 1, ponger_id: 1 },
-                Cfg::Ponger { max_nat: 1 },
-            ],
-            init_network: Vec::new(),
-            lossy_network: LossyNetwork::Yes,
-        };
-        let mut checker = system.checker(invariant);
-        checker.check(1_000);
-        assert_eq!(checker.sources().len(), 14);
-        let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
-        assert_eq!(state_space, FxHashSet::from_iter(vec![
-            // When the network loses no messages...
-            snapshot_hash(
-                vec![State::Pinger(0), State::Ponger(0)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
-            snapshot_hash(
-                vec![State::Pinger(0), State::Ponger(1)],
-                vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
-                ]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
-                ]),
-
-            // When the network loses the message for pinger-ponger state (0, 0)...
-            snapshot_hash(
-                vec![State::Pinger(0), State::Ponger(0)],
-                Vec::new()),
-
-            // When the network loses a message for pinger-ponger state (0, 1)
-            snapshot_hash(
-                vec![State::Pinger(0), State::Ponger(1)],
-                vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
-            snapshot_hash(
-                vec![State::Pinger(0), State::Ponger(1)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
-            snapshot_hash(
-                vec![State::Pinger(0), State::Ponger(1)],
-                Vec::new()),
-
-            // When the network loses a message for pinger-ponger state (1, 1)
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
-                ]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
-                ]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
-                ]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(1) }]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
-            snapshot_hash(
-                vec![State::Pinger(1), State::Ponger(1)],
-                Vec::new()),
-        ]));
-    }
-
-    #[test]
-    fn can_play_ping_pong() {
-        let sys = ActorSystem {
-            actors: vec![
-                Cfg::Pinger { max_nat: 5, ponger_id: 1 },
-                Cfg::Ponger { max_nat: 5 },
-            ],
-            init_network: Vec::new(),
-            lossy_network: LossyNetwork::Yes,
-        };
-        let mut checker = sys.checker(invariant);
-        let result = checker.check(1_000_000);
-        assert_eq!(result, CheckResult::Pass);
-        assert_eq!(checker.sources().len(), 4094);
-    }
-}
 }
 
