@@ -7,9 +7,9 @@ extern crate stateright;
 use clap::*;
 use stateright::*;
 use stateright::actor::*;
-use stateright::actor::model::*;
 use stateright::actor::register::*;
 use stateright::actor::spawn::*;
+use stateright::actor::system::*;
 
 type Value = char;
 

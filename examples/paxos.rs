@@ -5,10 +5,10 @@ use serde_derive::Deserialize;
 use serde_derive::Serialize;
 use stateright::*;
 use stateright::actor::*;
-use stateright::actor::model::*;
 use stateright::actor::register::*;
 use stateright::actor::register::RegisterMsg::*;
 use stateright::actor::spawn::*;
+use stateright::actor::system::*;
 use stateright::explorer::*;
 use std::collections::*;
 

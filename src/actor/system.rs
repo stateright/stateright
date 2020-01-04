@@ -163,7 +163,7 @@ where
 mod test {
     use crate::*;
     use crate::actor::*;
-    use crate::actor::model::*;
+    use crate::actor::system::*;
 
     enum Cfg<Id> {
         Pinger { max_nat: u32, ponger_id: Id },

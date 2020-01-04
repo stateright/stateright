@@ -1,4 +1,4 @@
-//! This module provides an actor abstraction. See the `model` submodule for a state machine
+//! This module provides an actor abstraction. See the `system` submodule for a state machine
 //! implementation that can check a system of actors. See the `spawn` submodule for a runtime that
 //! can run your actor over a real network. See the `register` submodule for an example wrapper.
 //!
@@ -7,7 +7,7 @@
 //! ```
 //! use stateright::*;
 //! use stateright::actor::*;
-//! use stateright::actor::model::*;
+//! use stateright::actor::system::*;
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
@@ -55,9 +55,9 @@
 //!     });
 //! ```
 
-pub mod model;
 pub mod register;
 pub mod spawn;
+pub mod system;
 
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;

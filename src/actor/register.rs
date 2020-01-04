@@ -3,7 +3,7 @@
 //! implementation.
 
 use crate::actor::*;
-use crate::actor::model::*;
+use crate::actor::system::*;
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
 
