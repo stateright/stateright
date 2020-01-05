@@ -79,7 +79,7 @@ pub trait StateMachine: Sized {
     {
         // Split the fingerprints into a head and tail. There are more efficient ways to do this,
         // but since this function is not performance sensitive, the implementation favors clarity.
-        let mut remaining_fps = fingerprints.clone();
+        let mut remaining_fps = fingerprints;
         let expected_fp = remaining_fps.remove(0);
 
         for init_state in init_states {

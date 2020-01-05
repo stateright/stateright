@@ -75,14 +75,14 @@ where
     fn states(req: HttpRequest, sys: web::Data<SM>) -> Result<Json<Vec<StateView<SM::State, SM::Action>>>> {
         // extract fingerprints
         let mut fingerprints_str = req.match_info().get("fingerprints").expect("missing 'fingerprints' param").to_string();
-        if fingerprints_str.ends_with("/") {
+        if fingerprints_str.ends_with('/') {
             let relevant_len = fingerprints_str.len() - 1;
             fingerprints_str.truncate(relevant_len);
         }
-        let fingerprints: Vec<_> = fingerprints_str.split("/").filter_map(|fp| fp.parse::<Fingerprint>().ok()).collect();
+        let fingerprints: Vec<_> = fingerprints_str.split('/').filter_map(|fp| fp.parse::<Fingerprint>().ok()).collect();
 
         // ensure all but the first string (which is empty) were parsed
-        if fingerprints.len() + 1 != fingerprints_str.split("/").count() {
+        if fingerprints.len() + 1 != fingerprints_str.split('/').count() {
             return Err(
                 actix_web::error::ErrorNotFound(
                     format!("Unable to parse fingerprints {}", fingerprints_str)));
@@ -111,7 +111,7 @@ where
                     format!("Unable to find state following fingerprints {}", fingerprints_str)));
         }
 
-        return Ok(Json(results));
+        Ok(Json(results))
     }
 }
 
