@@ -31,8 +31,10 @@
         </nav>
         <section class="main-flex-right">
             <h2>Current State</h2>
-            <pre class="font-code font-small color-dark columns padding-small"
-                 data-bind="text: selectedStep().state">CURR STATE</pre>
+            <div class="font-code font-small color-dark columns padding-small"
+                 data-bind="click: () => isCompact(!isCompact()),
+                            style: { 'white-space': isCompact() ? 'normal' : 'pre' },
+                            text: selectedStep().state">CURR STATE</div>
 
             <h2>Next Steps</h2>
             <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">

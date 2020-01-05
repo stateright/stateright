@@ -45,6 +45,7 @@ function App() {
     let app = this;
 
     app.selectedStep = ko.observable(Step.PRE_INIT);
+    app.isCompact = ko.observable(false);
     app.isStepNoOp = (step) => step.state == app.selectedStep().state;
 
     window.onhashchange = prepareView;
