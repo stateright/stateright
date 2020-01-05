@@ -43,7 +43,7 @@ where
         if let Some(ref action) = self.action {
             out.serialize_field("action", &format!("{:?}", action))?;
         }
-        out.serialize_field("state", &format!("{:?}", self.state))?;
+        out.serialize_field("state", &format!("{:#?}", self.state))?;
         out.serialize_field("fingerprint", &format!("{:?}", self.fingerprint()))?;
         out.end()
     }

@@ -31,6 +31,10 @@ ul {
     background: #111;
     border: solid #c3f 1px;
     color: #bbb;
+    column-rule: solid #c3f 1px;
+}
+.columns {
+    column-width: 200px;
 }
 .font-code {
     font-family: "Lucida Console", Monaco, monospace;
