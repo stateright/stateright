@@ -238,7 +238,7 @@ fn check_paxos(client_count: u8) {
             _ => false
         }
     });
-    checker.check_and_report();
+    checker.check_and_report(&mut std::io::stdout());
 }
 
 fn explore_paxos(client_count: u8, address: String) {

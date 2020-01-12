@@ -109,53 +109,27 @@ where
         }
     }
 
-    fn format_step(&self, last_state: &Self::State, action: &Self::Action) -> String
-    where
-        Self::Action: Debug,
-        Self::State: Debug,
+    fn display_outcome(&self, last_state: &Self::State, action: &Self::Action) -> Option<String>
+    where Self::State: Debug
     {
-        match action {
-            ActorSystemAction::Drop(env) => {
-                format!("Dropping {:?}", env)
-            },
-            ActorSystemAction::Act(id, input) => {
-                let last_state = &last_state.actor_states[*id];
-                if let Some(ActorResult {
-                    state: next_state,
-                    outputs: ActorOutputVec(outputs),
-                }) = self.actors[*id].advance(last_state, input)
-                {
-                    let mut description = String::new();
-                    {
-                        let mut out = |x: String| description.push_str(&x);
-                        let invert = |x: String| format!("\x1B[7m{}\x1B[0m", x);
-
-                        // describe action
-                        match input {
-                            ActorInput::Deliver { src, msg } =>
-                                out(invert(format!("{} receives from {} message {:?}", id, src, msg)))
-                        }
-
-                        // describe state
-                        if *last_state != Arc::new(next_state.clone()) {
-                            out(format!("\n  State becomes {}", diff(&last_state, &next_state)));
-                        }
-
-                        // describe outputs
-                        for output in outputs {
-                            match output {
-                                ActorOutput::Send { dst, msg } =>
-                                    out(format!("\n  Sends {:?} message {:?}", dst, msg))
-                            }
-                        }
-                    }
-                    description
-
-                } else {
-                    format!("{} ignores {:?}", id, action)
+        if let ActorSystemAction::Act(id, input) = action {
+            let last_state = &last_state.actor_states[*id];
+            let result = self.actors[*id].advance(last_state, input);
+            if let Some(ActorResult { state, outputs: ActorOutputVec(outputs) }) = result {
+                #[derive(Debug)]
+                struct ActorStep<State, Msg> {
+                    last_state: Arc<State>,
+                    next_state: State,
+                    outputs: Vec<ActorOutput<ModelId, Msg>>
                 }
-            },
+                return Some(format!("{:#?}", ActorStep {
+                    last_state: last_state.clone(),
+                    next_state: state,
+                    outputs
+                }));
+            }
         }
+        None
     }
 }
 

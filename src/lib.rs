@@ -32,19 +32,12 @@ pub trait StateMachine: Sized {
     /// does not change the state.
     fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State>;
 
-    /// A human-readable description of a step for the state machine.
-    fn format_step(&self, last_state: &Self::State, action: &Self::Action) -> String
-    where
-        Self::Action: Debug,
-        Self::State: Debug,
+    /// Summarizes the outcome of taking a step.
+    fn display_outcome(&self, last_state: &Self::State, action: &Self::Action) -> Option<String>
+    where Self::State: Debug
     {
-        let action_str = format!("{:?}", action);
-        if let Some(next_state) = self.next_state(last_state, action) {
-            let diff_str = diff(last_state, &next_state);
-            format!("{} results in {}", action_str, diff_str)
-        } else {
-            format!("{} ignored", action_str)
-        }
+        self.next_state(last_state, action)
+            .map(|next_state| format!("{:?}", next_state))
     }
 
     /// Indicates the steps (action-state pairs) that follow a particular state.
@@ -125,18 +118,6 @@ impl<State, Action> StateMachine for QuickMachine<State, Action> {
     fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State> {
         (self.next_state)(last_state, action)
     }
-}
-
-fn diff(last: impl Debug, next: impl Debug) -> String {
-    use regex::Regex;
-    let last = format!("{:#?}", last);
-    let next = format!("{:#?}", next);
-    let diff = format!("{}", difference::Changeset::new(&last, &next, "\n"));
-
-    let control_re = Regex::new(r"\n *(?P<c>\x1B\[\d+m) *").unwrap();
-    let newline_re = Regex::new(r"\n *").unwrap();
-    let diff = control_re.replace_all(&diff, "$c ");
-    newline_re.replace_all(&diff, " ").to_string()
 }
 
 /// A state identifier. See `fingerprint`.

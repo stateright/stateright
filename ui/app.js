@@ -1,8 +1,9 @@
 /// Represents a state machine step. Only loads next steps on demand.
-function Step({action, state, fingerprint, prevStep}) {
+function Step({action, outcome, state, fingerprint, prevStep}) {
     let step = this;
 
     step.action = action || `Init ${i}`;
+    step.outcome = outcome;
     step.state = state;
     step.fingerprint = fingerprint;
     step.prevStep = prevStep;
@@ -22,6 +23,7 @@ function Step({action, state, fingerprint, prevStep}) {
                 console.log('Response received.', {path: step.path, nextSteps});
                 return nextSteps.map((nextStep, i) => new Step({
                     action: nextStep.action || `Init ${i}`,
+                    outcome: nextStep.outcome,
                     state: nextStep.state,
                     fingerprint: nextStep.fingerprint,
                     prevStep: step,

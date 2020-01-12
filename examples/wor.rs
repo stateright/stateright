@@ -102,7 +102,7 @@ fn main() {
                     _ => false
                 }
             });
-            checker.check_and_report();
+            checker.check_and_report(&mut std::io::stdout());
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

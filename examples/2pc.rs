@@ -155,7 +155,7 @@ fn main() {
             let sys = TwoPhaseSys {
                 rms: BTreeSet::from_iter(0..rm_count)
             };
-            Checker::new(&sys, is_consistent).check_and_report();
+            Checker::new(&sys, is_consistent).check_and_report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");

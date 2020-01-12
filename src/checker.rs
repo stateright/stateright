@@ -199,7 +199,7 @@ where
 
     /// Blocks the thread until model checking is complete. Periodically emits a status while
     /// checking, tailoring the block size to the checking speed. Emits a report when complete.
-    pub fn check_and_report(&mut self)
+    pub fn check_and_report(&mut self, w: &mut impl std::io::Write)
     where
         I: Copy + Send,
         SM: Sync,
@@ -218,15 +218,18 @@ where
                 CheckResult::Fail { state } => {
                     // First a quick summary.
                     let path = self.path_to(&state);
-                    println!("{} states pending after {} sec. Invariant violated by path of length {}.",
+                    writeln!(w, "{} states pending after {} sec. Invariant violated by path of length {}.",
                              self.pending_count(),
                              method_start.elapsed().as_secs(),
-                             path.len());
+                             path.len()).unwrap();
 
                     // Then show the path.
                     let state_machine = self.workers[0].state_machine;
                     for (state, action) in path {
-                        println!("{}", state_machine.format_step(&state, &action));
+                        writeln!(w, "ACTION: {:?}", action).unwrap();
+                        if let Some(outcome) = state_machine.display_outcome(&state, &action) {
+                            writeln!(w, "OUTCOME: {}", outcome).unwrap();
+                        }
                     }
                     return;
                 },
@@ -455,5 +458,22 @@ mod test {
             },
             _ => panic!("expected solution")
         }
+    }
+
+    #[test]
+    fn report_includes_path() {
+        let mut checker = Checker::new(&LinearEquation { a: 2, b: 10, c: 14 }, invariant);
+        let mut written: Vec<u8> = Vec::new();
+        checker.check_and_report(&mut written);
+        let output = String::from_utf8(written).unwrap();
+        assert_eq!(
+            output,
+            "5 states pending after 0 sec. Invariant violated by path of length 3.\n\
+             ACTION: IncreaseX\n\
+             OUTCOME: (1, 0)\n\
+             ACTION: IncreaseX\n\
+             OUTCOME: (2, 0)\n\
+             ACTION: IncreaseY\n\
+             OUTCOME: (2, 1)\n");
     }
 }

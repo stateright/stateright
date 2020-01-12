@@ -21,8 +21,9 @@ pub struct Explorer<SM>(pub SM);
 /// Summarizes a state and the action that was taken to obtain that state.
 #[derive(Debug, Eq, PartialEq)]
 struct StateView<State, Action> {
-    state: State,
     action: Option<Action>,
+    outcome: Option<String>,
+    state: State,
 }
 
 impl<Action, State> StateView<State, Action>
@@ -43,11 +44,16 @@ where
         if let Some(ref action) = self.action {
             out.serialize_field("action", &format!("{:?}", action))?;
         }
+        if let Some(ref outcome) = self.outcome {
+            out.serialize_field("outcome", outcome)?;
+        }
         out.serialize_field("state", &format!("{:#?}", self.state))?;
         out.serialize_field("fingerprint", &format!("{:?}", self.fingerprint()))?;
         out.end()
     }
 }
+
+type StateViewsJson<State, Action> = Json<Vec<StateView<State, Action>>>;
 
 impl<SM> Explorer<SM>
 where
@@ -72,7 +78,7 @@ where
         Ok(())
     }
 
-    fn states(req: HttpRequest, sys: web::Data<SM>) -> Result<Json<Vec<StateView<SM::State, SM::Action>>>> {
+    fn states(req: HttpRequest, sys: web::Data<SM>) -> Result<StateViewsJson<SM::State, SM::Action>> {
         // extract fingerprints
         let mut fingerprints_str = req.match_info().get("fingerprints").expect("missing 'fingerprints' param").to_string();
         if fingerprints_str.ends_with('/') {
@@ -94,14 +100,17 @@ where
             for init_state in sys.init_states() {
                 results.push(StateView {
                     action: None,
+                    outcome: None,
                     state: init_state,
                 });
             }
         } else if let Some(last_state) = sys.follow_fingerprints(sys.init_states(), fingerprints) {
             let steps = sys.next_steps(&last_state);
             for (action, next_state) in steps {
+                let outcome = sys.display_outcome(&last_state, &action);
                 results.push(StateView {
                     action: Some(action),
+                    outcome,
                     state: next_state,
                 });
             }
@@ -123,15 +132,15 @@ mod test {
     #[test]
     fn can_init() {
         assert_eq!(states("/").unwrap(), vec![
-            StateView { action: None, state: 0 },
-            StateView { action: None, state: 1 },
+            StateView { action: None, outcome: None, state: 0 },
+            StateView { action: None, outcome: None, state: 1 },
         ]);
     }
 
     #[test]
     fn can_next() {
         assert_eq!(states("/5871781006564002453/0").unwrap(), vec![
-            StateView { action: Some(BinaryClockAction::GoHigh), state: 1 },
+            StateView { action: Some(BinaryClockAction::GoHigh), outcome: Some("1".to_string()), state: 1 },
         ]);
     }
 
