@@ -125,5 +125,9 @@ pub type Fingerprint = u64;
 
 /// Converts a state to a fingerprint.
 pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
-    fxhash::hash64(value)
+    use std::hash::Hasher;
+    let mut hasher = ahash::AHasher::new_with_keys(
+        123_456_789_987_654_321, 98_765_432_123_456_789);
+    value.hash(&mut hasher);
+    hasher.finish()
 }

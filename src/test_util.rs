@@ -3,13 +3,15 @@
 /// A machine that cycles between two states.
 pub mod binary_clock {
     use crate::*;
+    use crate::checker::*;
 
+    #[derive(Clone)]
     pub struct BinaryClock;
 
     #[derive(Clone, Debug, PartialEq)]
     pub enum BinaryClockAction { GoLow, GoHigh }
 
-    pub type BinaryClockState = u8;
+    pub type BinaryClockState = i8;
 
     impl StateMachine for BinaryClock {
         type State = BinaryClockState;
@@ -34,11 +36,23 @@ pub mod binary_clock {
             }
         }
     }
+
+    impl BinaryClock {
+        pub fn model(self) -> Model<'static, Self> {
+            Model {
+                state_machine: self,
+                properties: vec![Property::always("in [0, 1]", |_model, state| {
+                    0 <= *state && *state <= 1
+                })]
+            }
+        }
+    }
 }
 
 /// A state machine that solves linear equations in two dimensions.
 pub mod linear_equation_solver {
     use crate::*;
+    use crate::checker::*;
 
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are
     /// in `u8`.
@@ -69,18 +83,23 @@ pub mod linear_equation_solver {
         }
     }
 
-    /// This invariant claims that the linear equation is unsolvable. It is falsifiable in many
-    /// cases.
-    pub fn invariant(equation: &LinearEquation, solution: &(u8, u8)) -> bool {
-        let LinearEquation { a, b, c } = equation;
-        let (x, y) = solution;
+    impl LinearEquation {
+        pub fn model(self) -> Model<'static, Self> {
+            Model {
+                state_machine: self,
+                properties: vec![Property::sometimes("solvable", |equation, solution| {
+                    let LinearEquation { a, b, c } = equation;
+                    let (x, y) = solution;
 
-        // dereference and enable wrapping so the equation is succinct
-        use std::num::Wrapping;
-        let (x, y) = (Wrapping(*x), Wrapping(*y));
-        let (a, b, c) = (Wrapping(*a), Wrapping(*b), Wrapping(*c));
+                    // dereference and enable wrapping so the equation is succinct
+                    use std::num::Wrapping;
+                    let (x, y) = (Wrapping(*x), Wrapping(*y));
+                    let (a, b, c) = (Wrapping(*a), Wrapping(*b), Wrapping(*c));
 
-        a*x + b*y != c
+                    a*x + b*y == c
+                })],
+            }
+        }
     }
 }
 
@@ -89,6 +108,7 @@ pub mod ping_pong {
     use crate::*;
     use crate::actor::*;
     use crate::actor::system::*;
+    use crate::checker::*;
 
     pub enum PingPong<Id> {
         Pinger { max_nat: u32, ponger_id: Id },
@@ -149,21 +169,26 @@ pub mod ping_pong {
         }
     }
 
-    /// This invariant claims that the delta between accepted message counts is always less than or
-    /// equal to one.
-    pub fn invariant(_sys: &ActorSystem<PingPong<ModelId>>, state: &ActorSystemSnapshot<Msg, State>) -> bool {
-        use std::sync::Arc;
+    impl ActorSystem<PingPong<ModelId>> {
+        pub fn model(self) -> Model<'static, Self> {
+            Model {
+                state_machine: self,
+                properties: vec![Property::always("delta within 1", |_sys, snap| {
+                    use std::sync::Arc;
 
-        let &ActorSystemSnapshot { ref actor_states, .. } = state;
-        fn extract_value(a: &Arc<State>) -> u32 {
-            match **a {
-                State::Pinger(value) => value,
-                State::Ponger(value) => value,
+                    let &ActorSystemSnapshot { ref actor_states, .. } = snap;
+                    fn extract_value(a: &Arc<State>) -> u32 {
+                        match **a {
+                            State::Pinger(value) => value,
+                            State::Ponger(value) => value,
+                        }
+                    };
+
+                    let max = actor_states.iter().map(extract_value).max().unwrap();
+                    let min = actor_states.iter().map(extract_value).min().unwrap();
+                    max - min <= 1
+                })],
             }
-        };
-
-        let max = actor_states.iter().map(extract_value).max().unwrap();
-        let min = actor_states.iter().map(extract_value).min().unwrap();
-        max - min <= 1
+        }
     }
 }

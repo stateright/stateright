@@ -139,7 +139,7 @@ mod test {
 
     #[test]
     fn can_next() {
-        assert_eq!(states("/5871781006564002453/0").unwrap(), vec![
+        assert_eq!(states("/2660964032595151061/9177167138362116600").unwrap(), vec![
             StateView { action: Some(BinaryClockAction::GoHigh), outcome: Some("1".to_string()), state: 1 },
         ]);
     }

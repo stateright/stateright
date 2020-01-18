@@ -34,28 +34,26 @@
 //!     }
 //! }
 //!
-//! let sys = ActorSystem {
-//!     actors: vec![ClockActor, ClockActor],
-//!     init_network: vec![Envelope { src: 1, dst: 0, msg: 1 }],
-//!     lossy_network: LossyNetwork::Yes,
-//! };
-//! let mut checker = Checker::new(
-//!     &sys,
-//!     |_sys, snapshot| snapshot.actor_states.iter().all(|s| **s < 3));
+//! let counterexample = Model {
+//!     state_machine: ActorSystem {
+//!         actors: vec![ClockActor, ClockActor],
+//!         init_network: vec![Envelope { src: 1, dst: 0, msg: 1 }],
+//!         lossy_network: LossyNetwork::Yes,
+//!     },
+//!     properties: vec![Property::always("less than 3", |_, snap: &ActorSystemSnapshot<_, _>| {
+//!         snap.actor_states.iter().all(|s| **s < 3)
+//!     })],
+//! }.checker().check(1_000).counterexample("less than 3");
 //! assert_eq!(
-//!     checker.check(100),
-//!     CheckResult::Fail {
-//!         state: ActorSystemSnapshot {
-//!             actor_states: vec![Arc::new(3), Arc::new(2)],
-//!             network: Network::from_iter(vec![
-//!                 Envelope { src: 1, dst: 0, msg: 1 },
-//!                 Envelope { src: 0, dst: 1, msg: 2 },
-//!                 Envelope { src: 1, dst: 0, msg: 3 },
-//!                 Envelope { src: 0, dst: 1, msg: 4 },
-//!             ]),
-//!         }
-//!     });
+//!     counterexample.map(Path::into_actions),
+//!     Some(vec![
+//!         ActorSystemAction::Act(0, ActorInput::Deliver { src: 1, msg: 1 }),
+//!         ActorSystemAction::Act(1, ActorInput::Deliver { src: 0, msg: 2 }),
+//!         ActorSystemAction::Act(0, ActorInput::Deliver { src: 1, msg: 3 })]));
 //! ```
+//!
+//! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
+//! are available in the repository.
 
 pub mod register;
 pub mod spawn;
@@ -67,7 +65,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 /// Inputs to which an actor can respond.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ActorInput<Id, Msg> {
     Deliver { src: Id, msg: Msg },
 }

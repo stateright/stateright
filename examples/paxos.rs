@@ -58,8 +58,8 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
 
             // leader state
             proposal: None,
-            prepares: Default::default(),
-            accepts: Default::default(),
+            prepares: BTreeMap::new(),
+            accepts: BTreeSet::new(),
 
             // acceptor state
             accepted: None,
@@ -67,7 +67,8 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
         }, |_outputs| {})
     }
 
-    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>)
+            -> Option<ActorResult<Id, Self::Msg, Self::State>> {
         use crate::ServerMsg::*;
 
         let ActorInput::Deliver { src, msg } = input.clone(); // clone makes following code clearer
@@ -148,30 +149,80 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
     }
 }
 
+/// Create a system with 3 servers and a variable number of clients.
+fn system(client_count: u8)
+        -> ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>> {
+    let mut actors = vec![
+        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
+        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
+        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
+    ];
+    for i in 0..client_count {
+        actors.push(RegisterCfg::Client {
+            server_ids: vec![(i % 3) as usize], // one for each client
+            desired_value: ('A' as u8 + i) as char
+        });
+    }
+    ActorSystem {
+        actors,
+        init_network: Vec::with_capacity(20),
+        lossy_network: LossyNetwork::No,
+    }
+}
+
+/// Build a model that checks for validity (only values sent by clients are chosen) and
+/// consistency (everyone agrees).
+fn model(sys: ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>>)
+        -> Model<'static, ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>>> {
+    let desired_values: BTreeSet<_> = sys.actors.iter()
+        .filter_map(|actor| {
+            if let RegisterCfg::Client { desired_value, .. } = actor {
+                Some(desired_value.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    Model {
+        state_machine: sys,
+        properties: vec![
+            Property::sometimes("value chosen", move |_sys, snap| {
+                !response_values(&snap).is_empty()
+            }),
+            Property::always("valid and consistent", move |_sys, snap| {
+                let values = response_values(&snap);
+                match values.as_slice() {
+                    [] => true,
+                    [v] => desired_values.contains(&v),
+                    _ => false
+                }
+            }),
+        ],
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn can_model_paxos() {
-    let system = ActorSystem {
-        actors: vec![
-            RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
-            RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
-            RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
-            RegisterCfg::Client { server_ids: vec![0], desired_value: 'X' },
-            RegisterCfg::Client { server_ids: vec![1], desired_value: 'Y' },
-        ],
-        init_network: Vec::new(),
-        lossy_network: LossyNetwork::No,
-    };
-    let mut checker = Checker::new(&system, |_sys, state| {
-        let values = response_values(&state);
-        match values.as_slice() {
-            [] => true,
-            [v] => *v == 'X' || *v == 'Y',
-            _ => false
-        }
-    });
-    assert_eq!(checker.check(10_000), CheckResult::Pass);
-    assert_eq!(checker.sources().len(), 1529);
+    use ActorSystemAction::*;
+    use ServerMsg::*;
+    use ActorInput::*;
+    let mut checker = model(system(2)).checker();
+    assert_eq!(checker.check(10_000).is_done(), true);
+    assert_eq!(checker.generated_count(), 1529);
+    assert_eq!(checker.example("value chosen").map(Path::into_actions), Some(vec![
+        Act(0, Deliver { src: 3, msg: Put { value: 'A' } }),
+        Act(1, Deliver { src: 0, msg: Internal(Prepare { ballot: (1, 0) }) }),
+        Act(2, Deliver { src: 0, msg: Internal(Prepare { ballot: (1, 0) }) }),
+        Act(0, Deliver { src: 1, msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) }),
+        Act(0, Deliver { src: 2, msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) }), 
+        Act(1, Deliver { src: 0, msg: Internal(Accept { ballot: (1, 0), value: 'A' }) }),
+        Act(2, Deliver { src: 0, msg: Internal(Accept { ballot: (1, 0), value: 'A' }) }), 
+        Act(0, Deliver { src: 1, msg: Internal(Accepted { ballot: (1, 0) }) }),
+        Act(0, Deliver { src: 2, msg: Internal(Accepted { ballot: (1, 0) }) }), 
+        Act(0, Deliver { src: 3, msg: Get }),
+    ]));
+    assert_eq!(checker.counterexample("valid and consistent"), None);
 }
 
 fn main() {
@@ -199,88 +250,44 @@ fn main() {
         ("check", Some(args)) => {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
-            check_paxos(client_count)
+            println!("Model checking Single Decree Paxos with {} clients.", client_count);
+            model(system(client_count))
+                .checker_with_threads(num_cpus::get())
+                .check_and_report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
             let address = value_t!(args, "address", String).expect("address");
-            explore_paxos(client_count, address)
+            println!(
+                "Exploring state space for Single Decree Paxos with {} clients on {}.",
+                client_count, address);
+            Explorer(system(client_count)).serve(address).unwrap();
         }
         ("spawn", Some(_args)) => {
-            spawn_paxos()
+            let port = 3000;
+
+            println!("  A set of servers that implement Single Decree Paxos.");
+            println!("  You can monitor and interact using tcpdump and netcat. Examples:");
+            println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
+            println!("$ nc -u 0 {}", port);
+            println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()> { value: 'X' }).unwrap());
+            println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
+            println!();
+
+            let localhost = "127.0.0.1".parse().unwrap();
+            let id0 = (localhost, port + 0);
+            let id1 = (localhost, port + 1);
+            let id2 = (localhost, port + 2);
+            let actors = vec![
+                spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
+                spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),
+                spawn(RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![id0, id1] }), id2),
+            ];
+            for actor in actors {
+                actor.join().unwrap();
+            }
         }
         _ => app.print_help().unwrap(),
-    }
-}
-
-fn check_paxos(client_count: u8) {
-    println!("Model checking Single Decree Paxos with {} clients.", client_count);
-
-    let mut actors = vec![
-        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
-        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
-        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
-    ];
-    for i in 0..client_count {
-        actors.push(RegisterCfg::Client {
-            server_ids: vec![(i % 3) as usize],
-            desired_value: ('A' as u8 + i) as char
-        });
-    }
-    let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
-
-    let mut checker = Checker::new(&sys, |_sys, state| {
-        let values = response_values(&state);
-        match values.as_slice() {
-            [] => true,
-            [v] => 'A' <= *v && *v <= ('A' as u8 + client_count - 1) as char,
-            _ => false
-        }
-    });
-    checker.check_and_report(&mut std::io::stdout());
-}
-
-fn explore_paxos(client_count: u8, address: String) {
-    println!("Exploring state space for Single Decree Paxos with {} clients on {}.", client_count, address);
-
-    let mut actors = vec![
-        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
-        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
-        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
-    ];
-    for i in 0..client_count {
-        actors.push(RegisterCfg::Client {
-            server_ids: vec![(i % 3) as usize],
-            desired_value: ('A' as u8 + i) as char
-        });
-    }
-    let sys = ActorSystem { actors, init_network: Vec::new(), lossy_network: LossyNetwork::No };
-
-    Explorer(sys).serve(address).unwrap();
-}
-
-fn spawn_paxos() {
-    let port = 3000;
-
-    println!("  A set of servers that implement Single Decree Paxos.");
-    println!("  You can monitor and interact using tcpdump and netcat. Examples:");
-    println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
-    println!("$ nc -u 0 {}", port);
-    println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()> { value: 'X' }).unwrap());
-    println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
-    println!();
-
-    let localhost = "127.0.0.1".parse().unwrap();
-    let id0 = (localhost, port + 0);
-    let id1 = (localhost, port + 1);
-    let id2 = (localhost, port + 2);
-    let actors = vec![
-        spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
-        spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),
-        spawn(RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![id0, id1] }), id2),
-    ];
-    for actor in actors {
-        actor.join().unwrap();
     }
 }

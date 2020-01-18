@@ -35,7 +35,7 @@ pub struct ActorSystemSnapshot<Msg, State> {
 }
 
 /// Indicates possible steps that an actor system can take as it evolves.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ActorSystemAction<Msg> {
     Drop(Envelope<Msg>),
     Act(ModelId, ActorInput<ModelId, Msg>),
@@ -137,13 +137,12 @@ where
 mod test {
     use crate::*;
     use crate::actor::system::*;
-    use crate::checker::*;
     use crate::test_util::ping_pong::*;
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     #[test]
     fn visits_expected_states() {
-        use fxhash::FxHashSet;
         use std::iter::FromIterator;
 
         let fingerprint = |states: Vec<State>, envelopes: Vec<Envelope<_>>| {
@@ -152,19 +151,18 @@ mod test {
                 network: Network::from_iter(envelopes),
             })
         };
-        let system = ActorSystem {
+        let mut checker = ActorSystem {
             actors: vec![
                 PingPong::Pinger { max_nat: 1, ponger_id: 1 },
                 PingPong::Ponger { max_nat: 1 },
             ],
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
-        };
-        let mut checker = Checker::new(&system, invariant);
+        }.model().checker();
         checker.check(1_000);
-        assert_eq!(checker.sources().len(), 14);
-        let state_space = FxHashSet::from_iter(checker.sources().keys().cloned());
-        assert_eq!(state_space, FxHashSet::from_iter(vec![
+        let state_space = checker.generated_fingerprints();
+        assert_eq!(state_space.len(), 14);
+        assert_eq!(state_space, HashSet::from_iter(vec![
             // When the network loses no messages...
             fingerprint(
                 vec![State::Pinger(0), State::Ponger(0)],
@@ -235,17 +233,16 @@ mod test {
 
     #[test]
     fn can_play_ping_pong() {
-        let sys = ActorSystem {
+        let mut checker = ActorSystem {
             actors: vec![
                 PingPong::Pinger { max_nat: 5, ponger_id: 1 },
                 PingPong::Ponger { max_nat: 5 },
             ],
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
-        };
-        let mut checker = Checker::new(&sys, invariant);
-        let result = checker.check(1_000_000);
-        assert_eq!(result, CheckResult::Pass);
-        assert_eq!(checker.sources().len(), 4094);
+        }.model().checker();
+        assert_eq!(checker.check(10_000).counterexample("delta within 1"), None);
+        assert_eq!(checker.is_done(), true);
+        assert_eq!(checker.generated_count(), 4_094);
     }
 }
