@@ -43,7 +43,8 @@ pub mod binary_clock {
                 state_machine: self,
                 properties: vec![Property::always("in [0, 1]", |_model, state| {
                     0 <= *state && *state <= 1
-                })]
+                })],
+                boundary: None,
             }
         }
     }
@@ -98,6 +99,7 @@ pub mod linear_equation_solver {
 
                     a*x + b*y == c
                 })],
+                boundary: None,
             }
         }
     }
@@ -188,6 +190,7 @@ pub mod ping_pong {
                     let min = actor_states.iter().map(extract_value).min().unwrap();
                     max - min <= 1
                 })],
+                boundary: None, // the actors already have max_nat
             }
         }
     }

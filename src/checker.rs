@@ -49,6 +49,7 @@
 //! let example = Model {
 //!     state_machine: puzzle,
 //!     properties: vec![Property::sometimes("solved", |_, state| { state == &solved })],
+//!     boundary: None,
 //! }.checker().check(100).example("solved");
 //! assert_eq!(
 //!     example,
@@ -102,6 +103,7 @@ impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
 pub struct Model<'a, SM: StateMachine> {
     pub state_machine: SM,
     pub properties: Vec<Property<'a, SM>>,
+    pub boundary: Option<Box<dyn Fn(&SM, &SM::State) -> bool + Sync + 'a>>,
 }
 impl<'a, SM: StateMachine> Model<'a, SM> {
     /// Initializes a single-threaded model checker.
@@ -232,11 +234,15 @@ where
             let digest = fingerprint(&state);
 
             // collect the next actions, and record the corresponding states that have not been
-            // seen before
+            // seen before if they are within the boundary
             next_actions.clear();
             state_machine.actions(&state, &mut next_actions);
             for next_action in &next_actions {
                 if let Some(next_state) = state_machine.next_state(&state, &next_action) {
+                    if let Some(boundary) = &model.boundary {
+                        if !boundary(state_machine, &next_state) { continue }
+                    }
+
                     let next_digest = fingerprint(&next_state);
                     if let Entry::Vacant(next_entry) = sources.entry(next_digest) {
                         next_entry.insert(Some(digest));

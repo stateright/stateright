@@ -74,8 +74,7 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
         let ActorInput::Deliver { src, msg } = input.clone(); // clone makes following code clearer
         match msg {
             Put { value } if !state.is_decided => {
-                // reduce state space until upcoming model checking optimizations land
-                if state.proposal.is_some() || state.ballot.0 == 3 { return None; }
+                if state.proposal.is_some() { return None; }
 
                 return ActorResult::advance(state, |state, outputs| {
                     state.ballot = (state.ballot.0 + 1, self.rank);
@@ -198,6 +197,15 @@ fn model(sys: ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>>)
                 }
             }),
         ],
+        boundary: Some(Box::new(|_sys, snap| {
+            snap.actor_states.iter().all(|s| {
+                if let RegisterState::Server(ref state) = **s {
+                    state.ballot.0 < 4
+                } else {
+                    true
+                }
+            })
+        })),
     }
 }
 

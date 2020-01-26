@@ -43,6 +43,7 @@
 //!     properties: vec![Property::always("less than 3", |_, snap: &ActorSystemSnapshot<_, _>| {
 //!         snap.actor_states.iter().all(|s| **s < 3)
 //!     })],
+//!     boundary: None,
 //! }.checker().check(1_000).counterexample("less than 3");
 //! assert_eq!(
 //!     counterexample.map(Path::into_actions),

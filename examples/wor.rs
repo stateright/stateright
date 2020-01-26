@@ -88,6 +88,7 @@ fn model(sys: ActorSystem<RegisterCfg<ModelId, char, ServerCfg>>)
                 _ => false
             }
         })],
+        boundary: None,
     }
 }
 

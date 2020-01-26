@@ -116,6 +116,7 @@ impl<R: Clone + Hash + Ord> TwoPhaseSys<R> {
                         state.rm_state[rm1] == RmState::Aborted
                      && state.rm_state[rm2] == RmState::Committed))
             })],
+            boundary: None,
         }
     }
 }
