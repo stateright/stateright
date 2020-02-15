@@ -3,9 +3,6 @@
 use crate::*;
 use crate::actor::*;
 
-/// A performant ID type for model checking.
-pub type ModelId = usize;
-
 /// Represents a network of messages.
 pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
 
@@ -17,7 +14,7 @@ pub enum LossyNetwork { Yes, No }
 
 /// A collection of actors on a lossy network.
 #[derive(Clone)]
-pub struct ActorSystem<A: Actor<ModelId>> {
+pub struct ActorSystem<A: Actor> {
     pub init_network: Vec<Envelope<A::Msg>>,
     pub actors: Vec<A>,
     pub lossy_network: LossyNetwork,
@@ -25,7 +22,7 @@ pub struct ActorSystem<A: Actor<ModelId>> {
 
 /// Indicates the source and destination for a message.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Envelope<Msg> { pub src: ModelId, pub dst: ModelId, pub msg: Msg }
+pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 
 /// Represents a snapshot in time for the entire actor system.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -38,10 +35,10 @@ pub struct ActorSystemSnapshot<Msg, State> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ActorSystemAction<Msg> {
     Drop(Envelope<Msg>),
-    Act(ModelId, ActorInput<ModelId, Msg>),
+    Act(Id, ActorInput<Msg>),
 }
 
-impl<A: Actor<ModelId>> StateMachine for ActorSystem<A>
+impl<A: Actor> StateMachine for ActorSystem<A>
 where
     A::Msg: Clone + Debug + Ord,
     A::State: Clone + Debug + Eq,
@@ -64,7 +61,7 @@ where
             actor_states.push(Arc::new(result.state));
             for o in result.outputs.0 {
                 match o {
-                    ActorOutput::Send { dst, msg } => { network.insert(Envelope { src, dst, msg }); },
+                    ActorOutput::Send { dst, msg } => { network.insert(Envelope { src: Id::from(src), dst, msg }); },
                 }
             }
         }
@@ -93,9 +90,10 @@ where
                 Some(state)
             },
             ActorSystemAction::Act(id, input) => {
-                if let Some(result) = self.actors[*id].advance(&last_state.actor_states[*id], input) {
+                let index = usize::from(*id);
+                if let Some(result) = self.actors[index].advance(&last_state.actor_states[index], input) {
                     let mut state = last_state.clone();
-                    state.actor_states[*id] = Arc::new(result.state);
+                    state.actor_states[index] = Arc::new(result.state);
                     for output in result.outputs.0 {
                         match output {
                             ActorOutput::Send {dst, msg} => { state.network.insert(Envelope {src: *id, dst, msg}); },
@@ -113,14 +111,15 @@ where
     where Self::State: Debug
     {
         if let ActorSystemAction::Act(id, input) = action {
-            let last_state = &last_state.actor_states[*id];
-            let result = self.actors[*id].advance(last_state, input);
+            let index = usize::from(*id);
+            let last_state = &last_state.actor_states[index];
+            let result = self.actors[index].advance(last_state, input);
             if let Some(ActorResult { state, outputs: ActorOutputVec(outputs) }) = result {
                 #[derive(Debug)]
                 struct ActorStep<State, Msg> {
                     last_state: Arc<State>,
                     next_state: State,
-                    outputs: Vec<ActorOutput<ModelId, Msg>>
+                    outputs: Vec<ActorOutput<Msg>>
                 }
                 return Some(format!("{:#?}", ActorStep {
                     last_state: last_state.clone(),
@@ -130,6 +129,18 @@ where
             }
         }
         None
+    }
+}
+
+impl From<Id> for usize {
+    fn from(id: Id) -> Self {
+        id.0 as usize
+    }
+}
+
+impl From<usize> for Id {
+    fn from(u: usize) -> Self {
+        Id(u as u64)
     }
 }
 
@@ -153,7 +164,7 @@ mod test {
         };
         let mut checker = ActorSystem {
             actors: vec![
-                PingPong::Pinger { max_nat: 1, ponger_id: 1 },
+                PingPong::Pinger { max_nat: 1, ponger_id: Id::from(1) },
                 PingPong::Ponger { max_nat: 1 },
             ],
             init_network: Vec::new(),
@@ -166,19 +177,19 @@ mod test {
             // When the network loses no messages...
             fingerprint(
                 vec![State::Pinger(0), State::Ponger(0)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) }]),
             fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
                 vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Msg::Pong(0) },
                 ]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Msg::Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(1) },
                 ]),
 
             // When the network loses the message for pinger-ponger state (0, 0)...
@@ -189,10 +200,10 @@ mod test {
             // When the network loses a message for pinger-ponger state (0, 1)
             fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
-                vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
+                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Msg::Pong(0) }]),
             fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) }]),
             fingerprint(
                 vec![State::Pinger(0), State::Ponger(1)],
                 Vec::new()),
@@ -201,30 +212,30 @@ mod test {
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Msg::Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(1) },
                 ]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(1) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(1) },
                 ]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 vec![
-                    Envelope { src: 0, dst: 1, msg: Msg::Ping(0) },
-                    Envelope { src: 1, dst: 0, msg: Msg::Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Msg::Pong(0) },
                 ]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(1) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(1) }]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
-                vec![Envelope { src: 1, dst: 0, msg: Msg::Pong(0) }]),
+                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Msg::Pong(0) }]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
-                vec![Envelope { src: 0, dst: 1, msg: Msg::Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Msg::Ping(0) }]),
             fingerprint(
                 vec![State::Pinger(1), State::Ponger(1)],
                 Vec::new()),
@@ -235,7 +246,7 @@ mod test {
     fn can_play_ping_pong() {
         let mut checker = ActorSystem {
             actors: vec![
-                PingPong::Pinger { max_nat: 5, ponger_id: 1 },
+                PingPong::Pinger { max_nat: 5, ponger_id: Id::from(1) },
                 PingPong::Ponger { max_nat: 5 },
             ],
             init_network: Vec::new(),

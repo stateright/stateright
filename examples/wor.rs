@@ -9,6 +9,7 @@ use stateright::actor::register::*;
 use stateright::actor::spawn::*;
 use stateright::actor::system::*;
 use std::collections::BTreeSet;
+use std::net::{SocketAddrV4, Ipv4Addr};
 
 type Value = char;
 
@@ -18,15 +19,15 @@ struct ServerState { maybe_value: Option<Value> }
 #[derive(Clone)]
 struct ServerCfg;
 
-impl<Id: Copy> Actor<Id> for ServerCfg {
+impl Actor for ServerCfg {
     type Msg = RegisterMsg<Value, ()>;
     type State = ServerState;
 
-    fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+    fn start(&self) -> ActorResult<Self::Msg, Self::State> {
         ActorResult::start(ServerState { maybe_value: None }, |_outputs| {})
     }
 
-    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Self::Msg>) -> Option<ActorResult<Self::Msg, Self::State>> {
         let ActorInput::Deliver { src, msg } = input;
         match msg {
             RegisterMsg::Put { value } if state.maybe_value.is_none() => {
@@ -49,9 +50,9 @@ impl<Id: Copy> Actor<Id> for ServerCfg {
 
 /// Create a system with one server and a variable number of clients.
 fn system(servers: Vec<ServerCfg>, client_count: u8)
-        -> ActorSystem<RegisterCfg<ModelId, char, ServerCfg>> {
+        -> ActorSystem<RegisterCfg<char, ServerCfg>> {
     let mut actors: Vec<_> = servers.into_iter().map(RegisterCfg::Server).collect();
-    let server_ids: Vec<_> = (0..actors.len()).collect();
+    let server_ids: Vec<_> = (0..actors.len()).map(Id::from).collect();
     for i in 0..client_count {
         actors.push(RegisterCfg::Client {
             server_ids: server_ids.clone(),
@@ -67,8 +68,8 @@ fn system(servers: Vec<ServerCfg>, client_count: u8)
 
 /// Build a model that checks for validity (only values sent by clients are chosen) and
 /// consistency (everyone agrees). Consistency is only true if there is a single server!
-fn model(sys: ActorSystem<RegisterCfg<ModelId, char, ServerCfg>>)
-        -> Model<'static, ActorSystem<RegisterCfg<ModelId, char, ServerCfg>>> {
+fn model(sys: ActorSystem<RegisterCfg<char, ServerCfg>>)
+        -> Model<'static, ActorSystem<RegisterCfg<char, ServerCfg>>> {
     let desired_values: BTreeSet<_> = sys.actors.iter()
         .filter_map(|actor| {
             if let RegisterCfg::Client { desired_value, .. } = actor {
@@ -110,10 +111,10 @@ fn can_model_wor() {
     assert_eq!(
         checker.counterexample("valid and consistent").map(Path::into_actions),
         Some(vec![
-            Act(0, Deliver { src: 2, msg: Put { value: 'A' } }),
-            Act(0, Deliver { src: 2, msg: Get }),
-            Act(1, Deliver { src: 3, msg: Put { value: 'B' } }),
-            Act(1, Deliver { src: 2, msg: Get }),
+            Act(Id::from(0), Deliver { src: Id::from(2), msg: Put { value: 'A' } }),
+            Act(Id::from(0), Deliver { src: Id::from(2), msg: Get }),
+            Act(Id::from(1), Deliver { src: Id::from(3), msg: Put { value: 'B' } }),
+            Act(Id::from(1), Deliver { src: Id::from(2), msg: Get }),
         ]));
 }
 
@@ -166,7 +167,7 @@ fn main() {
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<char, ()>).unwrap());
             println!();
 
-            spawn(RegisterCfg::Server(ServerCfg), ("127.0.0.1".parse().unwrap(), port)).join().unwrap();
+            spawn(RegisterCfg::Server(ServerCfg), SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).join().unwrap();
         }
         _ => app.print_help().unwrap(),
     }

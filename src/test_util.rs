@@ -112,7 +112,7 @@ pub mod ping_pong {
     use crate::actor::system::*;
     use crate::checker::*;
 
-    pub enum PingPong<Id> {
+    pub enum PingPong {
         Pinger { max_nat: u32, ponger_id: Id },
         Ponger { max_nat: u32 }
     }
@@ -123,11 +123,11 @@ pub mod ping_pong {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum Msg { Ping(u32), Pong(u32) }
 
-    impl<Id: Copy> Actor<Id> for PingPong<Id> {
+    impl Actor for PingPong {
         type Msg = Msg;
         type State = State;
 
-        fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+        fn start(&self) -> ActorResult<Self::Msg, Self::State> {
             match self {
                 PingPong::Pinger { ponger_id, .. } => ActorResult::start(
                     State::Pinger(0),
@@ -138,7 +138,7 @@ pub mod ping_pong {
             }
         }
 
-        fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+        fn advance(&self, state: &Self::State, input: &ActorInput<Self::Msg>) -> Option<ActorResult<Self::Msg, Self::State>> {
             let ActorInput::Deliver { src, msg } = input.clone();
             match self {
                 &PingPong::Pinger { max_nat, .. } => {
@@ -171,7 +171,7 @@ pub mod ping_pong {
         }
     }
 
-    impl ActorSystem<PingPong<ModelId>> {
+    impl ActorSystem<PingPong> {
         pub fn model(self) -> Model<'static, Self> {
             Model {
                 state_machine: self,

@@ -11,6 +11,7 @@ use stateright::actor::system::*;
 use stateright::checker::*;
 use stateright::explorer::*;
 use std::collections::*;
+use std::net::{SocketAddrV4, Ipv4Addr};
 
 type Round = u32;
 type Rank = u32;
@@ -30,7 +31,7 @@ enum ServerMsg {
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-struct ServerState<Id> {
+struct ServerState {
     // shared state
     ballot: Ballot,
 
@@ -45,13 +46,13 @@ struct ServerState<Id> {
 }
 
 #[derive(Clone)]
-struct ServerCfg<Id> { rank: Rank, peer_ids: Vec<Id> }
+struct ServerCfg { rank: Rank, peer_ids: Vec<Id> }
 
-impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
+impl Actor for ServerCfg {
     type Msg = RegisterMsg<Value, ServerMsg>;
-    type State = ServerState<Id>;
+    type State = ServerState;
 
-    fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+    fn start(&self) -> ActorResult<Self::Msg, Self::State> {
         ActorResult::start(ServerState {
             // shared state
             ballot: (0, 0),
@@ -67,8 +68,8 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
         }, |_outputs| {})
     }
 
-    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>)
-            -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Self::Msg>)
+            -> Option<ActorResult<Self::Msg, Self::State>> {
         use crate::ServerMsg::*;
 
         let ActorInput::Deliver { src, msg } = input.clone(); // clone makes following code clearer
@@ -150,15 +151,15 @@ impl<Id: Copy + Ord> Actor<Id> for ServerCfg<Id> {
 
 /// Create a system with 3 servers and a variable number of clients.
 fn system(client_count: u8)
-        -> ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>> {
+        -> ActorSystem<RegisterCfg<char, ServerCfg>> {
     let mut actors = vec![
-        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![1, 2] }),
-        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![0, 2] }),
-        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![0, 1] }),
+        RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![Id::from(1), Id::from(2)] }),
+        RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![Id::from(0), Id::from(2)] }),
+        RegisterCfg::Server(ServerCfg { rank: 2, peer_ids: vec![Id::from(0), Id::from(1)] }),
     ];
     for i in 0..client_count {
         actors.push(RegisterCfg::Client {
-            server_ids: vec![(i % 3) as usize], // one for each client
+            server_ids: vec![Id::from((i % 3) as usize)], // one for each client
             desired_value: ('A' as u8 + i) as char
         });
     }
@@ -171,8 +172,8 @@ fn system(client_count: u8)
 
 /// Build a model that checks for validity (only values sent by clients are chosen) and
 /// consistency (everyone agrees).
-fn model(sys: ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>>)
-        -> Model<'static, ActorSystem<RegisterCfg<ModelId, char, ServerCfg<ModelId>>>> {
+fn model(sys: ActorSystem<RegisterCfg<char, ServerCfg>>)
+        -> Model<'static, ActorSystem<RegisterCfg<char, ServerCfg>>> {
     let desired_values: BTreeSet<_> = sys.actors.iter()
         .filter_map(|actor| {
             if let RegisterCfg::Client { desired_value, .. } = actor {
@@ -219,16 +220,16 @@ fn can_model_paxos() {
     assert_eq!(checker.check(10_000).is_done(), true);
     assert_eq!(checker.generated_count(), 1529);
     assert_eq!(checker.example("value chosen").map(Path::into_actions), Some(vec![
-        Act(0, Deliver { src: 3, msg: Put { value: 'A' } }),
-        Act(1, Deliver { src: 0, msg: Internal(Prepare { ballot: (1, 0) }) }),
-        Act(2, Deliver { src: 0, msg: Internal(Prepare { ballot: (1, 0) }) }),
-        Act(0, Deliver { src: 1, msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) }),
-        Act(0, Deliver { src: 2, msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) }), 
-        Act(1, Deliver { src: 0, msg: Internal(Accept { ballot: (1, 0), value: 'A' }) }),
-        Act(2, Deliver { src: 0, msg: Internal(Accept { ballot: (1, 0), value: 'A' }) }), 
-        Act(0, Deliver { src: 1, msg: Internal(Accepted { ballot: (1, 0) }) }),
-        Act(0, Deliver { src: 2, msg: Internal(Accepted { ballot: (1, 0) }) }), 
-        Act(0, Deliver { src: 3, msg: Get }),
+        Act(Id::from(0), Deliver { src: Id::from(3), msg: Put { value: 'A' } }),
+        Act(Id::from(1), Deliver { src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) }),
+        Act(Id::from(2), Deliver { src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) }),
+        Act(Id::from(0), Deliver { src: Id::from(1), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) }),
+        Act(Id::from(0), Deliver { src: Id::from(2), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) }),
+        Act(Id::from(1), Deliver { src: Id::from(0), msg: Internal(Accept { ballot: (1, 0), value: 'A' }) }),
+        Act(Id::from(2), Deliver { src: Id::from(0), msg: Internal(Accept { ballot: (1, 0), value: 'A' }) }),
+        Act(Id::from(0), Deliver { src: Id::from(1), msg: Internal(Accepted { ballot: (1, 0) }) }),
+        Act(Id::from(0), Deliver { src: Id::from(2), msg: Internal(Accepted { ballot: (1, 0) }) }),
+        Act(Id::from(0), Deliver { src: Id::from(3), msg: Get }),
     ]));
     assert_eq!(checker.counterexample("valid and consistent"), None);
 }
@@ -283,10 +284,9 @@ fn main() {
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
             println!();
 
-            let localhost = "127.0.0.1".parse().unwrap();
-            let id0 = (localhost, port + 0);
-            let id1 = (localhost, port + 1);
-            let id2 = (localhost, port + 2);
+            let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 0));
+            let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
+            let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             let actors = vec![
                 spawn(RegisterCfg::Server(ServerCfg { rank: 0, peer_ids: vec![id1, id2] }), id0),
                 spawn(RegisterCfg::Server(ServerCfg { rank: 1, peer_ids: vec![id0, id2] }), id1),

@@ -9,7 +9,7 @@ use serde_derive::Serialize;
 
 /// A wrapper configuration for model-checking a register-like actor.
 #[derive(Clone)]
-pub enum RegisterCfg<Id, Value, ServerCfg> {
+pub enum RegisterCfg<Value, ServerCfg> {
     Client {
         server_ids: Vec<Id>,
         desired_value: Value,
@@ -34,16 +34,16 @@ pub enum RegisterState<ServerState> {
     Server(ServerState),
 }
 
-impl<Id, Value, ServerCfg, ServerMsg: Serialize + DeserializeOwned> Actor<Id> for RegisterCfg<Id, Value, ServerCfg>
+impl<Value, ServerCfg, ServerMsg: Serialize + DeserializeOwned> Actor for RegisterCfg<Value, ServerCfg>
 where
     Id: Copy + Ord,
     Value: Clone,
-    ServerCfg: Actor<Id, Msg = RegisterMsg<Value, ServerMsg>>,
+    ServerCfg: Actor<Msg = RegisterMsg<Value, ServerMsg>>,
 {
     type Msg = ServerCfg::Msg;
     type State = RegisterState<ServerCfg::State>;
 
-    fn start(&self) -> ActorResult<Id, Self::Msg, Self::State> {
+    fn start(&self) -> ActorResult<Self::Msg, Self::State> {
         match self {
             RegisterCfg::Client { ref server_ids, ref desired_value } => {
                 ActorResult::start(RegisterState::Client, |outputs| {
@@ -63,7 +63,7 @@ where
         }
     }
 
-    fn advance(&self, state: &Self::State, input: &ActorInput<Id, Self::Msg>) -> Option<ActorResult<Id, Self::Msg, Self::State>> {
+    fn advance(&self, state: &Self::State, input: &ActorInput<Self::Msg>) -> Option<ActorResult<Self::Msg, Self::State>> {
         if let RegisterCfg::Server(server_cfg) = self {
             if let RegisterState::Server(server_state) = state {
                 if let Some(server_result) = server_cfg.advance(server_state, input) {
