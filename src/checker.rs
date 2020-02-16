@@ -85,6 +85,10 @@ use std::sync::Arc;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
+    /// Extracts the last state.
+    pub fn last_state(&self) -> &State {
+        &self.0.last().unwrap().0
+    }
     /// Extracts the actions.
     pub fn into_actions(self) -> Vec<Action> {
         self.0.into_iter().filter_map(|(_s, a)| a).collect()
@@ -233,10 +237,9 @@ where
 
             // collect the next actions, and record the corresponding states that have not been
             // seen before if they are within the boundary
-            next_actions.clear();
             state_machine.actions(&state, &mut next_actions);
-            for next_action in &next_actions {
-                if let Some(next_state) = state_machine.next_state(&state, &next_action) {
+            for next_action in next_actions.drain(0..) {
+                if let Some(next_state) = state_machine.next_state(&state, next_action) {
                     if let Some(boundary) = &model.boundary {
                         if !boundary(state_machine, &next_state) { continue }
                     }
@@ -333,7 +336,9 @@ where
 
         // 2. Begin unwinding by determining the init step.
         let init_states = state_machine.init_states();
-        let mut last_state = init_states.into_iter().find(|s| fingerprint(&s) == digests.pop().unwrap()).unwrap();
+        let mut last_state = init_states.into_iter()
+            .find(|s| fingerprint(&s) == digests.pop().unwrap())
+            .unwrap();
 
         // 3. Then continue with the remaining steps.
         let mut output = Vec::new();
@@ -343,18 +348,15 @@ where
                 &last_state,
                 &mut actions);
 
-            let (action, next_state) = actions.into_iter()
-                .find_map(|action| {
-                    state_machine.next_state(&last_state, &action)
-                        .and_then(|next_state| {
-                            if fingerprint(&next_state) == next_digest {
-                                Some((action, next_state))
-                            } else {
-                                None
-                            }
-                        })
-                })
-                .expect("state matching recorded digest");
+            let (action, next_state) = state_machine
+                .next_steps(&last_state).into_iter()
+                .find_map(|(a,s)| {
+                    if fingerprint(&s) == next_digest {
+                        Some((a, s))
+                    } else {
+                        None
+                    }
+                }).expect("state matching recorded digest");
             output.push((last_state, Some(action)));
 
             last_state = next_state;

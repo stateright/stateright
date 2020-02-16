@@ -30,10 +30,10 @@ pub trait StateMachine: Sized {
 
     /// Converts a previous state and action to a resulting state. `None` indicates that the action
     /// does not change the state.
-    fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State>;
+    fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State>;
 
     /// Summarizes the outcome of taking a step.
-    fn display_outcome(&self, last_state: &Self::State, action: &Self::Action) -> Option<String>
+    fn display_outcome(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
     where Self::State: Debug
     {
         self.next_state(last_state, action)
@@ -44,15 +44,14 @@ pub trait StateMachine: Sized {
     fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)>
     where Self::State: Hash
     {
-        let mut actions = Vec::new();
-        self.actions(&last_state, &mut actions);
-        actions.into_iter()
-            .filter_map(|action| {
-                // Not every action results in a state, so we filter the actions by those that
-                // generate a state. We also attach the action.
-                self.next_state(&last_state, &action)
-                    .map(|next_state| (action, next_state))
-            })
+        // Must generate the actions twice because they are consumed by `next_state`.
+        let mut actions1 = Vec::new();
+        let mut actions2 = Vec::new();
+        self.actions(&last_state, &mut actions1);
+        self.actions(&last_state, &mut actions2);
+        actions1.into_iter().zip(actions2)
+            .filter_map(|(action1, action2)|
+                self.next_state(&last_state, action1).map(|state| (action2, state)))
             .collect()
     }
 
@@ -62,7 +61,7 @@ pub trait StateMachine: Sized {
         let mut actions = Vec::new();
         self.actions(&last_state, &mut actions);
         actions.into_iter()
-            .filter_map(|action| self.next_state(&last_state, &action))
+            .filter_map(|action| self.next_state(&last_state, action))
             .collect()
     }
 
@@ -100,7 +99,7 @@ pub struct QuickMachine<State, Action> {
 
     /// Converts a previous state and action to a resulting state. `None` indicates that the action
     /// does not change the state.
-    pub next_state: fn(&State, &Action) -> Option<State>,
+    pub next_state: fn(&State, Action) -> Option<State>,
 }
 
 impl<State, Action> StateMachine for QuickMachine<State, Action> {
@@ -115,7 +114,7 @@ impl<State, Action> StateMachine for QuickMachine<State, Action> {
         (self.actions)(state, actions);
     }
 
-    fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+    fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
         (self.next_state)(last_state, action)
     }
 }

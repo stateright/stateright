@@ -78,7 +78,7 @@ where
         Ok(())
     }
 
-    fn states(req: HttpRequest, sys: web::Data<SM>) -> Result<StateViewsJson<SM::State, SM::Action>> {
+    fn states(req: HttpRequest, sm: web::Data<SM>) -> Result<StateViewsJson<SM::State, SM::Action>> {
         // extract fingerprints
         let mut fingerprints_str = req.match_info().get("fingerprints").expect("missing 'fingerprints' param").to_string();
         if fingerprints_str.ends_with('/') {
@@ -94,25 +94,27 @@ where
                     format!("Unable to parse fingerprints {}", fingerprints_str)));
         }
 
+        // now build up all the subsequent `StateView`s
         let mut results = Vec::new();
-
         if fingerprints.is_empty() {
-            for init_state in sys.init_states() {
-                results.push(StateView {
-                    action: None,
-                    outcome: None,
-                    state: init_state,
-                });
+            for state in sm.init_states() {
+                results.push(StateView { action: None, outcome: None, state });
             }
-        } else if let Some(last_state) = sys.follow_fingerprints(sys.init_states(), fingerprints) {
-            let steps = sys.next_steps(&last_state);
-            for (action, next_state) in steps {
-                let outcome = sys.display_outcome(&last_state, &action);
-                results.push(StateView {
-                    action: Some(action),
-                    outcome,
-                    state: next_state,
-                });
+        } else if let Some(last_state) = sm.follow_fingerprints(sm.init_states(), fingerprints) {
+            // Must generate the actions three times because they are consumed by `next_state`
+            // and `display_outcome`.
+            let mut actions1 = Vec::new();
+            let mut actions2 = Vec::new();
+            let mut actions3 = Vec::new();
+            sm.actions(&last_state, &mut actions1);
+            sm.actions(&last_state, &mut actions2);
+            sm.actions(&last_state, &mut actions3);
+            for ((action, action2), action3) in actions1.into_iter().zip(actions2).zip(actions3) {
+                let outcome = sm.display_outcome(&last_state, action2);
+                let state = sm.next_state(&last_state, action3);
+                if let (Some(outcome), Some(state)) = (outcome, state) {
+                    results.push(StateView { action: Some(action), outcome: Some(outcome), state });
+                }
             }
         } else {
             return Err(

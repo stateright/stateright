@@ -29,7 +29,7 @@ pub mod binary_clock {
             }
         }
 
-        fn next_state(&self, _state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+        fn next_state(&self, _state: &Self::State, action: Self::Action) -> Option<Self::State> {
             match action {
                 BinaryClockAction::GoLow  => Some(0),
                 BinaryClockAction::GoHigh => Some(1),
@@ -75,7 +75,7 @@ pub mod linear_equation_solver {
             actions.push(Guess::IncreaseY);
         }
 
-        fn next_state(&self, state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+        fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
             let (x, y) = *state;
             match &action {
                 Guess::IncreaseX => Some((x.wrapping_add(1), y)),
@@ -112,85 +112,56 @@ pub mod ping_pong {
     use crate::actor::system::*;
     use crate::checker::*;
 
-    pub enum PingPong {
-        Pinger { max_nat: u32, ponger_id: Id },
-        Ponger { max_nat: u32 }
-    }
+    pub enum PingPong { PingActor { pong_id: Id }, PongActor }
+
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    pub struct PingPongCount(pub u32);
 
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    pub enum State { Pinger(u32), Ponger(u32) }
-
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    pub enum Msg { Ping(u32), Pong(u32) }
+    pub enum PingPongMsg { Ping(u32), Pong(u32) }
 
     impl Actor for PingPong {
-        type Msg = Msg;
-        type State = State;
+        type Msg = PingPongMsg;
+        type State = PingPongCount;
 
-        fn start(&self) -> ActorResult<Self::Msg, Self::State> {
-            match self {
-                PingPong::Pinger { ponger_id, .. } => ActorResult::start(
-                    State::Pinger(0),
-                    |outputs| outputs.send(*ponger_id, Msg::Ping(0))),
-                PingPong::Ponger { .. } => ActorResult::start(
-                    State::Ponger(0),
-                    |_outputs| {}),
+        fn init(i: InitIn<Self>, o: &mut Out<Self>) {
+            o.set_state(PingPongCount(0));
+            if let PingPong::PingActor { pong_id } = i.context {
+                o.send(*pong_id, PingPongMsg::Ping(0));
             }
         }
 
-        fn advance(&self, state: &Self::State, input: &ActorInput<Self::Msg>) -> Option<ActorResult<Self::Msg, Self::State>> {
-            let ActorInput::Deliver { src, msg } = input.clone();
-            match self {
-                &PingPong::Pinger { max_nat, .. } => {
-                    if let &State::Pinger(actor_value) = state {
-                        if let Msg::Pong(msg_value) = msg {
-                            if actor_value == msg_value && actor_value < max_nat {
-                                return ActorResult::advance(state, |state, outputs| {
-                                    *state = State::Pinger(actor_value + 1);
-                                    outputs.send(src, Msg::Ping(msg_value + 1));
-                                });
-                            }
-                        }
+        fn next(i: NextIn<Self>, o: &mut Out<Self>) {
+            match i.event {
+                Event::Receive(src, PingPongMsg::Pong(msg_value)) if i.state.0 == msg_value => {
+                    if let PingPong::PingActor { .. } = i.context {
+                        o.set_state(PingPongCount(i.state.0 + 1));
+                        o.send(src, PingPongMsg::Ping(msg_value + 1));
                     }
-                    return None;
-                }
-                &PingPong::Ponger { max_nat, .. } => {
-                    if let &State::Ponger(actor_value) = state {
-                        if let Msg::Ping(msg_value) = msg {
-                            if actor_value == msg_value && actor_value < max_nat {
-                                return ActorResult::advance(state, |state, outputs| {
-                                    *state = State::Ponger(actor_value + 1);
-                                    outputs.send(src, Msg::Pong(msg_value));
-                                });
-                            }
-                        }
+                },
+                Event::Receive(src, PingPongMsg::Ping(msg_value)) if i.state.0 == msg_value => {
+                    if let PingPong::PongActor = i.context {
+                        o.set_state(PingPongCount(i.state.0 + 1));
+                        o.send(src, PingPongMsg::Pong(msg_value));
                     }
-                    return None;
-                }
+                },
+                _ => {},
             }
         }
     }
 
-    impl ActorSystem<PingPong> {
-        pub fn model(self) -> Model<'static, Self> {
+    impl System<PingPong> {
+        pub fn model(self, max_nat: u32) -> Model<'static, Self> {
             Model {
                 state_machine: self,
-                properties: vec![Property::always("delta within 1", |_sys, snap| {
-                    use std::sync::Arc;
-
-                    let &ActorSystemSnapshot { ref actor_states, .. } = snap;
-                    fn extract_value(a: &Arc<State>) -> u32 {
-                        match **a {
-                            State::Pinger(value) => value,
-                            State::Ponger(value) => value,
-                        }
-                    };
-
-                    let max = actor_states.iter().map(extract_value).max().unwrap();
-                    let min = actor_states.iter().map(extract_value).min().unwrap();
+                properties: vec![Property::always("delta within 1", |_sys, state: &SystemState<PingPong>| {
+                    let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
+                    let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
                     max - min <= 1
                 })],
-                boundary: None, // the actors already have max_nat
+                boundary: Some(Box::new( move |_sys, state| {
+                    state.actor_states.iter().all(|s| s.0 <= max_nat)
+                })),
             }
         }
     }

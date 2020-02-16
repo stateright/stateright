@@ -82,7 +82,7 @@ impl<R: Clone + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
         }
     }
 
-    fn next_state(&self, last_state: &Self::State, action: &Self::Action) -> Option<Self::State> {
+    fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
         let mut state = last_state.clone();
         match action.clone() {
             Action::TmRcvPrepared(rm) => { state.tm_prepared.insert(rm); }

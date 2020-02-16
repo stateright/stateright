@@ -1,6 +1,9 @@
 //! A simple runtime for executing an actor state machine mapping messages to JSON over UDP.
 
 use crate::actor::*;
+use serde::de::DeserializeOwned;
+use serde::ser::Serialize;
+use std::fmt::Debug;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::thread;
 
@@ -37,38 +40,44 @@ where
     A::Msg: Debug + DeserializeOwned + Serialize,
     A::State: Debug,
 {
-    let id = SocketAddrV4::from(id.into());
+    let id = id.into();
+    let addr = SocketAddrV4::from(id);
 
     // note that panics are returned as `Err` when `join`ing
     thread::spawn(move || {
-        let socket = UdpSocket::bind(id).unwrap(); // panic if unable to bind
+        let socket = UdpSocket::bind(addr).unwrap(); // panic if unable to bind
         let mut in_buf = [0; 65_535];
 
-        let mut result = actor.start();
-        println!("Actor started. id={}, result={:#?}", id, result);
-        for o in &result.outputs.0 { on_output(&actor, &id, o, &socket); }
-
+        let mut last_state = {
+            let out = actor.init_out(id);
+            println!("Actor started. id={}, state={:?}, commands={:?}", addr, out.state, out.commands);
+            for c in out.commands {
+                on_command::<A>(addr, c, &socket);
+            }
+            out.state.expect("actor not initialized")
+        };
         loop {
             let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
-            match actor.deserialize(&in_buf[..count]) {
+            match A::deserialize(&in_buf[..count]) {
                 Ok(msg) => {
-                    println!("Received message. id={}, src={}, msg={:?}", id, src_addr, msg);
+                    println!("Received message. dst={}, src={}, msg={:?}", addr, src_addr, msg);
 
-                    if let SocketAddr::V4(addr) = src_addr {
-                        let src = Id::from(addr);
-                        let input = ActorInput::Deliver { src, msg };
-                        if let Some(new_result) = actor.advance(&result.state, &input) {
-                            println!("Actor advanced. id={}, result={:#?}", id, new_result);
-                            result = new_result;
-                            for o in &result.outputs.0 { on_output(&actor, &id, o, &socket); }
+                    if let SocketAddr::V4(src_addr) = src_addr {
+                        let out = actor.next_out(id, &last_state, Event::Receive(Id::from(src_addr), msg));
+                        println!("Actor advanced. id={}, state={:?}, commands={:?}", addr, out.state, out.commands);
+                        for c in out.commands {
+                            on_command::<A>(src_addr, c, &socket);
+                        }
+                        if let Some(next_state) = out.state {
+                            last_state = next_state;
                         }
                     } else {
-                        println!("Source is not IPv4. Ignoring. id={}, src={}, msg={:?}", id, src_addr, msg);
+                        println!("Source is not IPv4. Ignoring. id={}, src={}, msg={:?}", addr, src_addr, msg);
                     }
                 },
                 Err(e) => {
                     println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
-                            id, src_addr, &in_buf[..count], e);
+                             addr, src_addr, &in_buf[..count], e);
                 }
             }
         }
@@ -76,20 +85,20 @@ where
 }
 
 /// The effect to perform in response to spawned actor outputs.
-fn on_output<A: Actor>(actor: &A, id: &SocketAddrV4, output: &ActorOutput<A::Msg>, socket: &UdpSocket)
+fn on_command<A: Actor>(addr: SocketAddrV4, command: Command<A::Msg>, socket: &UdpSocket)
 where A::Msg: Debug + Serialize
 {
-    let ActorOutput::Send { dst, msg } = output;
-    let dst = SocketAddrV4::from(*dst);
-    match actor.serialize(msg) {
+    let Command::Send(dst, msg) = command;
+    let dst_addr = SocketAddrV4::from(dst);
+    match A::serialize(&msg) {
         Err(e) => {
             println!("Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={}",
-                     id, dst, msg, e);
+                     addr, dst_addr, msg, e);
         },
         Ok(out_buf) => {
-            if let Err(e) = socket.send_to(&out_buf, dst) {
+            if let Err(e) = socket.send_to(&out_buf, dst_addr) {
                 println!("Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={}",
-                         id, dst, msg, e);
+                         addr, dst_addr, msg, e);
             }
         },
     }
