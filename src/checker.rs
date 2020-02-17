@@ -181,9 +181,7 @@ where
                 }
             }
         }
-        // 5% malloc, 14% btree.hash, 16% btree.drop, 4% hash, 22% btree.clone, 3% vec.clone, 9%
-        // 9% actor.advance, 2% btree.insert, 1% next_state
-        let sources = Arc::new(sources); // paxos 69 single --> 33 multi. 7: 201 single --> 100 multi
+        let sources = Arc::new(sources);
         let discoveries = Arc::new(discoveries);
         if pending.len() < 10_000 {
             Self::check_block(max_count, model, pending, sources, discoveries);
@@ -376,23 +374,19 @@ where
         loop {
             let block_start = Instant::now();
             if self.check(block_size).is_done() {
-                writeln!(w, "Complete. generated={}, pending={}, sec={}",
-                        self.sources.len(),
-                        self.pending.len(),
-                        method_start.elapsed().as_secs()).unwrap();
+                let elapsed = method_start.elapsed().as_secs();
                 for mapref in self.discoveries.iter() {
                     let (name, fp) = mapref.pair();
-                    let path = self.path(*fp).into_vec();
                     writeln!(w, "== {} ==", name).unwrap();
-                    for (state, action) in path {
-                        if let Some(action) = action {
-                            writeln!(w, "ACTION: {:?}", action).unwrap();
-                            if let Some(outcome) = self.model.state_machine.display_outcome(&state, &action) {
-                                writeln!(w, "OUTCOME: {}", outcome).unwrap();
-                            }
-                        }
+                    for action in self.path(*fp).into_actions() {
+                        writeln!(w, "ACTION: {:?}", action).unwrap();
                     }
                 }
+                writeln!(w, "Complete. generated={}, pending={}, sec={}",
+                    self.sources.len(),
+                    self.pending.len(),
+                    elapsed
+                ).unwrap();
                 return;
             }
 
@@ -508,15 +502,14 @@ mod test {
         let mut written: Vec<u8> = Vec::new();
         LinearEquation { a: 2, b: 10, c: 14 }.model().checker().check_and_report(&mut written);
         let output = String::from_utf8(written).unwrap();
-        assert_eq!(
-            output,
-            "Complete. generated=33024, pending=256, sec=0\n\
-            == solvable ==\n\
-            ACTION: IncreaseX\n\
-            OUTCOME: (1, 0)\n\
-            ACTION: IncreaseX\n\
-            OUTCOME: (2, 0)\n\
-            ACTION: IncreaseY\n\
-            OUTCOME: (2, 1)\n");
+        // `starts_with` to omit timing since it varies
+        assert!(
+            output.starts_with("\
+                == solvable ==\n\
+                ACTION: IncreaseX\n\
+                ACTION: IncreaseX\n\
+                ACTION: IncreaseY\n\
+                Complete. generated=33024, pending=256, sec="),
+            "Output did not start as expected (see test). output={:?}`", output);
     }
 }
