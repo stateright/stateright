@@ -160,7 +160,7 @@ enum Expectation { Always, Sometimes }
 pub struct Checker<'a, SM: StateMachine> {
     thread_count: usize,
     model: Model<'a, SM>,
-    pending: VecDeque<SM::State>,
+    pending: VecDeque<(Fingerprint, SM::State)>,
     sources: DashMap<Fingerprint, Option<Fingerprint>>,
     discoveries: DashMap<&'static str, Fingerprint>,
 }
@@ -181,7 +181,7 @@ where
                 let init_digest = fingerprint(&init_state);
                 if let Entry::Vacant(init_source) = sources.entry(init_digest) {
                     init_source.insert(None);
-                    pending.push_front(init_state);
+                    pending.push_front((init_digest, init_state));
                 }
             }
         }
@@ -221,7 +221,7 @@ where
     fn check_block(
             max_count: usize,
             model: &Model<SM>,
-            pending: &mut VecDeque<SM::State>,
+            pending: &mut VecDeque<(Fingerprint, SM::State)>,
             sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
             discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
 
@@ -232,9 +232,7 @@ where
 
         if properties.is_empty() { return }
 
-        while let Some(state) = pending.pop_back() {
-            let digest = fingerprint(&state);
-
+        while let Some((digest, state)) = pending.pop_back() {
             // collect the next actions, and record the corresponding states that have not been
             // seen before if they are within the boundary
             state_machine.actions(&state, &mut next_actions);
@@ -247,7 +245,7 @@ where
                     let next_digest = fingerprint(&next_state);
                     if let Entry::Vacant(next_entry) = sources.entry(next_digest) {
                         next_entry.insert(Some(digest));
-                        pending.push_front(next_state);
+                        pending.push_front((next_digest, next_state));
                     }
                 }
             }
