@@ -2,11 +2,11 @@
 //! `Actor` (via `RegisterActor`) that implements client behavior for model checking a register
 //! implementation.
 
-use crate::actor::*;
 use crate::actor::system::*;
+use crate::actor::*;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
-use serde::de::DeserializeOwned;
 
 /// A wrapper configuration for model-checking a register-like actor.
 #[derive(Clone)]
@@ -19,8 +19,7 @@ pub enum RegisterActor<Value, ServerActor> {
 }
 
 /// Defines an interface for a register-like actor.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum RegisterMsg<Value, InternalMsg> {
     Put(Value),
     Get,
@@ -46,7 +45,10 @@ where
 
     fn init(i: InitIn<Self>, o: &mut Out<Self>) {
         match i.context {
-            RegisterActor::Client { ref server_ids, ref desired_value } => {
+            RegisterActor::Client {
+                ref server_ids,
+                ref desired_value,
+            } => {
                 o.set_state(RegisterActorState::Client);
                 for server_id in server_ids {
                     o.send(*server_id, RegisterMsg::Put(desired_value.clone()));
@@ -55,7 +57,9 @@ where
             }
             RegisterActor::Server(ref server) => {
                 let server_out = server.init_out(i.id);
-                o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+                o.state = server_out
+                    .state
+                    .map(|state| RegisterActorState::Server(state));
                 o.commands = server_out.commands;
             }
         }
@@ -65,14 +69,19 @@ where
         match (i.context, i.state) {
             (RegisterActor::Server(server), RegisterActorState::Server(server_state)) => {
                 let server_out = server.next_out(i.id, server_state, i.event);
-                o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+                o.state = server_out
+                    .state
+                    .map(|state| RegisterActorState::Server(state));
                 o.commands = server_out.commands;
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
-    fn deserialize(bytes: &[u8]) -> serde_json::Result<Self::Msg> where Self::Msg: DeserializeOwned {
+    fn deserialize(bytes: &[u8]) -> serde_json::Result<Self::Msg>
+    where
+        Self::Msg: DeserializeOwned,
+    {
         if let Ok(msg) = serde_json::from_slice::<ServerMsg>(bytes) {
             Ok(RegisterMsg::Internal(msg))
         } else {
@@ -80,7 +89,10 @@ where
         }
     }
 
-    fn serialize(msg: &Self::Msg) -> serde_json::Result<Vec<u8>> where Self::Msg: Serialize {
+    fn serialize(msg: &Self::Msg) -> serde_json::Result<Vec<u8>>
+    where
+        Self::Msg: Serialize,
+    {
         match msg {
             RegisterMsg::Internal(msg) => serde_json::to_vec(msg),
             _ => serde_json::to_vec(msg),
@@ -90,15 +102,16 @@ where
 
 /// Indicates unique values with which the server has responded.
 pub fn response_values<Value: Clone + Ord, ServerMsg, ServerState>(
-    state: &_SystemState<
-        RegisterMsg<Value, ServerMsg>,
-        RegisterActorState<ServerState>
-    >) -> Vec<Value> {
-    let mut values: Vec<Value> = state.network.iter().filter_map(
-        |env| match &env.msg {
+    state: &_SystemState<RegisterMsg<Value, ServerMsg>, RegisterActorState<ServerState>>,
+) -> Vec<Value> {
+    let mut values: Vec<Value> = state
+        .network
+        .iter()
+        .filter_map(|env| match &env.msg {
             RegisterMsg::Respond(value) => Some(value.clone()),
             _ => None,
-        }).collect();
+        })
+        .collect();
     values.sort();
     values.dedup();
     values

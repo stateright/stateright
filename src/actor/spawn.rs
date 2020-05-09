@@ -50,7 +50,10 @@ where
 
         let mut last_state = {
             let out = actor.init_out(id);
-            println!("Actor started. id={}, state={:?}, commands={:?}", addr, out.state, out.commands);
+            println!(
+                "Actor started. id={}, state={:?}, commands={:?}",
+                addr, out.state, out.commands
+            );
             for c in out.commands {
                 on_command::<A>(addr, c, &socket);
             }
@@ -60,11 +63,21 @@ where
             let (count, src_addr) = socket.recv_from(&mut in_buf).unwrap(); // panic if unable to read
             match A::deserialize(&in_buf[..count]) {
                 Ok(msg) => {
-                    println!("Received message. dst={}, src={}, msg={:?}", addr, src_addr, msg);
+                    println!(
+                        "Received message. dst={}, src={}, msg={:?}",
+                        addr, src_addr, msg
+                    );
 
                     if let SocketAddr::V4(src_addr) = src_addr {
-                        let out = actor.next_out(id, &last_state, Event::Receive(Id::from(src_addr), msg));
-                        println!("Actor advanced. id={}, state={:?}, commands={:?}", addr, out.state, out.commands);
+                        let out = actor.next_out(
+                            id,
+                            &last_state,
+                            Event::Receive(Id::from(src_addr), msg),
+                        );
+                        println!(
+                            "Actor advanced. id={}, state={:?}, commands={:?}",
+                            addr, out.state, out.commands
+                        );
                         for c in out.commands {
                             on_command::<A>(src_addr, c, &socket);
                         }
@@ -72,12 +85,20 @@ where
                             last_state = next_state;
                         }
                     } else {
-                        println!("Source is not IPv4. Ignoring. id={}, src={}, msg={:?}", addr, src_addr, msg);
+                        println!(
+                            "Source is not IPv4. Ignoring. id={}, src={}, msg={:?}",
+                            addr, src_addr, msg
+                        );
                     }
-                },
+                }
                 Err(e) => {
-                    println!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
-                             addr, src_addr, &in_buf[..count], e);
+                    println!(
+                        "Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={}",
+                        addr,
+                        src_addr,
+                        &in_buf[..count],
+                        e
+                    );
                 }
             }
         }
@@ -86,42 +107,43 @@ where
 
 /// The effect to perform in response to spawned actor outputs.
 fn on_command<A: Actor>(addr: SocketAddrV4, command: Command<A::Msg>, socket: &UdpSocket)
-where A::Msg: Debug + Serialize
+where
+    A::Msg: Debug + Serialize,
 {
     let Command::Send(dst, msg) = command;
     let dst_addr = SocketAddrV4::from(dst);
     match A::serialize(&msg) {
         Err(e) => {
-            println!("Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={}",
-                     addr, dst_addr, msg, e);
-        },
+            println!(
+                "Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={}",
+                addr, dst_addr, msg, e
+            );
+        }
         Ok(out_buf) => {
             if let Err(e) = socket.send_to(&out_buf, dst_addr) {
-                println!("Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={}",
-                         addr, dst_addr, msg, e);
+                println!(
+                    "Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={}",
+                    addr, dst_addr, msg, e
+                );
             }
-        },
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::actor::*;
-    use std::net::{SocketAddrV4, Ipv4Addr};
+    use std::net::{Ipv4Addr, SocketAddrV4};
 
     #[test]
     fn can_encode_id() {
-        let addr = SocketAddrV4::new(Ipv4Addr::new(1,2,3,4), 5);
-        assert_eq!(
-            Id::from(addr).0.to_be_bytes(),
-            [0, 0, 1, 2, 3, 4, 0, 5]);
+        let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
+        assert_eq!(Id::from(addr).0.to_be_bytes(), [0, 0, 1, 2, 3, 4, 0, 5]);
     }
 
     #[test]
     fn can_decode_id() {
-        let addr = SocketAddrV4::new(Ipv4Addr::new(1,2,3,4), 5);
-        assert_eq!(
-            SocketAddrV4::from(Id::from(addr)),
-            addr);
+        let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
+        assert_eq!(SocketAddrV4::from(Id::from(addr)), addr);
     }
 }

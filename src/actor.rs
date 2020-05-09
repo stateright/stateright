@@ -97,7 +97,6 @@ pub struct InitIn<'a, A: Actor> {
     pub id: Id,
 }
 
-
 /// Groups inputs to make function types more concise when implementing an actor.
 pub struct NextIn<'a, A: Actor> {
     /// Immutable information specific to this actor.
@@ -138,7 +137,8 @@ impl<A: Actor> Out<A> {
 
     /// Records the need to send a message to multiple recipient.
     pub fn broadcast(&mut self, recipients: &[Id], msg: &A::Msg)
-    where A::Msg: Clone
+    where
+        A::Msg: Clone,
     {
         for recipient in recipients {
             self.send(*recipient, msg.clone());
@@ -165,10 +165,7 @@ pub trait Actor: Sized {
 
     /// Returns the initial state and commands.
     fn init_out(&self, id: Id) -> Out<Self> {
-        let i = InitIn {
-            id,
-            context: self,
-        };
+        let i = InitIn { id, context: self };
         let mut o = Out {
             state: None,
             commands: Vec::new(),
@@ -194,12 +191,18 @@ pub trait Actor: Sized {
     }
 
     /// Indicates how to deserialize messages received by a spawned actor.
-    fn deserialize(bytes: &[u8]) -> serde_json::Result<Self::Msg> where Self::Msg: DeserializeOwned {
+    fn deserialize(bytes: &[u8]) -> serde_json::Result<Self::Msg>
+    where
+        Self::Msg: DeserializeOwned,
+    {
         serde_json::from_slice(bytes)
     }
 
     /// Indicates how to serialize messages sent by a spawned actor.
-    fn serialize(msg: &Self::Msg) -> serde_json::Result<Vec<u8>> where Self::Msg: Serialize {
+    fn serialize(msg: &Self::Msg) -> serde_json::Result<Vec<u8>>
+    where
+        Self::Msg: Serialize,
+    {
         serde_json::to_vec(msg)
     }
 }

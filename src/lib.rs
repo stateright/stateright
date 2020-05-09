@@ -34,7 +34,8 @@ pub trait StateMachine: Sized {
 
     /// Summarizes the outcome of taking a step.
     fn display_outcome(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
-    where Self::State: Debug
+    where
+        Self::State: Debug,
     {
         self.next_state(last_state, action)
             .map(|next_state| format!("{:?}", next_state))
@@ -42,16 +43,21 @@ pub trait StateMachine: Sized {
 
     /// Indicates the steps (action-state pairs) that follow a particular state.
     fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)>
-    where Self::State: Hash
+    where
+        Self::State: Hash,
     {
         // Must generate the actions twice because they are consumed by `next_state`.
         let mut actions1 = Vec::new();
         let mut actions2 = Vec::new();
         self.actions(&last_state, &mut actions1);
         self.actions(&last_state, &mut actions2);
-        actions1.into_iter().zip(actions2)
-            .filter_map(|(action1, action2)|
-                self.next_state(&last_state, action1).map(|state| (action2, state)))
+        actions1
+            .into_iter()
+            .zip(actions2)
+            .filter_map(|(action1, action2)| {
+                self.next_state(&last_state, action1)
+                    .map(|state| (action2, state))
+            })
             .collect()
     }
 
@@ -60,14 +66,20 @@ pub trait StateMachine: Sized {
     fn next_states(&self, last_state: &Self::State) -> Vec<Self::State> {
         let mut actions = Vec::new();
         self.actions(&last_state, &mut actions);
-        actions.into_iter()
+        actions
+            .into_iter()
             .filter_map(|action| self.next_state(&last_state, action))
             .collect()
     }
 
     /// Determines the final state associated with a particular fingerprint path.
-    fn follow_fingerprints(&self, init_states: Vec<Self::State>, fingerprints: Vec<Fingerprint>) -> Option<Self::State>
-    where Self::State: Hash
+    fn follow_fingerprints(
+        &self,
+        init_states: Vec<Self::State>,
+        fingerprints: Vec<Fingerprint>,
+    ) -> Option<Self::State>
+    where
+        Self::State: Hash,
     {
         // Split the fingerprints into a head and tail. There are more efficient ways to do this,
         // but since this function is not performance sensitive, the implementation favors clarity.
@@ -81,7 +93,7 @@ pub trait StateMachine: Sized {
                     Some(init_state)
                 } else {
                     self.follow_fingerprints(next_states, remaining_fps)
-                }
+                };
             }
         }
         None
@@ -125,8 +137,7 @@ pub type Fingerprint = u64;
 /// Converts a state to a fingerprint.
 pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
     use std::hash::Hasher;
-    let mut hasher = ahash::AHasher::new_with_keys(
-        123_456_789_987_654_321, 98_765_432_123_456_789);
+    let mut hasher = ahash::AHasher::new_with_keys(123_456_789_987_654_321, 98_765_432_123_456_789);
     value.hash(&mut hasher);
     hasher.finish()
 }

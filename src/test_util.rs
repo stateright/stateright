@@ -2,14 +2,17 @@
 
 /// A machine that cycles between two states.
 pub mod binary_clock {
-    use crate::*;
     use crate::checker::*;
+    use crate::*;
 
     #[derive(Clone)]
     pub struct BinaryClock;
 
     #[derive(Clone, Debug, PartialEq)]
-    pub enum BinaryClockAction { GoLow, GoHigh }
+    pub enum BinaryClockAction {
+        GoLow,
+        GoHigh,
+    }
 
     pub type BinaryClockState = i8;
 
@@ -31,7 +34,7 @@ pub mod binary_clock {
 
         fn next_state(&self, _state: &Self::State, action: Self::Action) -> Option<Self::State> {
             match action {
-                BinaryClockAction::GoLow  => Some(0),
+                BinaryClockAction::GoLow => Some(0),
                 BinaryClockAction::GoHigh => Some(1),
             }
         }
@@ -52,15 +55,22 @@ pub mod binary_clock {
 
 /// A state machine that solves linear equations in two dimensions.
 pub mod linear_equation_solver {
-    use crate::*;
     use crate::checker::*;
+    use crate::*;
 
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are
     /// in `u8`.
-    pub struct LinearEquation { pub a: u8, pub b: u8, pub c: u8 }
+    pub struct LinearEquation {
+        pub a: u8,
+        pub b: u8,
+        pub c: u8,
+    }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
-    pub enum Guess { IncreaseX, IncreaseY }
+    pub enum Guess {
+        IncreaseX,
+        IncreaseY,
+    }
 
     impl StateMachine for LinearEquation {
         type State = (u8, u8);
@@ -97,7 +107,7 @@ pub mod linear_equation_solver {
                     let (x, y) = (Wrapping(*x), Wrapping(*y));
                     let (a, b, c) = (Wrapping(*a), Wrapping(*b), Wrapping(*c));
 
-                    a*x + b*y == c
+                    a * x + b * y == c
                 })],
                 boundary: None,
             }
@@ -107,18 +117,24 @@ pub mod linear_equation_solver {
 
 /// A pair of actors that send messages and increment message counters.
 pub mod ping_pong {
-    use crate::*;
-    use crate::actor::*;
     use crate::actor::system::*;
+    use crate::actor::*;
     use crate::checker::*;
+    use crate::*;
 
-    pub enum PingPong { PingActor { pong_id: Id }, PongActor }
+    pub enum PingPong {
+        PingActor { pong_id: Id },
+        PongActor,
+    }
 
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub struct PingPongCount(pub u32);
 
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    pub enum PingPongMsg { Ping(u32), Pong(u32) }
+    pub enum PingPongMsg {
+        Ping(u32),
+        Pong(u32),
+    }
 
     impl Actor for PingPong {
         type Msg = PingPongMsg;
@@ -138,14 +154,14 @@ pub mod ping_pong {
                         o.set_state(PingPongCount(i.state.0 + 1));
                         o.send(src, PingPongMsg::Ping(msg_value + 1));
                     }
-                },
+                }
                 Event::Receive(src, PingPongMsg::Ping(msg_value)) if i.state.0 == msg_value => {
                     if let PingPong::PongActor = i.context {
                         o.set_state(PingPongCount(i.state.0 + 1));
                         o.send(src, PingPongMsg::Pong(msg_value));
                     }
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
     }
@@ -154,12 +170,15 @@ pub mod ping_pong {
         pub fn model(self, max_nat: u32) -> Model<'static, Self> {
             Model {
                 state_machine: self,
-                properties: vec![Property::always("delta within 1", |_sys, state: &SystemState<PingPong>| {
-                    let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
-                    let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
-                    max - min <= 1
-                })],
-                boundary: Some(Box::new( move |_sys, state| {
+                properties: vec![Property::always(
+                    "delta within 1",
+                    |_sys, state: &SystemState<PingPong>| {
+                        let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
+                        let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
+                        max - min <= 1
+                    },
+                )],
+                boundary: Some(Box::new(move |_sys, state| {
                     state.actor_states.iter().all(|s| s.0 <= max_nat)
                 })),
             }

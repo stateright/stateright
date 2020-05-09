@@ -3,7 +3,7 @@
 //! Models can have `sometimes` and `always` properties. The model checker will attempt to discover
 //! an example of every `sometimes` property and a counterexample of every `always` property.
 //! Usually the absence of a `sometimes` example or the presence of an `always` counterexample
-//! indicates a problem with the implementation 
+//! indicates a problem with the implementation
 //!
 //! An example that solves a [sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle)
 //! follows.
@@ -73,8 +73,8 @@
 //! are available in the repository.
 
 use crate::*;
-use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -100,7 +100,9 @@ impl<State, Action> Path<State, Action> {
     }
 }
 impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
-    fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
+    fn into(self) -> Vec<(State, Option<Action>)> {
+        self.0
+    }
 }
 
 /// A state machine model that can be checked.
@@ -140,20 +142,35 @@ impl<'a, SM: StateMachine> Property<'a, SM> {
     /// An invariant that defines a [safety
     /// property](https://en.wikipedia.org/wiki/Safety_property). The model checker will try to
     /// discover a counterexample.
-    pub fn always(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
-            -> Property<'a, SM> {
-        Property { expectation: Expectation::Always, name, condition: Box::new(f) }
+    pub fn always(
+        name: &'static str,
+        f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a,
+    ) -> Property<'a, SM> {
+        Property {
+            expectation: Expectation::Always,
+            name,
+            condition: Box::new(f),
+        }
     }
 
     /// Something that should be possible in the model. The model checker will try to discover an
     /// example.
-    pub fn sometimes(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
-            -> Property<'a, SM> {
-        Property { expectation: Expectation::Sometimes, name, condition: Box::new(f) }
+    pub fn sometimes(
+        name: &'static str,
+        f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a,
+    ) -> Property<'a, SM> {
+        Property {
+            expectation: Expectation::Sometimes,
+            name,
+            condition: Box::new(f),
+        }
     }
 }
 #[derive(Debug, Eq, PartialEq)]
-enum Expectation { Always, Sometimes }
+enum Expectation {
+    Always,
+    Sometimes,
+}
 
 /// Generates every state reachable by a state machine, and verifies that all properties hold.
 /// Can be instantiated with `model.checker()`.
@@ -174,7 +191,13 @@ where
     /// Visits up to a specified number of states checking the model's properties. May return
     /// earlier when all states have been checked or all the properties are resolved.
     pub fn check(&mut self, max_count: usize) -> &mut Self {
-        let Checker { thread_count, model, pending, sources, discoveries } = self;
+        let Checker {
+            thread_count,
+            model,
+            pending,
+            sources,
+            discoveries,
+        } = self;
         let thread_count = *thread_count; // mut ref -> owned copy
         if sources.is_empty() {
             for init_state in model.state_machine.init_states() {
@@ -202,35 +225,48 @@ where
                 let count = std::cmp::min(pending.len(), count);
                 let mut pending = pending.split_off(pending.len() - count);
                 threads.push(scope.spawn(move |_| {
-                    Self::check_block(max_count/thread_count, model, &mut pending, sources, discoveries);
+                    Self::check_block(
+                        max_count / thread_count,
+                        model,
+                        &mut pending,
+                        sources,
+                        discoveries,
+                    );
                     pending
                 }));
             }
 
             // 2. Join.
             let mut results = Vec::new();
-            for thread in threads { results.push(thread.join().unwrap()); }
+            for thread in threads {
+                results.push(thread.join().unwrap());
+            }
             results
-        }).unwrap();
+        })
+        .unwrap();
 
         // 3. Consolidate results.
-        for mut sub_pending in results { pending.append(&mut sub_pending); }
+        for mut sub_pending in results {
+            pending.append(&mut sub_pending);
+        }
         self
     }
 
     fn check_block(
-            max_count: usize,
-            model: &Model<SM>,
-            pending: &mut VecDeque<(Fingerprint, SM::State)>,
-            sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
-            discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
-
+        max_count: usize,
+        model: &Model<SM>,
+        pending: &mut VecDeque<(Fingerprint, SM::State)>,
+        sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
+        discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>,
+    ) {
         let state_machine = &model.state_machine;
         let mut remaining = max_count;
         let mut next_actions = Vec::new(); // reused between iterations for efficiency
         let mut properties: Vec<_> = Self::remaining_properties(&model.properties, &discoveries);
 
-        if properties.is_empty() { return }
+        if properties.is_empty() {
+            return;
+        }
 
         while let Some((digest, state)) = pending.pop_back() {
             // collect the next actions, and record the corresponding states that have not been
@@ -239,7 +275,9 @@ where
             for next_action in next_actions.drain(0..) {
                 if let Some(next_state) = state_machine.next_state(&state, next_action) {
                     if let Some(boundary) = &model.boundary {
-                        if !boundary(state_machine, &next_state) { continue }
+                        if !boundary(state_machine, &next_state) {
+                            continue;
+                        }
                     }
 
                     let next_digest = fingerprint(&next_state);
@@ -254,26 +292,40 @@ where
             let mut is_updated = false;
             for property in &properties {
                 match property {
-                    Property { expectation: Expectation::Always, name, condition: always } => {
+                    Property {
+                        expectation: Expectation::Always,
+                        name,
+                        condition: always,
+                    } => {
                         if !always(&state_machine, &state) {
                             discoveries.insert(name, digest);
                             is_updated = true;
                         }
-                    },
-                    Property { expectation: Expectation::Sometimes, name, condition: sometimes } => {
+                    }
+                    Property {
+                        expectation: Expectation::Sometimes,
+                        name,
+                        condition: sometimes,
+                    } => {
                         if sometimes(&state_machine, &state) {
                             discoveries.insert(name, digest);
                             is_updated = true;
                         }
-                    },
+                    }
                 }
             }
             if is_updated {
-                properties = model.properties.iter().filter(|p| !discoveries.contains_key(p.name)).collect();
+                properties = model
+                    .properties
+                    .iter()
+                    .filter(|p| !discoveries.contains_key(p.name))
+                    .collect();
             }
 
             remaining -= 1;
-            if remaining == 0 { return }
+            if remaining == 0 {
+                return;
+            }
         }
     }
 
@@ -283,12 +335,20 @@ where
     pub fn example(&self, name: &'static str) -> Option<Path<SM::State, SM::Action>> {
         if let Some(p) = self.model.properties.iter().find(|p| p.name == name) {
             if p.expectation != Expectation::Sometimes {
-                panic!("Please use `counterexample(\"{}\")` for this `always` property.", name);
+                panic!(
+                    "Please use `counterexample(\"{}\")` for this `always` property.",
+                    name
+                );
             }
-            self.discoveries.get(name).map(|mapref| self.path(*mapref.value()))
+            self.discoveries
+                .get(name)
+                .map(|mapref| self.path(*mapref.value()))
         } else {
             let available: Vec<_> = self.model.properties.iter().map(|p| p.name).collect();
-            panic!("Unknown property. requested={}, available={:?}", name, available);
+            panic!(
+                "Unknown property. requested={}, available={:?}",
+                name, available
+            );
         }
     }
 
@@ -298,12 +358,20 @@ where
     pub fn counterexample(&self, name: &'static str) -> Option<Path<SM::State, SM::Action>> {
         if let Some(p) = self.model.properties.iter().find(|p| p.name == name) {
             if p.expectation != Expectation::Always {
-                panic!("Please use `example(\"{}\")` for this `sometimes` property.", name);
+                panic!(
+                    "Please use `example(\"{}\")` for this `sometimes` property.",
+                    name
+                );
             }
-            self.discoveries.get(name).map(|mapref| self.path(*mapref.value()))
+            self.discoveries
+                .get(name)
+                .map(|mapref| self.path(*mapref.value()))
         } else {
             let available: Vec<_> = self.model.properties.iter().map(|p| p.name).collect();
-            panic!("Unknown property. requested={}, available={:?}", name, available);
+            panic!(
+                "Unknown property. requested={}, available={:?}",
+                name, available
+            );
         }
     }
 
@@ -324,17 +392,18 @@ where
                 Some(prev_digest) => {
                     digests.push(next_digest);
                     next_digest = prev_digest;
-                },
+                }
                 None => {
                     digests.push(next_digest);
                     break;
-                },
+                }
             }
         }
 
         // 2. Begin unwinding by determining the init step.
         let init_states = state_machine.init_states();
-        let mut last_state = init_states.into_iter()
+        let mut last_state = init_states
+            .into_iter()
             .find(|s| fingerprint(&s) == digests.pop().unwrap())
             .unwrap();
 
@@ -342,19 +411,19 @@ where
         let mut output = Vec::new();
         while let Some(next_digest) = digests.pop() {
             let mut actions = Vec::new();
-            state_machine.actions(
-                &last_state,
-                &mut actions);
+            state_machine.actions(&last_state, &mut actions);
 
             let (action, next_state) = state_machine
-                .next_steps(&last_state).into_iter()
-                .find_map(|(a,s)| {
+                .next_steps(&last_state)
+                .into_iter()
+                .find_map(|(a, s)| {
                     if fingerprint(&s) == next_digest {
                         Some((a, s))
                     } else {
                         None
                     }
-                }).expect("state matching recorded digest");
+                })
+                .expect("state matching recorded digest");
             output.push((last_state, Some(action)));
 
             last_state = next_state;
@@ -382,39 +451,51 @@ where
                         writeln!(w, "ACTION: {:?}", action).unwrap();
                     }
                 }
-                writeln!(w, "Complete. generated={}, pending={}, sec={}",
+                writeln!(
+                    w,
+                    "Complete. generated={}, pending={}, sec={}",
                     self.sources.len(),
                     self.pending.len(),
                     elapsed
-                ).unwrap();
+                )
+                .unwrap();
                 return;
             }
 
             let block_elapsed = block_start.elapsed().as_secs();
             if block_elapsed > 0 {
-                println!("{} states pending after {} sec. Continuing.",
-                         self.pending.len(),
-                         method_start.elapsed().as_secs());
+                println!(
+                    "{} states pending after {} sec. Continuing.",
+                    self.pending.len(),
+                    method_start.elapsed().as_secs()
+                );
             }
 
             // Shrink or grow block if necessary.
-            if block_elapsed < 2 { block_size = 3 * block_size / 2; }
-            else if block_elapsed > 10 { block_size = max(1, block_size / 2); }
+            if block_elapsed < 2 {
+                block_size = 3 * block_size / 2;
+            } else if block_elapsed > 10 {
+                block_size = max(1, block_size / 2);
+            }
         }
     }
 
     /// Indicates that either all properties have associated discoveries or all reachable states
     /// have been visited.
     pub fn is_done(&'a self) -> bool {
-        let remaining_properties = Self::remaining_properties(&self.model.properties, &self.discoveries);
+        let remaining_properties =
+            Self::remaining_properties(&self.model.properties, &self.discoveries);
         remaining_properties.is_empty() || self.pending.is_empty()
     }
 
     fn remaining_properties<'p, 'd>(
         properties: &'p [Property<'p, SM>],
-        discoveries: &'d DashMap<&'static str, Fingerprint>
+        discoveries: &'d DashMap<&'static str, Fingerprint>,
     ) -> Vec<&'p Property<'p, SM>> {
-        properties.iter().filter(|p| !discoveries.contains_key(p.name)).collect()
+        properties
+            .iter()
+            .filter(|p| !discoveries.contains_key(p.name))
+            .collect()
     }
 
     /// Indicates how many states were generated during model checking.
@@ -437,8 +518,10 @@ mod test {
     fn records_states() {
         let h = |a: u8, b: u8| fingerprint(&(a, b));
         let state_space = LinearEquation { a: 2, b: 10, c: 14 }
-            .model().checker()
-            .check(100).generated_fingerprints();
+            .model()
+            .checker()
+            .check(100)
+            .generated_fingerprints();
 
         // Contains a variety of states.
         assert!(state_space.contains(&h(0, 0)));
@@ -464,8 +547,8 @@ mod test {
         assert_eq!(checker.is_done(), false);
 
         // Sources is larger than the check size because it includes pending.
-        assert_eq!(checker.pending.len(), 5); 
-        assert_eq!(checker.sources.len(), 15); 
+        assert_eq!(checker.pending.len(), 5);
+        assert_eq!(checker.sources.len(), 15);
 
         // Not solved, and done checking, so no solution in the domain.
         assert_eq!(checker.check(100_000).is_done(), true);
@@ -481,35 +564,45 @@ mod test {
 
         // Solved and done (with example identified) ...
         assert!(checker.check(100).is_done());
-        assert_eq!(checker.example("solvable"), Some(Path(vec![
-            ((0, 0), Some(Guess::IncreaseX)),
-            ((1, 0), Some(Guess::IncreaseY)),
-            ((1, 1), None),
-        ])));
+        assert_eq!(
+            checker.example("solvable"),
+            Some(Path(vec![
+                ((0, 0), Some(Guess::IncreaseX)),
+                ((1, 0), Some(Guess::IncreaseY)),
+                ((1, 1), None),
+            ]))
+        );
 
         // but didn't need to enumerate all of state space...
-        assert_eq!(checker.pending.len(), 15); 
-        assert_eq!(checker.sources.len(), 115); 
+        assert_eq!(checker.pending.len(), 15);
+        assert_eq!(checker.sources.len(), 115);
 
         // and won't check any more states since it's done.
         checker.check(100);
-        assert_eq!(checker.pending.len(), 15); 
+        assert_eq!(checker.pending.len(), 15);
         assert_eq!(checker.sources.len(), 115);
     }
 
     #[test]
     fn report_includes_property_names_and_paths() {
         let mut written: Vec<u8> = Vec::new();
-        LinearEquation { a: 2, b: 10, c: 14 }.model().checker().check_and_report(&mut written);
+        LinearEquation { a: 2, b: 10, c: 14 }
+            .model()
+            .checker()
+            .check_and_report(&mut written);
         let output = String::from_utf8(written).unwrap();
         // `starts_with` to omit timing since it varies
         assert!(
-            output.starts_with("\
+            output.starts_with(
+                "\
                 == solvable ==\n\
                 ACTION: IncreaseX\n\
                 ACTION: IncreaseX\n\
                 ACTION: IncreaseY\n\
-                Complete. generated=33024, pending=256, sec="),
-            "Output did not start as expected (see test). output={:?}`", output);
+                Complete. generated=33024, pending=256, sec="
+            ),
+            "Output did not start as expected (see test). output={:?}`",
+            output
+        );
     }
 }

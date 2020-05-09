@@ -1,7 +1,7 @@
 //! Models semantics for an actor system on a lossy network that can redeliver messages.
 
-use crate::*;
 use crate::actor::*;
+use crate::*;
 use std::sync::Arc;
 
 /// Represents a network of messages.
@@ -11,7 +11,10 @@ pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
 /// the network state, losing a message is indistinguishable from an unlimited delay, so in
 /// many cases you can improve model checking performance by not modeling message loss.
 #[derive(Clone, PartialEq)]
-pub enum LossyNetwork { Yes, No }
+pub enum LossyNetwork {
+    Yes,
+    No,
+}
 
 /// A collection of actors on a lossy network.
 #[derive(Clone)]
@@ -33,7 +36,11 @@ impl<A: Actor> System<A> {
 
 /// Indicates the source and destination for a message.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
+pub struct Envelope<Msg> {
+    pub src: Id,
+    pub dst: Id,
+    pub msg: Msg,
+}
 
 /// Represents a snapshot in time for the entire actor system. Consider using
 /// `SystemState<Actor>` instead for simpler type signatures.
@@ -77,18 +84,23 @@ where
         for (index, actor) in self.actors.iter().enumerate() {
             let id = Id::from(index);
             let out = actor.init_out(id);
-            actor_states.push(Arc::new(out.state.expect(&format!(
-                "Actor state not assigned at init. id={:?}", id))));
+            actor_states.push(Arc::new(
+                out.state
+                    .expect(&format!("Actor state not assigned at init. id={:?}", id)),
+            ));
             for c in out.commands {
                 match c {
                     Command::Send(dst, msg) => {
                         network.insert(Envelope { src: id, dst, msg });
-                    },
+                    }
                 }
             }
         }
 
-        vec![_SystemState { actor_states, network }]
+        vec![_SystemState {
+            actor_states,
+            network,
+        }]
     }
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
@@ -104,18 +116,24 @@ where
         }
     }
 
-    fn next_state(&self, last_sys_state: &Self::State, action: Self::Action) -> Option<Self::State> {
+    fn next_state(
+        &self,
+        last_sys_state: &Self::State,
+        action: Self::Action,
+    ) -> Option<Self::State> {
         match action {
             SystemAction::Drop(env) => {
                 let mut next_state = last_sys_state.clone();
                 next_state.network.remove(&env);
                 Some(next_state)
-            },
+            }
             SystemAction::Act(id, event) => {
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
                 let out = self.actors[index].next_out(id, last_actor_state, event);
-                if out.state.is_none() && out.commands.is_empty() { return None; } // optimization
+                if out.state.is_none() && out.commands.is_empty() {
+                    return None;
+                } // optimization
                 let mut next_sys_state = last_sys_state.clone();
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
@@ -123,17 +141,20 @@ where
                 for c in out.commands {
                     match c {
                         Command::Send(dst, msg) => {
-                            next_sys_state.network.insert(Envelope { src: id, dst, msg });
-                        },
+                            next_sys_state
+                                .network
+                                .insert(Envelope { src: id, dst, msg });
+                        }
                     }
                 }
                 Some(next_sys_state)
-            },
+            }
         }
     }
 
     fn display_outcome(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
-    where Self::State: Debug
+    where
+        Self::State: Debug,
     {
         #[derive(Debug)]
         struct ActorStep<'a, State, Msg> {
@@ -146,11 +167,14 @@ where
             let index = usize::from(id);
             let actor_state = &last_state.actor_states[index];
             let out = self.actors[index].next_out(id, actor_state, event);
-            Some(format!("{:#?}", ActorStep {
-                last_state: actor_state,
-                next_state: out.state,
-                commands: out.commands,
-            }))
+            Some(format!(
+                "{:#?}",
+                ActorStep {
+                    last_state: actor_state,
+                    next_state: out.state,
+                    commands: out.commands,
+                }
+            ))
         } else {
             None
         }
@@ -171,9 +195,9 @@ impl From<usize> for Id {
 
 #[cfg(test)]
 mod test {
-    use crate::*;
     use crate::actor::system::*;
     use crate::test_util::ping_pong::*;
+    use crate::*;
     use std::collections::HashSet;
     use std::sync::Arc;
 
@@ -189,94 +213,175 @@ mod test {
         };
         let mut checker = System {
             actors: vec![
-                PingPong::PingActor { pong_id: Id::from(1) },
+                PingPong::PingActor {
+                    pong_id: Id::from(1),
+                },
                 PingPong::PongActor,
             ],
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
-        }.model(1).checker();
+        }
+        .model(1)
+        .checker();
         checker.check(1_000);
         let state_space = checker.generated_fingerprints();
         assert_eq!(state_space.len(), 14);
-        assert_eq!(state_space, HashSet::from_iter(vec![
-            // When the network loses no messages...
-            fingerprint(
-                vec![PingPongCount(0), PingPongCount(0)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) }]),
-            fingerprint(
-                vec![PingPongCount(0), PingPongCount(1)],
-                vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
-                ]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) },
-                ]),
-
-            // When the network loses the message for pinger-ponger state (0, 0)...
-            fingerprint(
-                vec![PingPongCount(0), PingPongCount(0)],
-                Vec::new()),
-
-            // When the network loses a message for pinger-ponger state (0, 1)
-            fingerprint(
-                vec![PingPongCount(0), PingPongCount(1)],
-                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }]),
-            fingerprint(
-                vec![PingPongCount(0), PingPongCount(1)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) }]),
-            fingerprint(
-                vec![PingPongCount(0), PingPongCount(1)],
-                Vec::new()),
-
-            // When the network loses a message for pinger-ponger state (1, 1)
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) },
-                ]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) },
-                ]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
-                ]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) }]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) }]),
-            fingerprint(
-                vec![PingPongCount(1), PingPongCount(1)],
-                Vec::new()),
-        ]));
+        assert_eq!(
+            state_space,
+            HashSet::from_iter(vec![
+                // When the network loses no messages...
+                fingerprint(
+                    vec![PingPongCount(0), PingPongCount(0)],
+                    vec![Envelope {
+                        src: Id::from(0),
+                        dst: Id::from(1),
+                        msg: PingPongMsg::Ping(0)
+                    }]
+                ),
+                fingerprint(
+                    vec![PingPongCount(0), PingPongCount(1)],
+                    vec![
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(0)
+                        },
+                        Envelope {
+                            src: Id::from(1),
+                            dst: Id::from(0),
+                            msg: PingPongMsg::Pong(0)
+                        },
+                    ]
+                ),
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(0)
+                        },
+                        Envelope {
+                            src: Id::from(1),
+                            dst: Id::from(0),
+                            msg: PingPongMsg::Pong(0)
+                        },
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(1)
+                        },
+                    ]
+                ),
+                // When the network loses the message for pinger-ponger state (0, 0)...
+                fingerprint(vec![PingPongCount(0), PingPongCount(0)], Vec::new()),
+                // When the network loses a message for pinger-ponger state (0, 1)
+                fingerprint(
+                    vec![PingPongCount(0), PingPongCount(1)],
+                    vec![Envelope {
+                        src: Id::from(1),
+                        dst: Id::from(0),
+                        msg: PingPongMsg::Pong(0)
+                    }]
+                ),
+                fingerprint(
+                    vec![PingPongCount(0), PingPongCount(1)],
+                    vec![Envelope {
+                        src: Id::from(0),
+                        dst: Id::from(1),
+                        msg: PingPongMsg::Ping(0)
+                    }]
+                ),
+                fingerprint(vec![PingPongCount(0), PingPongCount(1)], Vec::new()),
+                // When the network loses a message for pinger-ponger state (1, 1)
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![
+                        Envelope {
+                            src: Id::from(1),
+                            dst: Id::from(0),
+                            msg: PingPongMsg::Pong(0)
+                        },
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(1)
+                        },
+                    ]
+                ),
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(0)
+                        },
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(1)
+                        },
+                    ]
+                ),
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![
+                        Envelope {
+                            src: Id::from(0),
+                            dst: Id::from(1),
+                            msg: PingPongMsg::Ping(0)
+                        },
+                        Envelope {
+                            src: Id::from(1),
+                            dst: Id::from(0),
+                            msg: PingPongMsg::Pong(0)
+                        },
+                    ]
+                ),
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![Envelope {
+                        src: Id::from(0),
+                        dst: Id::from(1),
+                        msg: PingPongMsg::Ping(1)
+                    }]
+                ),
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![Envelope {
+                        src: Id::from(1),
+                        dst: Id::from(0),
+                        msg: PingPongMsg::Pong(0)
+                    }]
+                ),
+                fingerprint(
+                    vec![PingPongCount(1), PingPongCount(1)],
+                    vec![Envelope {
+                        src: Id::from(0),
+                        dst: Id::from(1),
+                        msg: PingPongMsg::Ping(0)
+                    }]
+                ),
+                fingerprint(vec![PingPongCount(1), PingPongCount(1)], Vec::new()),
+            ])
+        );
     }
 
     #[test]
     fn can_play_ping_pong() {
         let mut checker = System {
             actors: vec![
-                PingPong::PingActor { pong_id: Id::from(1) },
+                PingPong::PingActor {
+                    pong_id: Id::from(1),
+                },
                 PingPong::PongActor,
             ],
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
-        }.model(5).checker();
+        }
+        .model(5)
+        .checker();
         assert_eq!(checker.check(10_000).counterexample("delta within 1"), None);
         assert_eq!(checker.is_done(), true);
         assert_eq!(checker.generated_count(), 4_094);
