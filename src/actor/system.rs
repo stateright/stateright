@@ -13,12 +13,18 @@ pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
 #[derive(Clone, PartialEq)]
 pub enum LossyNetwork { Yes, No }
 
+/// Indicates whether the network duplicates messages. If duplication is disabled, messages
+/// are forgotten once delivered, which can improve model checking perfomance.
+#[derive(Clone, PartialEq)]
+pub enum DuplicatingNetwork { Yes, No }
+
 /// A collection of actors on a lossy network.
 #[derive(Clone)]
 pub struct System<A: Actor> {
     pub actors: Vec<A>,
     pub init_network: Vec<Envelope<A::Msg>>,
     pub lossy_network: LossyNetwork,
+    pub duplicating_network: DuplicatingNetwork,
 }
 
 impl<A: Actor> System<A> {
@@ -27,6 +33,7 @@ impl<A: Actor> System<A> {
             actors,
             init_network: Vec::new(),
             lossy_network: LossyNetwork::No,
+            duplicating_network: DuplicatingNetwork::Yes
         }
     }
 }
@@ -114,12 +121,19 @@ where
             SystemAction::Act(id, event) => {
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
-                let out = self.actors[index].next_out(id, last_actor_state, event);
+                let Event::Receive(src, msg) = event;
+                let out = self.actors[index].next_out(id, last_actor_state, Event::Receive(src, msg.clone()));
                 if out.state.is_none() && out.commands.is_empty() { return None; } // optimization
                 let mut next_sys_state = last_sys_state.clone();
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
+                // If we're a non-duplicating nework, drop the message that was delivered.
+                if self.duplicating_network == DuplicatingNetwork::No {
+                    let env = Envelope { src: src, dst: id, msg: msg };
+                    next_sys_state.network.remove(&env);
+                }
+                // Then insert the messages that were generated in response.
                 for c in out.commands {
                     match c {
                         Command::Send(dst, msg) => {
@@ -194,6 +208,7 @@ mod test {
             ],
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
+            duplicating_network: DuplicatingNetwork::Yes
         }.model(1).checker();
         checker.check(1_000);
         let state_space = checker.generated_fingerprints();
@@ -276,6 +291,7 @@ mod test {
             ],
             init_network: Vec::new(),
             lossy_network: LossyNetwork::Yes,
+            duplicating_network: DuplicatingNetwork::Yes,
         }.model(5).checker();
         assert_eq!(checker.check(10_000).counterexample("delta within 1"), None);
         assert_eq!(checker.is_done(), true);
