@@ -159,6 +159,7 @@ fn system(client_count: u8) -> System<RegisterActor<char, Paxos>> {
         actors,
         init_network: Vec::with_capacity(20),
         lossy_network: LossyNetwork::No,
+        duplicating_network: DuplicatingNetwork::Yes,
     }
 }
 

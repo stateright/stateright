@@ -55,6 +55,7 @@ fn system(servers: Vec<WriteOnce>, client_count: u8)
         actors,
         init_network: Vec::new(),
         lossy_network: LossyNetwork::Yes, // for some extra states
+        duplicating_network: DuplicatingNetwork::Yes,
     }
 }
 
