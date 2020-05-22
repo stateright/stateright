@@ -290,11 +290,13 @@ mod test {
                 PingPong::PongActor,
             ],
             init_network: Vec::new(),
-            lossy_network: LossyNetwork::Yes,
-            duplicating_network: DuplicatingNetwork::Yes,
+            lossy_network: LossyNetwork::No,
+            duplicating_network: DuplicatingNetwork::No,
         }.model(5).checker();
         assert_eq!(checker.check(10_000).counterexample("delta within 1"), None);
+        assert_eq!(checker.check(10_000).counterexample("max_nat"), None);
+        assert_ne!(checker.check(10_000).counterexample("max_nat_plus_one"), None);
         assert_eq!(checker.is_done(), true);
-        assert_eq!(checker.generated_count(), 4_094);
+        assert_eq!(checker.generated_count(), 11);
     }
 }

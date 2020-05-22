@@ -152,13 +152,22 @@ pub mod ping_pong {
 
     impl System<PingPong> {
         pub fn model(self, max_nat: u32) -> Model<'static, Self> {
+            let max_nat_0 = max_nat;
+            let max_nat_1 = max_nat + 1;
             Model {
                 state_machine: self,
-                properties: vec![Property::always("delta within 1", |_sys, state: &SystemState<PingPong>| {
-                    let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
-                    let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
-                    max - min <= 1
-                })],
+                properties: vec![
+                    Property::always("delta within 1", |_sys, state: &SystemState<PingPong>| {
+                        let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
+                        let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
+                        max - min <= 1
+                    }),
+                    Property::eventually("max_nat", move |_sys, state: &SystemState<PingPong>| {
+                        state.actor_states.iter().any(|s| s.0 == max_nat_0)
+                    }),
+                    Property::eventually("max_nat_plus_one", move |_sys, state: &SystemState<PingPong>| {
+                        state.actor_states.iter().any(|s| s.0 == max_nat_1)
+                    })],
                 boundary: Some(Box::new( move |_sys, state| {
                     state.actor_states.iter().all(|s| s.0 <= max_nat)
                 })),
