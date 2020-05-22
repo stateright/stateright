@@ -78,6 +78,7 @@ use dashmap::mapref::entry::Entry;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use id_set::IdSet;
 
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
 /// You can convert to a `Vec<_>` with `path.into_vec()`. If you only need the actions, then use
@@ -130,7 +131,9 @@ impl<'a, SM: StateMachine> Model<'a, SM> {
 
 /// A named predicate, such as "an epoch *sometimes* has no leader" (for which the the model
 /// checker would find an example) or "an epoch *always* has at most one leader" (for which the
-/// model checker would find a counterexample).
+/// model checker would find a counterexample) or "a proposal is *eventually* accepted" (for
+/// which the model checker would find a counterexample path leading from the initial state
+/// through to a terminal state).
 pub struct Property<'a, SM: StateMachine> {
     expectation: Expectation,
     name: &'static str,
@@ -145,6 +148,21 @@ impl<'a, SM: StateMachine> Property<'a, SM> {
         Property { expectation: Expectation::Always, name, condition: Box::new(f) }
     }
 
+    /// An invariant that defines a [liveness
+    /// property](https://en.wikipedia.org/wiki/Liveness). The model checker will try to
+    /// discover a counterexample path leading from the initial state through to a
+    /// terminal state.
+    ///
+    /// Note that in this implementation `eventually` properties only work correctly on acyclic
+    /// paths (those that end in either states with no successors or checking boundaries). A path
+    /// ending in a cycle is not viewed as _terminating_ in that cycle, as the checker does not
+    /// differentiate cycles from DAG joins, and so an `eventually` property that has not been met
+    /// by the cycle-closing edge will ignored -- a false negative.
+    pub fn eventually(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
+            -> Property<'a, SM> {
+        Property { expectation: Expectation::Eventually, name, condition: Box::new(f) }
+    }
+
     /// Something that should be possible in the model. The model checker will try to discover an
     /// example.
     pub fn sometimes(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
@@ -153,14 +171,23 @@ impl<'a, SM: StateMachine> Property<'a, SM> {
     }
 }
 #[derive(Debug, Eq, PartialEq)]
-enum Expectation { Always, Sometimes }
+enum Expectation { Always, Sometimes, Eventually }
+
+/// EventuallyBits tracks one bit per 'eventually' property being checked. Properties are assigned
+/// bit-numbers just by counting the 'eventually' properties up from 0 in the properties list. If a
+/// bit is present in a bitset, the property has _not_ been found on this path yet. Bits are removed
+/// from the propagating bitset when we find a state satisfying an `eventually` property; these
+/// states are not considered discoveries. Only if we hit the "end" of a path (i.e. return to a known
+/// state / no further state) with any of these bits still 1, the path is considered a discovery,
+/// a counterexample to the property.
+type EventuallyBits = IdSet;
 
 /// Generates every state reachable by a state machine, and verifies that all properties hold.
 /// Can be instantiated with `model.checker()`.
 pub struct Checker<'a, SM: StateMachine> {
     thread_count: usize,
     model: Model<'a, SM>,
-    pending: VecDeque<(Fingerprint, SM::State)>,
+    pending: VecDeque<(Fingerprint, EventuallyBits, SM::State)>,
     sources: DashMap<Fingerprint, Option<Fingerprint>>,
     discoveries: DashMap<&'static str, Fingerprint>,
 }
@@ -177,11 +204,17 @@ where
         let Checker { thread_count, model, pending, sources, discoveries } = self;
         let thread_count = *thread_count; // mut ref -> owned copy
         if sources.is_empty() {
+            let mut init_ebits = IdSet::new();
+            for (i, p) in model.properties.iter().enumerate() {
+                if let Property { expectation: Expectation::Eventually, .. } = p {
+                    init_ebits.insert(i);
+                }
+            }
             for init_state in model.state_machine.init_states() {
                 let init_digest = fingerprint(&init_state);
                 if let Entry::Vacant(init_source) = sources.entry(init_digest) {
                     init_source.insert(None);
-                    pending.push_front((init_digest, init_state));
+                    pending.push_front((init_digest, init_ebits.clone(), init_state));
                 }
             }
         }
@@ -218,10 +251,59 @@ where
         self
     }
 
+    // Removes from ebits the bit-number of any 'eventually' property that
+    // holds in state, leaving only bits that (still) _don't_ hold.
+    fn check_properties<'p>(state_machine: &SM,
+                            state: &SM::State,
+                            digest: Fingerprint,
+                            props: &Vec<&'p Property<'p, SM>>,
+                            ebits: &mut EventuallyBits,
+                            discoveries: &DashMap<&'static str, Fingerprint>,
+                            update_props: &mut bool)
+    {
+        for (i, property) in props.iter().enumerate() {
+            match property {
+                Property { expectation: Expectation::Always, name, condition: always } => {
+                    if !always(&state_machine, &state) {
+                        discoveries.insert(name, digest);
+                        *update_props = true;
+                    }
+                },
+                Property { expectation: Expectation::Sometimes, name, condition: sometimes } => {
+                    if sometimes(&state_machine, &state) {
+                        discoveries.insert(name, digest);
+                        *update_props = true;
+                    }
+                },
+                Property { expectation: Expectation::Eventually, condition, .. } => {
+                    if ebits.contains(i) && condition(&state_machine, &state) {
+                        ebits.remove(i);
+                        *update_props = true;
+                    }
+                }
+            }
+        }
+    }
+
+    fn note_terminal_state<'p>(digest: Fingerprint,
+                               props: &Vec<&'p Property<'p, SM>>,
+                               ebits: &EventuallyBits,
+                               discoveries: &DashMap<&'static str, Fingerprint>,
+                               update_props: &mut bool)
+    {
+        for (i, property) in props.iter().enumerate() {
+            if ebits.contains(i) {
+                discoveries.insert(property.name, digest);
+                *update_props = true;
+            }
+        }
+    }
+
+
     fn check_block(
             max_count: usize,
             model: &Model<SM>,
-            pending: &mut VecDeque<(Fingerprint, SM::State)>,
+            pending: &mut VecDeque<(Fingerprint, EventuallyBits, SM::State)>,
             sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
             discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
 
@@ -232,43 +314,57 @@ where
 
         if properties.is_empty() { return }
 
-        while let Some((digest, state)) = pending.pop_back() {
+        while let Some((digest, mut ebits, state)) = pending.pop_back() {
+            let mut update_props = false;
+            Self::check_properties(&state_machine, &state, digest, &properties,
+                                   &mut ebits, &discoveries, &mut update_props);
             // collect the next actions, and record the corresponding states that have not been
             // seen before if they are within the boundary
             state_machine.actions(&state, &mut next_actions);
+            if next_actions.is_empty() {
+                // No actions implies "terminal state".
+                Self::note_terminal_state(digest, &properties, &ebits,
+                                          &discoveries, &mut update_props);
+            }
             for next_action in next_actions.drain(0..) {
                 if let Some(next_state) = state_machine.next_state(&state, next_action) {
                     if let Some(boundary) = &model.boundary {
-                        if !boundary(state_machine, &next_state) { continue }
+                        if !boundary(state_machine, &next_state) {
+                            // Boundary implies "terminal state".
+                            Self::note_terminal_state(digest, &properties, &ebits,
+                                                      &discoveries, &mut update_props);
+                            continue
+                        }
                     }
 
+                    // FIXME: we should really include ebits in the fingerprint here --
+                    // it is possible to arrive at a DAG join with two different ebits
+                    // values, and subsequently treat the fact that some eventually
+                    // property held on the path leading to the first visit as meaning
+                    // that it holds in the path leading to the second visit -- another
+                    // possible false-negative.
                     let next_digest = fingerprint(&next_state);
                     if let Entry::Vacant(next_entry) = sources.entry(next_digest) {
                         next_entry.insert(Some(digest));
-                        pending.push_front((next_digest, next_state));
+                        pending.push_front((next_digest, ebits.clone(), next_state));
+                    } else {
+                        // FIXME: arriving at an already-known state may be a loop (in which case it
+                        // could, in a fancier implementation, be considered a terminal state for
+                        // purposes of eventually-property checking) but it might also be a join in
+                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                        // some cost), but for now we just _don't_ treat them as terminal, and tell
+                        // users they need to explicitly ensure model path-acyclicality when they're
+                        // using eventually properties (using a boundary or empty actions or
+                        // whatever).
                     }
+                } else {
+                    // No next-state implies "terminal state".
+                    Self::note_terminal_state(digest, &properties, &ebits,
+                                              &discoveries, &mut update_props);
                 }
             }
 
-            // check properties that lack associated discoveries
-            let mut is_updated = false;
-            for property in &properties {
-                match property {
-                    Property { expectation: Expectation::Always, name, condition: always } => {
-                        if !always(&state_machine, &state) {
-                            discoveries.insert(name, digest);
-                            is_updated = true;
-                        }
-                    },
-                    Property { expectation: Expectation::Sometimes, name, condition: sometimes } => {
-                        if sometimes(&state_machine, &state) {
-                            discoveries.insert(name, digest);
-                            is_updated = true;
-                        }
-                    },
-                }
-            }
-            if is_updated {
+            if update_props {
                 properties = model.properties.iter().filter(|p| !discoveries.contains_key(p.name)).collect();
             }
 
@@ -297,7 +393,7 @@ where
     /// exist.
     pub fn counterexample(&self, name: &'static str) -> Option<Path<SM::State, SM::Action>> {
         if let Some(p) = self.model.properties.iter().find(|p| p.name == name) {
-            if p.expectation != Expectation::Always {
+            if p.expectation == Expectation::Sometimes {
                 panic!("Please use `example(\"{}\")` for this `sometimes` property.", name);
             }
             self.discoveries.get(name).map(|mapref| self.path(*mapref.value()))
