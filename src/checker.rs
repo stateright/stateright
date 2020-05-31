@@ -1,9 +1,9 @@
-//! A model checker for a state machine.
+//! A `Model` checker.
 //!
 //! Models can have `sometimes` and `always` properties. The model checker will attempt to discover
 //! an example of every `sometimes` property and a counterexample of every `always` property.
 //! Usually the absence of a `sometimes` example or the presence of an `always` counterexample
-//! indicates a problem with the implementation 
+//! indicates a problem with the implementation.
 //!
 //! An example that solves a [sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle)
 //! follows.
@@ -15,16 +15,22 @@
 //! #[derive(Clone, Debug, Eq, PartialEq)]
 //! enum Slide { Down, Up, Right, Left }
 //!
-//! let puzzle = QuickMachine {
-//!     init_states: || vec![vec![1, 4, 2,
-//!                               3, 5, 8,
-//!                               6, 7, 0]],
-//!     actions: |_, actions| {
+//! struct Puzzle(Vec<u8>);
+//! impl Model for Puzzle {
+//!     type State = Vec<u8>;
+//!     type Action = Slide;
+//!
+//!     fn init_states(&self) -> Vec<Self::State> {
+//!         vec![self.0.clone()]
+//!     }
+//!
+//!     fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
 //!         actions.append(&mut vec![
 //!             Slide::Down, Slide::Up, Slide::Right, Slide::Left
 //!         ]);
-//!     },
-//!     next_state: |last_state, action| {
+//!     }
+//!
+//!     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
 //!         let empty = last_state.iter().position(|x| *x == 0).unwrap();
 //!         let empty_y = empty / 3;
 //!         let empty_x = empty % 3;
@@ -42,15 +48,20 @@
 //!             next_state
 //!         })
 //!     }
-//! };
-//! let solved = vec![0, 1, 2,
-//!                   3, 4, 5,
-//!                   6, 7, 8];
-//! let example = Model {
-//!     state_machine: puzzle,
-//!     properties: vec![Property::sometimes("solved", |_, state| { state == &solved })],
-//!     boundary: None,
-//! }.checker().check(100).example("solved");
+//!
+//!     fn properties(&self) -> Vec<Property<Self>> {
+//!         vec![Property::sometimes("solved", |_, state: &Vec<u8>| {
+//!             let solved = vec![0, 1, 2,
+//!                               3, 4, 5,
+//!                               6, 7, 8];
+//!             state == &solved
+//!         })]
+//!     }
+//! }
+//! let example = Puzzle(vec![1, 4, 2,
+//!                           3, 5, 8,
+//!                           6, 7, 0])
+//!     .checker().check(100).example("solved");
 //! assert_eq!(
 //!     example,
 //!     Some(Path(vec![
@@ -66,7 +77,9 @@
 //!         (vec![1, 0, 2,
 //!               3, 4, 5,
 //!               6, 7, 8], Some(Slide::Right)),
-//!         (solved, None)])));
+//!         (vec![0, 1, 2,
+//!               3, 4, 5,
+//!               6, 7, 8], None)])));
 //! ```
 //!
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
@@ -83,13 +96,14 @@ use id_set::IdSet;
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
 /// You can convert to a `Vec<_>` with `path.into_vec()`. If you only need the actions, then use
 /// `path.into_actions()`.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
     /// Extracts the last state.
     pub fn last_state(&self) -> &State {
         &self.0.last().unwrap().0
     }
+
     /// Extracts the actions.
     pub fn into_actions(self) -> Vec<Action> {
         self.0.into_iter().filter_map(|(_s, a)| a).collect()
@@ -104,75 +118,6 @@ impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
     fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
 }
 
-/// A state machine model that can be checked.
-pub struct Model<'a, SM: StateMachine> {
-    pub state_machine: SM,
-    pub properties: Vec<Property<'a, SM>>,
-    pub boundary: Option<Box<dyn Fn(&SM, &SM::State) -> bool + Sync + 'a>>,
-}
-impl<'a, SM: StateMachine> Model<'a, SM> {
-    /// Initializes a single-threaded model checker.
-    pub fn checker(self) -> Checker<'a, SM> {
-        self.checker_with_threads(1)
-    }
-
-    /// Initializes a model checker. The visitation order will be nondeterministic if
-    /// `thread_count > 1`.
-    pub fn checker_with_threads(self, thread_count: usize) -> Checker<'a, SM> {
-        Checker {
-            thread_count,
-            model: self,
-            pending: VecDeque::with_capacity(50_000),
-            sources: DashMap::with_capacity(1_000_000),
-            discoveries: DashMap::with_capacity(10),
-        }
-    }
-}
-
-/// A named predicate, such as "an epoch *sometimes* has no leader" (for which the the model
-/// checker would find an example) or "an epoch *always* has at most one leader" (for which the
-/// model checker would find a counterexample) or "a proposal is *eventually* accepted" (for
-/// which the model checker would find a counterexample path leading from the initial state
-/// through to a terminal state).
-pub struct Property<'a, SM: StateMachine> {
-    expectation: Expectation,
-    name: &'static str,
-    condition: Box<dyn Fn(&SM, &SM::State) -> bool + Sync + 'a>,
-}
-impl<'a, SM: StateMachine> Property<'a, SM> {
-    /// An invariant that defines a [safety
-    /// property](https://en.wikipedia.org/wiki/Safety_property). The model checker will try to
-    /// discover a counterexample.
-    pub fn always(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
-            -> Property<'a, SM> {
-        Property { expectation: Expectation::Always, name, condition: Box::new(f) }
-    }
-
-    /// An invariant that defines a [liveness
-    /// property](https://en.wikipedia.org/wiki/Liveness). The model checker will try to
-    /// discover a counterexample path leading from the initial state through to a
-    /// terminal state.
-    ///
-    /// Note that in this implementation `eventually` properties only work correctly on acyclic
-    /// paths (those that end in either states with no successors or checking boundaries). A path
-    /// ending in a cycle is not viewed as _terminating_ in that cycle, as the checker does not
-    /// differentiate cycles from DAG joins, and so an `eventually` property that has not been met
-    /// by the cycle-closing edge will ignored -- a false negative.
-    pub fn eventually(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
-            -> Property<'a, SM> {
-        Property { expectation: Expectation::Eventually, name, condition: Box::new(f) }
-    }
-
-    /// Something that should be possible in the model. The model checker will try to discover an
-    /// example.
-    pub fn sometimes(name: &'static str, f: impl Fn(&SM, &SM::State) -> bool + Sync + 'a)
-            -> Property<'a, SM> {
-        Property { expectation: Expectation::Sometimes, name, condition: Box::new(f) }
-    }
-}
-#[derive(Debug, Eq, PartialEq)]
-enum Expectation { Always, Sometimes, Eventually }
-
 /// EventuallyBits tracks one bit per 'eventually' property being checked. Properties are assigned
 /// bit-numbers just by counting the 'eventually' properties up from 0 in the properties list. If a
 /// bit is present in a bitset, the property has _not_ been found on this path yet. Bits are removed
@@ -182,21 +127,21 @@ enum Expectation { Always, Sometimes, Eventually }
 /// a counterexample to the property.
 type EventuallyBits = IdSet;
 
-/// Generates every state reachable by a state machine, and verifies that all properties hold.
-/// Can be instantiated with `model.checker()`.
-pub struct Checker<'a, SM: StateMachine> {
-    thread_count: usize,
-    model: Model<'a, SM>,
-    pending: VecDeque<(Fingerprint, EventuallyBits, SM::State)>,
-    sources: DashMap<Fingerprint, Option<Fingerprint>>,
-    discoveries: DashMap<&'static str, Fingerprint>,
+/// Generates every state reachable by a model, and verifies that all properties hold.
+/// Can be instantiated with `Model::checker()` or `Model::checker_with_threads(...)`.
+pub struct Checker<M: Model> {
+    pub(crate) thread_count: usize,
+    pub(crate) model: M,
+    pub(crate) pending: VecDeque<(Fingerprint, EventuallyBits, M::State)>,
+    pub(crate) sources: DashMap<Fingerprint, Option<Fingerprint>>,
+    pub(crate) discoveries: DashMap<&'static str, Fingerprint>,
 }
 
-impl<'a, SM: StateMachine> Checker<'a, SM>
+impl<M: Model> Checker<M>
 where
-    SM: Sync,
-    SM::State: Debug + Hash + Send + Sync,
-    SM::Action: Debug,
+    M: Sync,
+    M::State: Debug + Hash + Send + Sync,
+    M::Action: Debug,
 {
     /// Visits up to a specified number of states checking the model's properties. May return
     /// earlier when all states have been checked or all the properties are resolved.
@@ -205,12 +150,12 @@ where
         let thread_count = *thread_count; // mut ref -> owned copy
         if sources.is_empty() {
             let mut init_ebits = IdSet::new();
-            for (i, p) in model.properties.iter().enumerate() {
+            for (i, p) in model.properties().iter().enumerate() {
                 if let Property { expectation: Expectation::Eventually, .. } = p {
                     init_ebits.insert(i);
                 }
             }
-            for init_state in model.state_machine.init_states() {
+            for init_state in model.init_states() {
                 let init_digest = fingerprint(&init_state);
                 if let Entry::Vacant(init_source) = sources.entry(init_digest) {
                     init_source.insert(None);
@@ -253,30 +198,30 @@ where
 
     // Removes from ebits the bit-number of any 'eventually' property that
     // holds in state, leaving only bits that (still) _don't_ hold.
-    fn check_properties<'p>(state_machine: &SM,
-                            state: &SM::State,
-                            digest: Fingerprint,
-                            props: &Vec<&'p Property<'p, SM>>,
-                            ebits: &mut EventuallyBits,
-                            discoveries: &DashMap<&'static str, Fingerprint>,
-                            update_props: &mut bool)
+    fn check_properties(model: &M,
+                        state: &M::State,
+                        digest: Fingerprint,
+                        props: &Vec<Property<M>>,
+                        ebits: &mut EventuallyBits,
+                        discoveries: &DashMap<&'static str, Fingerprint>,
+                        update_props: &mut bool)
     {
         for (i, property) in props.iter().enumerate() {
             match property {
                 Property { expectation: Expectation::Always, name, condition: always } => {
-                    if !always(&state_machine, &state) {
+                    if !always(model, &state) {
                         discoveries.insert(name, digest);
                         *update_props = true;
                     }
                 },
                 Property { expectation: Expectation::Sometimes, name, condition: sometimes } => {
-                    if sometimes(&state_machine, &state) {
+                    if sometimes(model, &state) {
                         discoveries.insert(name, digest);
                         *update_props = true;
                     }
                 },
                 Property { expectation: Expectation::Eventually, condition, .. } => {
-                    if ebits.contains(i) && condition(&state_machine, &state) {
+                    if ebits.contains(i) && condition(model, &state) {
                         ebits.remove(i);
                         *update_props = true;
                     }
@@ -285,11 +230,11 @@ where
         }
     }
 
-    fn note_terminal_state<'p>(digest: Fingerprint,
-                               props: &Vec<&'p Property<'p, SM>>,
-                               ebits: &EventuallyBits,
-                               discoveries: &DashMap<&'static str, Fingerprint>,
-                               update_props: &mut bool)
+    fn note_terminal_state(digest: Fingerprint,
+                           props: &Vec<Property<M>>,
+                           ebits: &EventuallyBits,
+                           discoveries: &DashMap<&'static str, Fingerprint>,
+                           update_props: &mut bool)
     {
         for (i, property) in props.iter().enumerate() {
             if ebits.contains(i) {
@@ -299,42 +244,40 @@ where
         }
     }
 
-
     fn check_block(
-            max_count: usize,
-            model: &Model<SM>,
-            pending: &mut VecDeque<(Fingerprint, EventuallyBits, SM::State)>,
-            sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
-            discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
+        max_count: usize,
+        model: &M,
+        pending: &mut VecDeque<(Fingerprint, EventuallyBits, M::State)>,
+        sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
+        discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
 
-        let state_machine = &model.state_machine;
         let mut remaining = max_count;
         let mut next_actions = Vec::new(); // reused between iterations for efficiency
-        let mut properties: Vec<_> = Self::remaining_properties(&model.properties, &discoveries);
+        let mut properties: Vec<_> = Self::remaining_properties(
+            model.properties(), &discoveries);
 
         if properties.is_empty() { return }
 
         while let Some((digest, mut ebits, state)) = pending.pop_back() {
             let mut update_props = false;
-            Self::check_properties(&state_machine, &state, digest, &properties,
+            Self::check_properties(model, &state, digest, &properties,
                                    &mut ebits, &discoveries, &mut update_props);
+
             // collect the next actions, and record the corresponding states that have not been
             // seen before if they are within the boundary
-            state_machine.actions(&state, &mut next_actions);
+            model.actions(&state, &mut next_actions);
             if next_actions.is_empty() {
                 // No actions implies "terminal state".
                 Self::note_terminal_state(digest, &properties, &ebits,
                                           &discoveries, &mut update_props);
             }
             for next_action in next_actions.drain(0..) {
-                if let Some(next_state) = state_machine.next_state(&state, next_action) {
-                    if let Some(boundary) = &model.boundary {
-                        if !boundary(state_machine, &next_state) {
-                            // Boundary implies "terminal state".
-                            Self::note_terminal_state(digest, &properties, &ebits,
-                                                      &discoveries, &mut update_props);
-                            continue
-                        }
+                if let Some(next_state) = model.next_state(&state, next_action) {
+                    if !model.within_boundary(&next_state) {
+                        // Boundary implies "terminal state".
+                        Self::note_terminal_state(digest, &properties, &ebits,
+                                                  &discoveries, &mut update_props);
+                        continue
                     }
 
                     // FIXME: we should really include ebits in the fingerprint here --
@@ -365,7 +308,7 @@ where
             }
 
             if update_props {
-                properties = model.properties.iter().filter(|p| !discoveries.contains_key(p.name)).collect();
+                properties = properties.into_iter().filter(|p| !discoveries.contains_key(p.name)).collect();
             }
 
             remaining -= 1;
@@ -376,40 +319,40 @@ where
     /// An example of a "sometimes" property. `None` indicates that the property exists but no
     /// example has been found. Will panic if a corresponding "sometimes" property does not
     /// exist.
-    pub fn example(&self, name: &'static str) -> Option<Path<SM::State, SM::Action>> {
-        if let Some(p) = self.model.properties.iter().find(|p| p.name == name) {
+    pub fn example(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
+        if let Some(p) = self.model.properties().into_iter().find(|p| p.name == name) {
             if p.expectation != Expectation::Sometimes {
-                panic!("Please use `counterexample(\"{}\")` for this `always` property.", name);
+                panic!("Please use `counterexample(\"{}\")` for this `always` or `eventually` property.", name);
             }
             self.discoveries.get(name).map(|mapref| self.path(*mapref.value()))
         } else {
-            let available: Vec<_> = self.model.properties.iter().map(|p| p.name).collect();
+            let available: Vec<_> = self.model.properties().iter().map(|p| p.name).collect();
             panic!("Unknown property. requested={}, available={:?}", name, available);
         }
     }
 
-    /// A counterexaple of an "always" property. `None` indicates that the property exists but no
-    /// counterexample has been found. Will panic if a corresponding "always" property does not
+    /// A counterexample of an "always" or "eventually" property. `None` indicates that the property exists but no
+    /// counterexample has been found. Will panic if a corresponding "always" or "eventually" property does not
     /// exist.
-    pub fn counterexample(&self, name: &'static str) -> Option<Path<SM::State, SM::Action>> {
-        if let Some(p) = self.model.properties.iter().find(|p| p.name == name) {
+    pub fn counterexample(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
+        if let Some(p) = self.model.properties().iter().find(|p| p.name == name) {
             if p.expectation == Expectation::Sometimes {
                 panic!("Please use `example(\"{}\")` for this `sometimes` property.", name);
             }
             self.discoveries.get(name).map(|mapref| self.path(*mapref.value()))
         } else {
-            let available: Vec<_> = self.model.properties.iter().map(|p| p.name).collect();
+            let available: Vec<_> = self.model.properties().iter().map(|p| p.name).collect();
             panic!("Unknown property. requested={}, available={:?}", name, available);
         }
     }
 
-    fn path(&self, fp: Fingerprint) -> Path<SM::State, SM::Action> {
+    fn path(&self, fp: Fingerprint) -> Path<M::State, M::Action> {
         // First build a stack of digests representing the path (with the init digest at top of
         // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
         // Specifications" by Yu, Manolios, and Lamport.
 
-        let state_machine = &self.model.state_machine;
+        let model = &self.model;
         let sources = &self.sources;
 
         // 1. Build a stack of digests.
@@ -429,7 +372,7 @@ where
         }
 
         // 2. Begin unwinding by determining the init step.
-        let init_states = state_machine.init_states();
+        let init_states = model.init_states();
         let mut last_state = init_states.into_iter()
             .find(|s| fingerprint(&s) == digests.pop().unwrap())
             .unwrap();
@@ -438,11 +381,11 @@ where
         let mut output = Vec::new();
         while let Some(next_digest) = digests.pop() {
             let mut actions = Vec::new();
-            state_machine.actions(
+            model.actions(
                 &last_state,
                 &mut actions);
 
-            let (action, next_state) = state_machine
+            let (action, next_state) = model
                 .next_steps(&last_state).into_iter()
                 .find_map(|(a,s)| {
                     if fingerprint(&s) == next_digest {
@@ -501,16 +444,16 @@ where
 
     /// Indicates that either all properties have associated discoveries or all reachable states
     /// have been visited.
-    pub fn is_done(&'a self) -> bool {
-        let remaining_properties = Self::remaining_properties(&self.model.properties, &self.discoveries);
+    pub fn is_done(&self) -> bool {
+        let remaining_properties = Self::remaining_properties(self.model.properties(), &self.discoveries);
         remaining_properties.is_empty() || self.pending.is_empty()
     }
 
-    fn remaining_properties<'p, 'd>(
-        properties: &'p [Property<'p, SM>],
-        discoveries: &'d DashMap<&'static str, Fingerprint>
-    ) -> Vec<&'p Property<'p, SM>> {
-        properties.iter().filter(|p| !discoveries.contains_key(p.name)).collect()
+    fn remaining_properties(
+        properties: Vec<Property<M>>,
+        discoveries: &DashMap<&str, Fingerprint>
+    ) -> Vec<Property<M>> {
+        properties.into_iter().filter(|p| !discoveries.contains_key(p.name)).collect()
     }
 
     /// Indicates how many states were generated during model checking.
@@ -532,8 +475,7 @@ mod test {
     #[test]
     fn records_states() {
         let h = |a: u8, b: u8| fingerprint(&(a, b));
-        let state_space = LinearEquation { a: 2, b: 10, c: 14 }
-            .model().checker()
+        let state_space = LinearEquation { a: 2, b: 10, c: 14 }.checker()
             .check(100).generated_fingerprints();
 
         // Contains a variety of states.
@@ -553,7 +495,7 @@ mod test {
 
     #[test]
     fn can_complete_by_enumerating_all_states() {
-        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.model().checker();
+        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker();
 
         // Not solved, but not done.
         assert_eq!(checker.check(10).example("solvable"), None);
@@ -573,7 +515,7 @@ mod test {
 
     #[test]
     fn can_complete_by_eliminating_properties() {
-        let mut checker = LinearEquation { a: 1, b: 2, c: 3 }.model().checker();
+        let mut checker = LinearEquation { a: 1, b: 2, c: 3 }.checker();
 
         // Solved and done (with example identified) ...
         assert!(checker.check(100).is_done());
@@ -596,7 +538,7 @@ mod test {
     #[test]
     fn report_includes_property_names_and_paths() {
         let mut written: Vec<u8> = Vec::new();
-        LinearEquation { a: 2, b: 10, c: 14 }.model().checker().check_and_report(&mut written);
+        LinearEquation { a: 2, b: 10, c: 14 }.checker().check_and_report(&mut written);
         let output = String::from_utf8(written).unwrap();
         // `starts_with` to omit timing since it varies
         assert!(

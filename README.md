@@ -40,7 +40,7 @@ nc -u 0 3000
 Stateright includes a variety of
 [examples](https://github.com/stateright/stateright/tree/master/examples), such
 as an actor based Single Decree Paxos cluster and an abstract two phase commit
-state machine.
+model.
 
 To model check, run:
 
@@ -58,8 +58,8 @@ cargo run --release --example paxos explore
 cargo run --release --example wor explore
 ```
 
-Stateright also includes a simple runtime for executing an actor state machine
-mapping messages to JSON over UDP:
+Stateright also includes a simple runtime for executing an actor mapping
+messages to JSON over UDP:
 
 ```sh
 cargo run --release --example paxos spawn
@@ -105,8 +105,8 @@ cargo run --release --example wor check 6
 
 ## License
 
-Stateright is copyright 2018 Jonathan Nadal and made available under the MIT
-License.
+Stateright is copyright 2018 Jonathan Nadal and other contributors. It is made
+available under the MIT License.
 
 To avoid the need for a Javascript package manager, the Stateright repository
 includes code for the following Javascript dependencies used by Stateright

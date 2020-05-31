@@ -8,18 +8,15 @@ use stateright::actor::register::*;
 use stateright::actor::register::RegisterMsg::*;
 use stateright::actor::spawn::*;
 use stateright::actor::system::*;
-use stateright::checker::*;
 use stateright::explorer::*;
 use std::collections::*;
 use std::net::{SocketAddrV4, Ipv4Addr};
+use stateright::{Property, Model};
 
 type Round = u32;
 type Rank = u32;
 type Ballot = (Round, Rank);
 type Value = char;
-
-#[derive(Clone)]
-struct Paxos { rank: Rank, peer_ids: Vec<Id> }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(Serialize, Deserialize)]
@@ -48,7 +45,10 @@ struct PaxosState {
     is_decided: bool,
 }
 
-impl Actor for Paxos {
+#[derive(Clone)]
+struct PaxosActor { rank: Rank, peer_ids: Vec<Id> }
+
+impl Actor for PaxosActor {
     type Msg = RegisterMsg<Value, PaxosMsg>;
     type State = PaxosState;
 
@@ -142,74 +142,80 @@ impl Actor for Paxos {
     }
 }
 
-/// Create a system with 3 servers and a variable number of clients.
-fn system(client_count: u8) -> System<RegisterActor<char, Paxos>> {
-    let mut actors = vec![
-        RegisterActor::Server(Paxos { rank: 0, peer_ids: vec![Id::from(1), Id::from(2)] }),
-        RegisterActor::Server(Paxos { rank: 1, peer_ids: vec![Id::from(0), Id::from(2)] }),
-        RegisterActor::Server(Paxos { rank: 2, peer_ids: vec![Id::from(0), Id::from(1)] }),
-    ];
-    for i in 0..client_count {
-        actors.push(RegisterActor::Client {
-            server_ids: vec![Id::from((i % 3) as usize)], // one for each client
-            desired_value: ('A' as u8 + i) as char
-        });
-    }
-    System {
-        actors,
-        init_network: Vec::with_capacity(20),
-        lossy_network: LossyNetwork::No,
-        duplicating_network: DuplicatingNetwork::Yes,
-    }
-}
+/// A Paxos actor system with 3 servers and a variable number of clients.
+#[derive(Clone)]
+struct PaxosSystem { client_count: u8 }
 
-/// Build a model that checks for validity (only values sent by clients are chosen) and
-/// consistency (everyone agrees).
-fn model(sys: System<RegisterActor<char, Paxos>>)
-        -> Model<'static, System<RegisterActor<char, Paxos>>> {
-    let desired_values: BTreeSet<_> = sys.actors.iter()
-        .filter_map(|actor| {
-            if let RegisterActor::Client { desired_value, .. } = actor {
-                Some(desired_value.clone())
+impl System for PaxosSystem {
+    type Actor = RegisterActor<Value, PaxosActor>;
+
+    fn actors(&self) -> Vec<Self::Actor> {
+        let mut actors = vec![
+            RegisterActor::Server(PaxosActor { rank: 0, peer_ids: vec![Id::from(1), Id::from(2)] }),
+            RegisterActor::Server(PaxosActor { rank: 1, peer_ids: vec![Id::from(0), Id::from(2)] }),
+            RegisterActor::Server(PaxosActor { rank: 2, peer_ids: vec![Id::from(0), Id::from(1)] }),
+        ];
+        for i in 0..self.client_count {
+            actors.push(RegisterActor::Client {
+                server_ids: vec![Id::from((i % 3) as usize)], // one for each client
+                desired_value: ('A' as u8 + i) as char
+            });
+        }
+        actors
+    }
+
+    fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+        vec![
+            Property::<SystemModel<Self>>::sometimes("value chosen",  |_, state| {
+                for env in &state.network {
+                    if let RegisterMsg::Respond(_v) = env.msg {
+                        return true;
+                    }
+                }
+                return false
+            }),
+            Property::<SystemModel<Self>>::always("valid and consistent", |model, state| {
+                let mut sole_value = None;
+                for env in &state.network {
+                    if let RegisterMsg::Respond(v) = env.msg {
+                        // check for validity: only values sent by clients are chosen
+                        if v < 'A' || (('A' as u8 + model.system.client_count) as char) < v {
+                            return false;
+                        }
+
+                        // check for consistency: everyone agrees
+                        if let Some(sole_value) = sole_value {
+                            return sole_value == v;
+                        } else {
+                            sole_value = Some(v);
+                        }
+                    }
+                }
+                return true;
+            }),
+        ]
+    }
+
+    fn within_boundary(&self, state: &SystemState<Self::Actor>) -> bool {
+        state.actor_states.iter().all(|s| {
+            if let RegisterActorState::Server(ref state) = **s {
+                state.ballot.0 < 4
             } else {
-                None
+                true
             }
         })
-        .collect();
-    Model {
-        state_machine: sys,
-        properties: vec![
-            Property::sometimes("value chosen", move |_sys, state| {
-                !response_values(&state).is_empty()
-            }),
-            Property::always("valid and consistent", move |_sys, state| {
-                let values = response_values(&state);
-                match values.as_slice() {
-                    [] => true,
-                    [v] => desired_values.contains(&v),
-                    _ => false
-                }
-            }),
-        ],
-        boundary: Some(Box::new(|_sys, state| {
-            state.actor_states.iter().all(|s| {
-                if let RegisterActorState::Server(ref state) = **s {
-                    state.ballot.0 < 4
-                } else {
-                    true
-                }
-            })
-        })),
     }
 }
 
 #[cfg(test)]
 #[test]
 fn can_model_paxos() {
-    use SystemAction::*;
+    use Event::Receive;
     use PaxosMsg::*;
-    use Event::*;
-    let mut checker = model(system(2)).checker();
+    use SystemAction::Act;
+    use stateright::checker::Path;
+
+    let mut checker = PaxosSystem { client_count: 2 }.into_model().checker();
     assert_eq!(checker.check(10_000).is_done(), true);
     assert_eq!(checker.generated_count(), 1529);
     assert_eq!(checker.example("value chosen").map(Path::into_actions), Some(vec![
@@ -253,7 +259,7 @@ fn main() {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
             println!("Model checking Single Decree Paxos with {} clients.", client_count);
-            model(system(client_count))
+            PaxosSystem { client_count }.into_model()
                 .checker_with_threads(num_cpus::get())
                 .check_and_report(&mut std::io::stdout());
         }
@@ -264,7 +270,7 @@ fn main() {
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
-            Explorer(system(client_count)).serve(address).unwrap();
+            Explorer(PaxosSystem { client_count }.into_model()).serve(address).unwrap();
         }
         ("spawn", Some(_args)) => {
             let port = 3000;
@@ -281,9 +287,9 @@ fn main() {
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             let actors = vec![
-                spawn(RegisterActor::Server(Paxos { rank: 0, peer_ids: vec![id1, id2] }), id0),
-                spawn(RegisterActor::Server(Paxos { rank: 1, peer_ids: vec![id0, id2] }), id1),
-                spawn(RegisterActor::Server(Paxos { rank: 2, peer_ids: vec![id0, id1] }), id2),
+                spawn(RegisterActor::Server(PaxosActor { rank: 0, peer_ids: vec![id1, id2] }), id0),
+                spawn(RegisterActor::Server(PaxosActor { rank: 1, peer_ids: vec![id0, id2] }), id1),
+                spawn(RegisterActor::Server(PaxosActor { rank: 2, peer_ids: vec![id0, id1] }), id2),
             ];
             for actor in actors {
                 actor.join().unwrap();

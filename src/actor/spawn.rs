@@ -1,4 +1,4 @@
-//! A simple runtime for executing an actor state machine mapping messages to JSON over UDP.
+//! A simple runtime for executing an actor mapping messages to JSON over UDP.
 
 use crate::actor::*;
 use serde::de::DeserializeOwned;

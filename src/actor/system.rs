@@ -10,66 +10,71 @@ pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
 /// the network state, losing a message is indistinguishable from an unlimited delay, so in
 /// many cases you can improve model checking performance by not modeling message loss.
-#[derive(Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum LossyNetwork { Yes, No }
 
 /// Indicates whether the network duplicates messages. If duplication is disabled, messages
 /// are forgotten once delivered, which can improve model checking perfomance.
-#[derive(Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum DuplicatingNetwork { Yes, No }
 
-/// A collection of actors on a lossy network.
-#[derive(Clone)]
-pub struct System<A: Actor> {
-    pub actors: Vec<A>,
-    pub init_network: Vec<Envelope<A::Msg>>,
-    pub lossy_network: LossyNetwork,
-    pub duplicating_network: DuplicatingNetwork,
-}
+/// Represents a system of actors that communicate over a network.
+/// Usage: `let checker = my_system.into_model().checker()`.
+pub trait System: Sized {
+    /// The type of actor for this system.
+    type Actor: Actor;
 
-impl<A: Actor> System<A> {
-    pub fn with_actors(actors: Vec<A>) -> Self {
-        System {
-            actors,
-            init_network: Vec::new(),
-            lossy_network: LossyNetwork::No,
-            duplicating_network: DuplicatingNetwork::Yes
+    /// Defines the actors.
+    fn actors(&self) -> Vec<Self::Actor>;
+
+    /// Defines the initial network.
+    fn init_network(&self) -> Vec<Envelope<<Self::Actor as Actor>::Msg>> {
+        Vec::with_capacity(20)
+    }
+
+    /// Defines whether the network loses messages or not.
+    fn lossy_network(&self) -> LossyNetwork {
+        LossyNetwork::No
+    }
+
+    /// Defines whether the network duplicates messages or not.
+    fn duplicating_network(&self) -> DuplicatingNetwork {
+        DuplicatingNetwork::Yes
+    }
+
+    /// Generates the expected properties for this model.
+    fn properties(&self) -> Vec<Property<SystemModel<Self>>>;
+
+    /// Indicates whether a state is within the state space that should be model checked.
+    fn within_boundary(&self, _state: &SystemState<Self::Actor>) -> bool {
+        true
+    }
+
+    /// Converts this system into a model that can be checked.
+    fn into_model(self) -> SystemModel<Self> {
+        SystemModel {
+            actors: self.actors(),
+            init_network: self.init_network(),
+            lossy_network: self.lossy_network(),
+            duplicating_network: self.duplicating_network(),
+            system: self,
         }
     }
 }
 
-/// Indicates the source and destination for a message.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
-
-/// Represents a snapshot in time for the entire actor system. Consider using
-/// `SystemState<Actor>` instead for simpler type signatures.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct _SystemState<Msg, State> {
-    pub actor_states: Vec<Arc<State>>,
-    pub network: Network<Msg>,
+/// A model of an actor system.
+#[derive(Clone)]
+pub struct SystemModel<S: System> {
+    pub actors: Vec<S::Actor>,
+    pub init_network: Vec<Envelope<<S::Actor as Actor>::Msg>>,
+    pub lossy_network: LossyNetwork,
+    pub duplicating_network: DuplicatingNetwork,
+    pub system: S,
 }
 
-/// A type alias that accepts an actor type and resolves the associated `Msg` and `State`
-/// types. Introduced because parameterizing `_SystemState` by `Actor`
-/// necessitates implementing extra traits.
-pub type SystemState<A> = _SystemState<<A as Actor>::Msg, <A as Actor>::State>;
-
-/// Indicates possible steps that an actor system can take as it evolves.
-#[derive(Debug, PartialEq)]
-pub enum SystemAction<Msg> {
-    Drop(Envelope<Msg>),
-    Act(Id, Event<Msg>),
-}
-
-impl<A> StateMachine for System<A>
-where
-    A: Actor,
-    A::State: Clone + Debug,
-    A::Msg: Clone + Debug + Ord,
-{
-    type State = SystemState<A>;
-    type Action = SystemAction<A::Msg>;
+impl<S: System> Model for SystemModel<S> {
+    type State = SystemState<S::Actor>;
+    type Action = SystemAction<<S::Actor as Actor>::Msg>;
 
     fn init_states(&self) -> Vec<Self::State> {
         let mut actor_states = Vec::new();
@@ -119,20 +124,25 @@ where
                 Some(next_state)
             },
             SystemAction::Act(id, event) => {
+                // Early exit if this was a no-op.
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
                 let Event::Receive(src, msg) = event;
                 let out = self.actors[index].next_out(id, last_actor_state, Event::Receive(src, msg.clone()));
-                if out.state.is_none() && out.commands.is_empty() { return None; } // optimization
+                if out.state.is_none() && out.commands.is_empty() { return None; }
+
+                // Replace the actor state if changed.
                 let mut next_sys_state = last_sys_state.clone();
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
-                // If we're a non-duplicating nework, drop the message that was delivered.
+
+                // If we're a non-duplicating network, drop the message that was delivered.
                 if self.duplicating_network == DuplicatingNetwork::No {
-                    let env = Envelope { src: src, dst: id, msg: msg };
+                    let env = Envelope { src, dst: id, msg };
                     next_sys_state.network.remove(&env);
                 }
+
                 // Then insert the messages that were generated in response.
                 for c in out.commands {
                     match c {
@@ -141,6 +151,7 @@ where
                         },
                     }
                 }
+
                 Some(next_sys_state)
             },
         }
@@ -169,6 +180,40 @@ where
             None
         }
     }
+
+    fn properties(&self) -> Vec<Property<Self>> {
+        self.system.properties()
+    }
+
+    fn within_boundary(&self, state: &Self::State) -> bool {
+        self.system.within_boundary(state)
+    }
+}
+
+/// Indicates the source and destination for a message.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
+
+/// Represents a snapshot in time for the entire actor system. Consider using
+/// `SystemState<Actor>` instead for simpler type signatures.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct _SystemState<Msg, State> {
+    pub actor_states: Vec<Arc<State>>,
+    pub network: Network<Msg>,
+}
+
+/// A type alias that accepts an actor type and resolves the associated `Msg` and `State`
+/// types. Introduced because parameterizing `_SystemState` by `Actor`
+/// necessitates implementing extra traits.
+pub type SystemState<A> = _SystemState<<A as Actor>::Msg, <A as Actor>::State>;
+
+/// Indicates possible steps that an actor system can take as it evolves.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SystemAction<Msg> {
+    /// An event can be delivered to an actor.
+    Act(Id, Event<Msg>),
+    /// A message can be dropped if the network is lossy.
+    Drop(Envelope<Msg>),
 }
 
 impl From<Id> for usize {
@@ -195,24 +240,24 @@ mod test {
     fn visits_expected_states() {
         use std::iter::FromIterator;
 
+        // helper to make the test more concise
         let fingerprint = |states: Vec<PingPongCount>, envelopes: Vec<Envelope<_>>| {
             fingerprint(&_SystemState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
             })
         };
-        let mut checker = System {
-            actors: vec![
-                PingPong::PingActor { pong_id: Id::from(1) },
-                PingPong::PongActor,
-            ],
-            init_network: Vec::new(),
-            lossy_network: LossyNetwork::Yes,
-            duplicating_network: DuplicatingNetwork::Yes
-        }.model(1).checker();
-        checker.check(1_000);
+
+        let mut checker = PingPongSystem {
+            max_nat: 1,
+            lossy: LossyNetwork::Yes,
+            duplicating: DuplicatingNetwork::Yes
+        }.into_model().checker();
+        assert!(checker.check(1_000).is_done());
+        assert_eq!(checker.generated_count(), 14);
+
         let state_space = checker.generated_fingerprints();
-        assert_eq!(state_space.len(), 14);
+        assert_eq!(state_space.len(), 14); // same as the generated count
         assert_eq!(state_space, HashSet::from_iter(vec![
             // When the network loses no messages...
             fingerprint(
@@ -283,20 +328,98 @@ mod test {
     }
 
     #[test]
-    fn can_play_ping_pong() {
-        let mut checker = System {
-            actors: vec![
-                PingPong::PingActor { pong_id: Id::from(1) },
-                PingPong::PongActor,
-            ],
-            init_network: Vec::new(),
-            lossy_network: LossyNetwork::No,
-            duplicating_network: DuplicatingNetwork::No,
-        }.model(5).checker();
-        assert_eq!(checker.check(10_000).counterexample("delta within 1"), None);
-        assert_eq!(checker.check(10_000).counterexample("max_nat"), None);
-        assert_ne!(checker.check(10_000).counterexample("max_nat_plus_one"), None);
-        assert_eq!(checker.is_done(), true);
+    fn maintains_fixed_delta_despite_lossy_duplicating_network() {
+        let mut checker = PingPongSystem {
+            max_nat: 5,
+            lossy: LossyNetwork::Yes,
+            duplicating: DuplicatingNetwork::Yes,
+        }.into_model().checker();
+        assert!(checker.check(10_000).is_done());
+        assert_eq!(checker.generated_count(), 4_094);
+
+        assert_eq!(checker.counterexample("delta within 1"), None);
+    }
+
+    #[test]
+    fn may_never_reach_max_on_lossy_network() {
+        use crate::actor::Id;
+        use crate::actor::system::SystemAction;
+        use crate::test_util::ping_pong::PingPongMsg;
+
+        let mut checker = PingPongSystem {
+            max_nat: 5,
+            lossy: LossyNetwork::Yes,
+            duplicating: DuplicatingNetwork::Yes,
+        }.into_model().checker();
+        assert!(checker.check(10_000).is_done());
+        assert_eq!(checker.generated_count(), 4_094);
+
+        // can lose the first message and get stuck, for example
+        let counterexample = checker.counterexample("reaches max").unwrap();
+        assert!(counterexample.last_state().network.is_empty());
+        assert_eq!(counterexample.into_actions(), vec![
+            SystemAction::Drop(Envelope { src: Id(0), dst: Id(1), msg: PingPongMsg::Ping(0) })
+        ]);
+    }
+
+    #[test]
+    fn eventually_reaches_max_on_perfect_delivery_network() {
+        let mut checker = PingPongSystem {
+            max_nat: 5,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
+        }.into_model().checker();
+        assert!(checker.check(10_000).is_done());
         assert_eq!(checker.generated_count(), 11);
+
+        assert_eq!(checker.counterexample("reaches max"), None);
+    }
+
+    #[test]
+    fn can_reach_max() {
+        let mut checker = PingPongSystem {
+            max_nat: 5,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::Yes,
+        }.into_model().checker();
+        assert!(checker.check(10_000).is_done());
+        assert_eq!(checker.generated_count(), 11);
+
+        // this is an example of a safety property that fails to hold as we can reach the max (but not exceed it)
+        assert_eq!(
+            checker.counterexample("less than max").unwrap().last_state().actor_states,
+            vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
+    }
+
+    #[test]
+    fn may_never_reach_beyond_max() { // and in fact "will never" (but we're focusing on liveness here)
+        let mut checker = PingPongSystem {
+            max_nat: 5,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
+        }.into_model().checker();
+        assert!(checker.check(10_000).is_done());
+        assert_eq!(checker.generated_count(), 11);
+
+        // this is an example of a liveness property that fails to hold (due to the boundary)
+        assert_eq!(
+            checker.counterexample("reaches beyond max").unwrap().last_state().actor_states,
+            vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
+    }
+
+    #[test]
+    fn checker_subject_to_false_negatives_for_liveness_properties() {
+        let mut checker = PingPongSystem {
+            max_nat: 5,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::Yes, // this triggers the bug
+        }.into_model().checker();
+        assert!(checker.check(10_000).is_done());
+        assert_eq!(checker.generated_count(), 11);
+
+        // revisits state where liveness property was not yet satisfied and falsely assumes will never be
+        assert_eq!(
+            checker.counterexample("reaches max").unwrap().last_state().actor_states,
+            vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(1))]);
     }
 }

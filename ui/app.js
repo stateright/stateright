@@ -1,4 +1,4 @@
-/// Represents a state machine step. Only loads next steps on demand.
+/// Represents a model step. Only loads next steps on demand.
 function Step({action, outcome, state, fingerprint, prevStep}) {
     let step = this;
 

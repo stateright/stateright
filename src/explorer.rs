@@ -1,4 +1,4 @@
-//! A web service for interactively exploring a state machine.
+//! A web service for interactively exploring a model.
 //!
 //! ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
 //!
@@ -15,7 +15,7 @@ use crate::*;
 use serde::ser::{SerializeStruct, Serializer};
 use std::net::ToSocketAddrs;
 
-/// Provides a web service for interactively exploring a state machine.
+/// Provides a web service for interactively exploring a model.
 pub struct Explorer<SM>(pub SM);
 
 /// Summarizes a state and the action that was taken to obtain that state.
@@ -57,7 +57,7 @@ type StateViewsJson<State, Action> = Json<Vec<StateView<State, Action>>>;
 
 impl<SM> Explorer<SM>
 where
-    SM: 'static + Send + StateMachine,
+    SM: 'static + Send + Model,
     SM::Action: Debug,
     SM::State: Clone + Debug + Hash,
 {

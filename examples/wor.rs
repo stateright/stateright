@@ -1,38 +1,40 @@
-//! A simple server exposing a single register that can only be written once.
-//! A cluster of servers *does not* provide consensus.
+//! An actor system where each server exposes a single write-once register.
+//! Servers do not provide consensus.
 
 use clap::*;
-use stateright::checker::*;
 use stateright::explorer::*;
 use stateright::actor::*;
 use stateright::actor::register::*;
 use stateright::actor::spawn::*;
 use stateright::actor::system::*;
-use std::collections::BTreeSet;
 use std::net::{SocketAddrV4, Ipv4Addr};
+use stateright::{Property, Model};
 
 type Value = char;
 
-#[derive(Clone)]
-struct WriteOnce;
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct WriteOnceState(Option<Value>);
 
-impl Actor for WriteOnce {
+#[derive(Clone)]
+struct WriteOnceActor;
+
+impl Actor for WriteOnceActor {
     type Msg = RegisterMsg<Value, ()>;
-    type State = Option<Value>;
+    type State = WriteOnceState;
 
     fn init(_i: InitIn<Self>, o: &mut Out<Self>) {
-        o.set_state(None);
+        o.set_state(WriteOnceState(None));
     }
 
     fn next(i: NextIn<Self>, o: &mut Out<Self>) {
         let Event::Receive(src, msg) = i.event;
         match msg {
-            RegisterMsg::Put(value) if i.state.is_none() => {
-                o.set_state(Some(value));
+            RegisterMsg::Put(value) if i.state.0.is_none() => {
+                o.set_state(WriteOnceState(Some(value)));
             }
             RegisterMsg::Get => {
-                if let Some(value) = i.state {
-                    o.send(src, RegisterMsg::Respond(*value));
+                if let Some(value) = i.state.0 {
+                    o.send(src, RegisterMsg::Respond(value));
                 }
             }
             _ => {}
@@ -40,49 +42,54 @@ impl Actor for WriteOnce {
     }
 }
 
-/// Create a system with one server and a variable number of clients.
-fn system(servers: Vec<WriteOnce>, client_count: u8)
-          -> System<RegisterActor<char, WriteOnce>> {
-    let mut actors: Vec<_> = servers.into_iter().map(RegisterActor::Server).collect();
-    let server_ids: Vec<_> = (0..actors.len()).map(Id::from).collect();
-    for i in 0..client_count {
-        actors.push(RegisterActor::Client {
-            server_ids: server_ids.clone(),
-            desired_value: ('A' as u8 + i) as char
-        });
-    }
-    System {
-        actors,
-        init_network: Vec::new(),
-        lossy_network: LossyNetwork::Yes, // for some extra states
-        duplicating_network: DuplicatingNetwork::Yes,
-    }
-}
+#[derive(Clone)]
+struct WriteOnceSystem { server_count: u8, client_count: u8 }
 
-/// Build a model that checks for validity (only values sent by clients are chosen) and
-/// consistency (everyone agrees). Consistency is only true if there is a single server!
-fn model(sys: System<RegisterActor<char, WriteOnce>>)
-        -> Model<'static, System<RegisterActor<char, WriteOnce>>> {
-    let desired_values: BTreeSet<_> = sys.actors.iter()
-        .filter_map(|actor| {
-            if let RegisterActor::Client { desired_value, .. } = actor {
-                Some(desired_value.clone())
-            } else {
-                None
+impl System for WriteOnceSystem {
+    type Actor = RegisterActor<Value, WriteOnceActor>;
+
+    fn actors(&self) -> Vec<Self::Actor> {
+        let mut actors = Vec::new();
+
+        for _ in 0..self.server_count {
+            actors.push(RegisterActor::Server(WriteOnceActor));
+        }
+
+        let server_ids: Vec<_> = (0..self.server_count as usize).map(Id::from).collect();
+        for i in 0..self.client_count {
+            actors.push(RegisterActor::Client {
+                server_ids: server_ids.clone(),
+                desired_value: ('A' as u8 + i) as char
+            });
+        }
+
+        actors
+    }
+
+    fn lossy_network(&self) -> LossyNetwork {
+        LossyNetwork::Yes // for some extra states
+    }
+
+    fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+        vec![Property::<SystemModel<Self>>::always("valid and consistent", |model, state| {
+            let mut sole_value = None;
+            for env in &state.network {
+                if let RegisterMsg::Respond(v) = env.msg {
+                    // check for validity: only values sent by clients are chosen
+                    if v < 'A' || (('A' as u8 + model.system.client_count) as char) < v {
+                        return false;
+                    }
+
+                    // check for consistency: everyone agrees (false if more than one server)
+                    if let Some(sole_value) = sole_value {
+                        return sole_value == v;
+                    } else {
+                        sole_value = Some(v);
+                    }
+                }
             }
-        })
-        .collect();
-    Model {
-        state_machine: sys,
-        properties: vec![Property::always("valid and consistent", move |_sys, state| {
-            let values = response_values(&state);
-            match values.as_slice() {
-                [] => true,
-                [v] => desired_values.contains(&v),
-                _ => false
-            }
-        })],
-        boundary: None,
+            return true;
+        })]
     }
 }
 
@@ -90,16 +97,17 @@ fn model(sys: System<RegisterActor<char, WriteOnce>>)
 #[test]
 fn can_model_wor() {
     use Event::Receive;
-    use SystemAction::*;
     use RegisterMsg::*;
+    use SystemAction::Act;
+    use stateright::checker::Path;
 
     // Consistent if only one server.
-    let mut checker = model(system(vec![WriteOnce], 2)).checker();
+    let mut checker = WriteOnceSystem { server_count: 1, client_count: 2 }.into_model().checker();
     assert!(checker.check(10_000).is_done());
     assert_eq!(checker.counterexample("valid and consistent"), None);
 
     // But the consistency requirement is violated with two servers.
-    let mut checker = model(system(vec![WriteOnce, WriteOnce], 2)).checker();
+    let mut checker = WriteOnceSystem { server_count: 2, client_count: 2 }.into_model().checker();
     assert!(checker.check(10_000).is_done());
     assert_eq!(
         checker.counterexample("valid and consistent").map(Path::into_actions),
@@ -137,7 +145,7 @@ fn main() {
             let client_count = std::cmp::min(
                 26, value_t!(args, "client_count", u8).expect("client_count"));
             println!("Model checking a write-once register with {} clients.", client_count);
-            model(system(vec![WriteOnce], client_count))
+            WriteOnceSystem { server_count: 1, client_count }.into_model()
                 .checker_with_threads(num_cpus::get())
                 .check_and_report(&mut std::io::stdout());
         }
@@ -148,7 +156,7 @@ fn main() {
             println!(
                 "Exploring state space for write-once register with {} clients on {}.",
                 client_count, address);
-            Explorer(system(vec![WriteOnce], client_count)).serve(address).unwrap();
+            Explorer(WriteOnceSystem { server_count: 1, client_count }.into_model()).serve(address).unwrap();
         }
         ("spawn", Some(_args)) => {
             let port = 3000;
@@ -160,7 +168,7 @@ fn main() {
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<char, ()>).unwrap());
             println!();
 
-            spawn(RegisterActor::Server(WriteOnce), SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).join().unwrap();
+            spawn(RegisterActor::Server(WriteOnceActor), SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).join().unwrap();
         }
         _ => app.print_help().unwrap(),
     }

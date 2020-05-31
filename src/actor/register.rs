@@ -7,6 +7,7 @@ use crate::actor::system::*;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::fmt::Debug;
 
 /// A wrapper configuration for model-checking a register-like actor.
 #[derive(Clone)]
@@ -37,9 +38,9 @@ pub enum RegisterActorState<ServerState> {
 
 impl<Value, Server, ServerMsg> Actor for RegisterActor<Value, Server>
 where
-    Value: Clone,
+    Value: Clone + Debug + Ord,
     Server: Actor<Msg = RegisterMsg<Value, ServerMsg>>,
-    ServerMsg: Serialize + DeserializeOwned,
+    ServerMsg: Clone + Debug + Ord + Serialize + DeserializeOwned,
 {
     type Msg = Server::Msg;
     type State = RegisterActorState<Server::State>;

@@ -1,4 +1,4 @@
-//! A library for implementing state machines, in particular those defining distributed systems.
+//! A library for model checking systems, with an emphasis on distributed systems.
 //!
 //! Please see the
 //! [examples](https://github.com/stateright/stateright/tree/master/examples),
@@ -7,6 +7,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use crate::checker::Checker;
 
 pub mod actor;
 pub mod checker;
@@ -14,9 +15,9 @@ pub mod explorer;
 #[cfg(test)]
 pub mod test_util;
 
-/// Defines how a state begins and evolves, possibly nondeterministically.
-pub trait StateMachine: Sized {
-    /// The type of state upon which this machine operates.
+/// Models a possibly nondeterministic system's evolution. See `Checker`.
+pub trait Model: Sized {
+    /// The type of state upon which this model operates.
     type State;
 
     /// The type of action that transitions between states.
@@ -86,37 +87,84 @@ pub trait StateMachine: Sized {
         }
         None
     }
+
+    /// Generates the expected properties for this model.
+    fn properties(&self) -> Vec<Property<Self>> { Vec::new() }
+
+    /// Indicates whether a state is within the state space that should be model checked.
+    fn within_boundary(&self, _state: &Self::State) -> bool { true }
+
+    /// Initializes a single threaded model checker.
+    fn checker(self) -> Checker<Self> {
+        self.checker_with_threads(1)
+    }
+
+    /// Initializes a model checker. The visitation order will be nondeterministic if
+    /// `thread_count > 1`.
+    fn checker_with_threads(self, thread_count: usize) -> Checker<Self> {
+        use std::collections::VecDeque;
+        use dashmap::DashMap;
+        Checker {
+            thread_count,
+            model: self,
+            pending: VecDeque::with_capacity(50_000),
+            sources: DashMap::with_capacity(1_000_000),
+            discoveries: DashMap::with_capacity(10),
+        }
+    }
 }
 
-/// A convenience structure for succinctly describing a throwaway `StateMachine`.
-#[derive(Clone)]
-pub struct QuickMachine<State, Action> {
-    /// Returns the initial possible states.
-    pub init_states: fn() -> Vec<State>,
+/// A named predicate, such as "an epoch *sometimes* has no leader" (for which the the model
+/// checker would find an example) or "an epoch *always* has at most one leader" (for which the
+/// model checker would find a counterexample) or "a proposal is *eventually* accepted" (for
+/// which the model checker would find a counterexample path leading from the initial state
+/// through to a terminal state).
+pub struct Property<M: Model> {
+    pub expectation: Expectation,
+    pub name: &'static str,
+    pub condition: fn(&M, &M::State) -> bool,
+}
+impl<M: Model> Property<M> {
+    /// An invariant that defines a [safety
+    /// property](https://en.wikipedia.org/wiki/Safety_property). The model checker will try to
+    /// discover a counterexample.
+    pub fn always(name: &'static str, condition: fn(&M, &M::State) -> bool)
+                  -> Property<M> {
+        Property { expectation: Expectation::Always, name, condition }
+    }
 
-    /// Collects the subsequent possible actions based on a previous state.
-    pub actions: fn(&State, &mut Vec<Action>),
+    /// An invariant that defines a [liveness
+    /// property](https://en.wikipedia.org/wiki/Liveness). The model checker will try to
+    /// discover a counterexample path leading from the initial state through to a
+    /// terminal state.
+    ///
+    /// Note that in this implementation `eventually` properties only work correctly on acyclic
+    /// paths (those that end in either states with no successors or checking boundaries). A path
+    /// ending in a cycle is not viewed as _terminating_ in that cycle, as the checker does not
+    /// differentiate cycles from DAG joins, and so an `eventually` property that has not been met
+    /// by the cycle-closing edge will ignored -- a false negative.
+    pub fn eventually(name: &'static str, condition: fn(&M, &M::State) -> bool)
+                      -> Property<M> {
+        Property { expectation: Expectation::Eventually, name, condition }
+    }
 
-    /// Converts a previous state and action to a resulting state. `None` indicates that the action
-    /// does not change the state.
-    pub next_state: fn(&State, Action) -> Option<State>,
+    /// Something that should be possible in the model. The model checker will try to discover an
+    /// example.
+    pub fn sometimes(name: &'static str, condition: fn(&M, &M::State) -> bool)
+                     -> Property<M> {
+        Property { expectation: Expectation::Sometimes, name, condition }
+    }
 }
 
-impl<State, Action> StateMachine for QuickMachine<State, Action> {
-    type State = State;
-    type Action = Action;
-
-    fn init_states(&self) -> Vec<Self::State> {
-        (self.init_states)()
-    }
-
-    fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-        (self.actions)(state, actions);
-    }
-
-    fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
-        (self.next_state)(last_state, action)
-    }
+/// Indicates whether a property is always, eventually, or sometimes true.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Expectation {
+    /// The property is true for all reachable states.
+    Always,
+    /// The property is eventually true for all behavior paths.
+    Eventually,
+    /// The property is true for at least one reachable state.
+    Sometimes,
 }
 
 /// A state identifier. See `fingerprint`.

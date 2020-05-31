@@ -3,7 +3,6 @@
 /// A machine that cycles between two states.
 pub mod binary_clock {
     use crate::*;
-    use crate::checker::*;
 
     #[derive(Clone)]
     pub struct BinaryClock;
@@ -13,7 +12,7 @@ pub mod binary_clock {
 
     pub type BinaryClockState = i8;
 
-    impl StateMachine for BinaryClock {
+    impl Model for BinaryClock {
         type State = BinaryClockState;
         type Action = BinaryClockAction;
 
@@ -35,25 +34,20 @@ pub mod binary_clock {
                 BinaryClockAction::GoHigh => Some(1),
             }
         }
-    }
 
-    impl BinaryClock {
-        pub fn model(self) -> Model<'static, Self> {
-            Model {
-                state_machine: self,
-                properties: vec![Property::always("in [0, 1]", |_model, state| {
+        fn properties(&self) -> Vec<Property<Self>> {
+            vec![
+                Property::always("in [0, 1]", |_, state| {
                     0 <= *state && *state <= 1
-                })],
-                boundary: None,
-            }
+                }),
+            ]
         }
     }
 }
 
-/// A state machine that solves linear equations in two dimensions.
+/// A system that solves a linear Diophantine equation in `u8`.
 pub mod linear_equation_solver {
     use crate::*;
-    use crate::checker::*;
 
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are
     /// in `u8`.
@@ -62,7 +56,7 @@ pub mod linear_equation_solver {
     #[derive(Clone, Debug, Eq, PartialEq)]
     pub enum Guess { IncreaseX, IncreaseY }
 
-    impl StateMachine for LinearEquation {
+    impl Model for LinearEquation {
         type State = (u8, u8);
         type Action = Guess;
 
@@ -82,13 +76,10 @@ pub mod linear_equation_solver {
                 Guess::IncreaseY => Some((x, y.wrapping_add(1))),
             }
         }
-    }
 
-    impl LinearEquation {
-        pub fn model(self) -> Model<'static, Self> {
-            Model {
-                state_machine: self,
-                properties: vec![Property::sometimes("solvable", |equation, solution| {
+        fn properties(&self) -> Vec<Property<Self>> {
+            vec![
+                Property::sometimes("solvable", |equation, solution| {
                     let LinearEquation { a, b, c } = equation;
                     let (x, y) = solution;
 
@@ -98,9 +89,8 @@ pub mod linear_equation_solver {
                     let (a, b, c) = (Wrapping(*a), Wrapping(*b), Wrapping(*c));
 
                     a*x + b*y == c
-                })],
-                boundary: None,
-            }
+                }),
+            ]
         }
     }
 }
@@ -110,9 +100,8 @@ pub mod ping_pong {
     use crate::*;
     use crate::actor::*;
     use crate::actor::system::*;
-    use crate::checker::*;
 
-    pub enum PingPong { PingActor { pong_id: Id }, PongActor }
+    pub enum PingPongActor { PingActor { pong_id: Id }, PongActor }
 
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub struct PingPongCount(pub u32);
@@ -120,13 +109,13 @@ pub mod ping_pong {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum PingPongMsg { Ping(u32), Pong(u32) }
 
-    impl Actor for PingPong {
+    impl Actor for PingPongActor {
         type Msg = PingPongMsg;
         type State = PingPongCount;
 
         fn init(i: InitIn<Self>, o: &mut Out<Self>) {
             o.set_state(PingPongCount(0));
-            if let PingPong::PingActor { pong_id } = i.context {
+            if let PingPongActor::PingActor { pong_id } = i.context {
                 o.send(*pong_id, PingPongMsg::Ping(0));
             }
         }
@@ -134,13 +123,13 @@ pub mod ping_pong {
         fn next(i: NextIn<Self>, o: &mut Out<Self>) {
             match i.event {
                 Event::Receive(src, PingPongMsg::Pong(msg_value)) if i.state.0 == msg_value => {
-                    if let PingPong::PingActor { .. } = i.context {
+                    if let PingPongActor::PingActor { .. } = i.context {
                         o.set_state(PingPongCount(i.state.0 + 1));
                         o.send(src, PingPongMsg::Ping(msg_value + 1));
                     }
                 },
                 Event::Receive(src, PingPongMsg::Ping(msg_value)) if i.state.0 == msg_value => {
-                    if let PingPong::PongActor = i.context {
+                    if let PingPongActor::PongActor = i.context {
                         o.set_state(PingPongCount(i.state.0 + 1));
                         o.send(src, PingPongMsg::Pong(msg_value));
                     }
@@ -150,28 +139,49 @@ pub mod ping_pong {
         }
     }
 
-    impl System<PingPong> {
-        pub fn model(self, max_nat: u32) -> Model<'static, Self> {
-            let max_nat_0 = max_nat;
-            let max_nat_1 = max_nat + 1;
-            Model {
-                state_machine: self,
-                properties: vec![
-                    Property::always("delta within 1", |_sys, state: &SystemState<PingPong>| {
-                        let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
-                        let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
-                        max - min <= 1
-                    }),
-                    Property::eventually("max_nat", move |_sys, state: &SystemState<PingPong>| {
-                        state.actor_states.iter().any(|s| s.0 == max_nat_0)
-                    }),
-                    Property::eventually("max_nat_plus_one", move |_sys, state: &SystemState<PingPong>| {
-                        state.actor_states.iter().any(|s| s.0 == max_nat_1)
-                    })],
-                boundary: Some(Box::new( move |_sys, state| {
-                    state.actor_states.iter().all(|s| s.0 <= max_nat)
-                })),
-            }
+    pub struct PingPongSystem {
+        pub max_nat: u32,
+        pub lossy: LossyNetwork,
+        pub duplicating: DuplicatingNetwork,
+    }
+
+    impl System for PingPongSystem {
+        type Actor = PingPongActor;
+
+        fn actors(&self) -> Vec<Self::Actor> {
+            vec![
+                PingPongActor::PingActor { pong_id: Id::from(1) },
+                PingPongActor::PongActor,
+            ]
+        }
+
+        fn lossy_network(&self) -> LossyNetwork { self.lossy }
+
+        fn duplicating_network(&self) -> DuplicatingNetwork { self.duplicating }
+
+        fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+            vec![
+                Property::<SystemModel<Self>>::always("delta within 1", |_, state| {
+                    let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
+                    let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
+                    max - min <= 1
+                }),
+                Property::<SystemModel<Self>>::always("less than max", |model, state| {
+                    // this one is falsifiable at the boundary
+                    state.actor_states.iter().any(|s| s.0 < model.system.max_nat)
+                }),
+                Property::<SystemModel<Self>>::eventually("reaches max", move |model, state| {
+                    state.actor_states.iter().any(|s| s.0 == model.system.max_nat)
+                }),
+                Property::<SystemModel<Self>>::eventually("reaches beyond max", move |model, state| {
+                    // this one is falsifiable due to the boundary
+                    state.actor_states.iter().any(|s| s.0 == model.system.max_nat + 1)
+                }),
+            ]
+        }
+
+        fn within_boundary(&self, state: &SystemState<Self::Actor>) -> bool {
+            state.actor_states.iter().all(|s| s.0 <= self.max_nat)
         }
     }
 }

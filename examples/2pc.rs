@@ -4,7 +4,6 @@
 
 use clap::*;
 use stateright::*;
-use stateright::checker::*;
 use stateright::explorer::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
@@ -42,7 +41,7 @@ enum Action<R> {
     RmRcvAbortMsg(R),
 }
 
-impl<R: Clone + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
+impl<R: Clone + Eq + Hash + Ord> Model for TwoPhaseSys<R> {
     type State = TwoPhaseState<R>;
     type Action = Action<R>;
 
@@ -104,20 +103,14 @@ impl<R: Clone + Eq + Hash + Ord> StateMachine for TwoPhaseSys<R> {
         }
         Some(state)
     }
-}
 
-impl<R: Clone + Hash + Ord> TwoPhaseSys<R> {
-    fn model(self) -> Model<'static, Self> {
-        Model {
-            state_machine: self,
-            properties: vec![Property::always("consistent", |sys: &Self, state| {
-                !sys.rms.iter().any(|rm1|
-                    sys.rms.iter().any(|rm2|
-                        state.rm_state[rm1] == RmState::Aborted
-                     && state.rm_state[rm2] == RmState::Committed))
-            })],
-            boundary: None,
-        }
+    fn properties(&self) -> Vec<Property<Self>> {
+        vec![Property::<Self>::always("consistent", |sys, state| {
+            !sys.rms.iter().any(|rm1|
+                sys.rms.iter().any(|rm2|
+                    state.rm_state[rm1] == RmState::Aborted
+                        && state.rm_state[rm2] == RmState::Committed))
+        })]
     }
 }
 
@@ -127,14 +120,14 @@ fn can_model_2pc() {
     // for very small state space
     let mut rms = BTreeSet::new();
     for rm in 1..(3+1) { rms.insert(rm); }
-    let mut checker = TwoPhaseSys { rms }.model().checker();
+    let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(300).generated_count(), 288);
     assert!(checker.is_done());
 
     // for slightly larger state space
     let mut rms = BTreeSet::new();
     for rm in 1..(5+1) { rms.insert(rm); }
-    let mut checker = TwoPhaseSys { rms }.model().checker();
+    let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(10_000).generated_count(), 8_832);
     assert!(checker.is_done());
 }
@@ -162,7 +155,6 @@ fn main() {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             println!("Checking two phase commit with {} resource managers.", rm_count);
             TwoPhaseSys { rms: BTreeSet::from_iter(0..rm_count) }
-                .model()
                 .checker_with_threads(num_cpus::get())
                 .check_and_report(&mut std::io::stdout());
         }

@@ -1,6 +1,6 @@
-//! This module provides an actor abstraction. See the `system` submodule for a state machine
-//! implementation that can check a system of actors. See the `spawn` submodule for a runtime that
-//! can run your actor over a real network. See the `register` submodule for an example wrapper.
+//! This module provides an actor abstraction. See the `system` submodule for model checking.
+//! See the `spawn` submodule for a runtime that can run your actor over a real network. See the
+//! `register` submodule for an example wrapper.
 //!
 //! ## Example
 //!
@@ -18,17 +18,24 @@
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
-//! struct LogicalClock { bootstrap_to_id: Option<Id> }
+//! /// The actor needs to know whether it should "bootstrap" by sending the first
+//! /// message. If so, it needs to know to which peer the message should be sent.
+//! struct LogicalClockActor { bootstrap_to_id: Option<Id> }
+//!
+//! /// Actor state is simply a "timestamp" sequencer.
 //! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 //! struct Timestamp(u32);
+//!
+//! /// And we define a generic message containing a timestamp.
 //! #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 //! struct MsgWithTimestamp(u32);
 //!
-//! impl Actor for LogicalClock {
+//! impl Actor for LogicalClockActor {
 //!     type Msg = MsgWithTimestamp;
 //!     type State = Timestamp;
 //!
 //!     fn init(i: InitIn<Self>, o: &mut Out<Self>) {
+//!         // The actor either bootstraps or starts at time zero.
 //!         if let Some(peer_id) = i.context.bootstrap_to_id {
 //!             o.set_state(Timestamp(1));
 //!             o.send(peer_id, MsgWithTimestamp(1));
@@ -38,6 +45,7 @@
 //!     }
 //!
 //!     fn next(i: NextIn<Self>, o: &mut Out<Self>) {
+//!         // Upon receiving a message, the actor updates its timestamp and replies.
 //!         let Event::Receive(src, MsgWithTimestamp(timestamp)) = i.event;
 //!         if timestamp > i.state.0 {
 //!             o.set_state(Timestamp(timestamp + 1));
@@ -46,16 +54,35 @@
 //!     }
 //! }
 //!
-//! let counterexample = Model {
-//!     state_machine: System::with_actors(vec![
-//!         LogicalClock { bootstrap_to_id: None},
-//!         LogicalClock { bootstrap_to_id: Some(Id::from(0)) }
-//!     ]),
-//!     properties: vec![Property::always("less than 3", |_: &System<LogicalClock>, state: &SystemState<LogicalClock>| {
-//!         state.actor_states.iter().all(|s| s.0 < 3)
-//!     })],
-//!     boundary: None,
-//! }.checker().check(1_000).counterexample("less than 3").unwrap();
+//! /// We now define the actor system, which we parameterize by the maximum
+//! /// expected timestamp.
+//! struct LogicalClockSystem { max_expected: u32 };
+//!
+//! impl System for LogicalClockSystem {
+//!     type Actor = LogicalClockActor;
+//!
+//!     /// The system contains two actors, one of which bootstraps.
+//!     fn actors(&self) -> Vec<Self::Actor> {
+//!         vec![
+//!             LogicalClockActor { bootstrap_to_id: None},
+//!             LogicalClockActor { bootstrap_to_id: Some(Id::from(0)) }
+//!         ]
+//!     }
+//!
+//!     /// The only property is one indicating that every actor's timestamp is less than the
+//!     /// maximum expected timestamp defined for the system.
+//!     fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+//!         vec![Property::<SystemModel<Self>>::always("less than max", |model, state| {
+//!             state.actor_states.iter().all(|s| s.0 < model.system.max_expected)
+//!         })]
+//!     }
+//! }
+//!
+//! // The model checker should quickly find a counterexample sequence of actions that causes an
+//! // actor timestamp to reach a specified maximum.
+//! let counterexample = LogicalClockSystem { max_expected: 3 }
+//!     .into_model().checker().check(1_000)
+//!     .counterexample("less than max").unwrap();
 //! assert_eq!(
 //!     counterexample.last_state().actor_states,
 //!     vec![Arc::new(Timestamp(2)), Arc::new(Timestamp(3))]);
@@ -76,6 +103,7 @@ pub mod system;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::hash::Hash;
+use std::fmt::Debug;
 
 /// Uniquely identifies an `Actor`. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
@@ -83,7 +111,7 @@ use std::hash::Hash;
 pub struct Id(u64);
 
 /// Events to which an actor can respond.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Event<Msg> {
     /// Received a message from a sender.
     Receive(Id, Msg),
@@ -152,10 +180,10 @@ impl<A: Actor> Out<A> {
 /// likely be added.
 pub trait Actor: Sized {
     /// The type of messages sent and received by this actor.
-    type Msg;
+    type Msg: Clone + Debug + Ord;
 
     /// The type of state maintained by the actor.
-    type State;
+    type State: Clone + Debug;
 
     /// Indicates the initial state and commands.
     fn init(i: InitIn<Self>, o: &mut Out<Self>);
