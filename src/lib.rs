@@ -168,7 +168,7 @@ pub enum Expectation {
 }
 
 /// A state identifier. See `fingerprint`.
-pub type Fingerprint = u64;
+pub type Fingerprint = std::num::NonZeroU64;
 
 /// Converts a state to a fingerprint.
 pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
@@ -176,5 +176,5 @@ pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
     let mut hasher = ahash::AHasher::new_with_keys(
         123_456_789_987_654_321, 98_765_432_123_456_789);
     value.hash(&mut hasher);
-    hasher.finish()
+    Fingerprint::new(hasher.finish()).expect("hasher returned zero, an invalid fingerprint")
 }
