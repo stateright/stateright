@@ -34,9 +34,9 @@
 //!     type Msg = MsgWithTimestamp;
 //!     type State = Timestamp;
 //!
-//!     fn init(i: InitIn<Self>, o: &mut Out<Self>) {
+//!     fn on_start(&self, _id: Id, o: &mut Out<Self>) {
 //!         // The actor either bootstraps or starts at time zero.
-//!         if let Some(peer_id) = i.context.bootstrap_to_id {
+//!         if let Some(peer_id) = self.bootstrap_to_id {
 //!             o.set_state(Timestamp(1));
 //!             o.send(peer_id, MsgWithTimestamp(1));
 //!         } else {
@@ -44,10 +44,10 @@
 //!         }
 //!     }
 //!
-//!     fn next(i: NextIn<Self>, o: &mut Out<Self>) {
+//!     fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
 //!         // Upon receiving a message, the actor updates its timestamp and replies.
-//!         let Event::Receive(src, MsgWithTimestamp(timestamp)) = i.event;
-//!         if timestamp > i.state.0 {
+//!         let MsgWithTimestamp(timestamp) = msg;
+//!         if timestamp > state.0 {
 //!             o.set_state(Timestamp(timestamp + 1));
 //!             o.send(src, MsgWithTimestamp(timestamp + 1));
 //!         }
@@ -89,8 +89,8 @@
 //! assert_eq!(
 //!     counterexample.into_actions(),
 //!     vec![
-//!         SystemAction::Act(Id::from(0), Event::Receive(Id::from(1), MsgWithTimestamp(1))),
-//!         SystemAction::Act(Id::from(1), Event::Receive(Id::from(0), MsgWithTimestamp(2)))]);
+//!         SystemAction::Deliver { src: Id::from(1), dst: Id::from(0), msg: MsgWithTimestamp(1) },
+//!         SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: MsgWithTimestamp(2) }]);
 //! ```
 //!
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
@@ -103,44 +103,29 @@ pub mod system;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::hash::Hash;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
+use std::time::Duration;
+use std::net::SocketAddrV4;
+use std::ops::Range;
 
 /// Uniquely identifies an `Actor`. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Id(u64);
 
-/// Events to which an actor can respond.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Event<Msg> {
-    /// Received a message from a sender.
-    Receive(Id, Msg),
-}
-
-/// Groups inputs to make function types more concise when implementing an actor.
-pub struct InitIn<'a, A: Actor> {
-    /// Immutable information specific to this actor.
-    pub context: &'a A,
-    /// A unique identifier for the actor.
-    pub id: Id,
-}
-
-
-/// Groups inputs to make function types more concise when implementing an actor.
-pub struct NextIn<'a, A: Actor> {
-    /// Immutable information specific to this actor.
-    pub context: &'a A,
-    /// A unique identifier for the actor.
-    pub id: Id,
-    /// The previous state.
-    pub state: &'a A::State,
-    /// The event to which the actor is responding.
-    pub event: Event<A::Msg>,
+impl Display for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&SocketAddrV4::from(*self), f)
+    }
 }
 
 /// Commands with which an actor can respond.
 #[derive(Debug)]
 pub enum Command<Msg> {
+    /// Cancel the timer if one is set.
+    CancelTimer,
+    /// Set/reset the timer.
+    SetTimer(Range<Duration>),
     /// Send a message to a destination.
     Send(Id, Msg),
 }
@@ -154,6 +139,16 @@ pub struct Out<A: Actor> {
 }
 
 impl<A: Actor> Out<A> {
+    /// Records the need to set the timer.
+    pub fn set_timer(&mut self, duration: Range<Duration>) {
+        self.commands.push(Command::SetTimer(duration));
+    }
+
+    /// Records the need to cancel the timer.
+    pub fn cancel_timer(&mut self) {
+        self.commands.push(Command::CancelTimer);
+    }
+
     /// Updates the actor state.
     pub fn set_state(&mut self, state: A::State) {
         self.state = Some(state);
@@ -186,38 +181,43 @@ pub trait Actor: Sized {
     type State: Clone + Debug;
 
     /// Indicates the initial state and commands.
-    fn init(i: InitIn<Self>, o: &mut Out<Self>);
+    fn on_start(&self, id: Id, o: &mut Out<Self>);
 
-    /// Indicates the next state and commands.
-    fn next(i: NextIn<Self>, o: &mut Out<Self>);
+    /// Indicates the next state and commands when a message is received.
+    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>);
+
+    /// Indicates the next state and commands when a timeout is encountered.
+    fn on_timeout(&self, _id: Id, _state: &Self::State, _o: &mut Out<Self>) {
+        // no-op by default
+    }
 
     /// Returns the initial state and commands.
-    fn init_out(&self, id: Id) -> Out<Self> {
-        let i = InitIn {
-            id,
-            context: self,
-        };
+    fn on_start_out(&self, id: Id) -> Out<Self> {
         let mut o = Out {
             state: None,
             commands: Vec::new(),
         };
-        Self::init(i, &mut o);
+        self.on_start(id, &mut o);
         o
     }
 
-    /// Returns the next state and commands.
-    fn next_out(&self, id: Id, state: &Self::State, event: Event<Self::Msg>) -> Out<Self> {
-        let i = NextIn {
-            id,
-            context: self,
-            state,
-            event,
-        };
+    /// Returns the next state and commands when a message is received.
+    fn on_msg_out(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg) -> Out<Self> {
         let mut o = Out {
             state: None,
             commands: Vec::new(),
         };
-        Self::next(i, &mut o);
+        self.on_msg(id, state, src, msg, &mut o);
+        o
+    }
+
+    /// Returns the next state and commands when a timeout is encountered.
+    fn on_timeout_out(&self, id: Id, state: &Self::State) -> Out<Self> {
+        let mut o = Out {
+            state: None,
+            commands: Vec::new(),
+        };
+        self.on_timeout(id, state, &mut o);
         o
     }
 

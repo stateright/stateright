@@ -77,30 +77,27 @@ impl<S: System> Model for SystemModel<S> {
     type Action = SystemAction<<S::Actor as Actor>::Msg>;
 
     fn init_states(&self) -> Vec<Self::State> {
-        let mut actor_states = Vec::new();
-        let mut network = Network::new();
+        let mut init_sys_state = _SystemState {
+            actor_states: Vec::with_capacity(self.actors.len()),
+            network: Network::new(),
+            is_timer_set: Vec::new(),
+        };
 
         // init the network
         for e in self.init_network.clone() {
-            network.insert(e);
+            init_sys_state.network.insert(e);
         }
 
-        // init each actor collecting state and messages
+        // init each actor
         for (index, actor) in self.actors.iter().enumerate() {
             let id = Id::from(index);
-            let out = actor.init_out(id);
-            actor_states.push(Arc::new(out.state.expect(&format!(
+            let out = actor.on_start_out(id);
+            init_sys_state.actor_states.push(Arc::new(out.state.expect(&format!(
                 "Actor state not assigned at init. id={:?}", id))));
-            for c in out.commands {
-                match c {
-                    Command::Send(dst, msg) => {
-                        network.insert(Envelope { src: id, dst, msg });
-                    },
-                }
-            }
+            process_output(id, out.commands, &mut init_sys_state);
         }
 
-        vec![_SystemState { actor_states, network }]
+        vec![init_sys_state]
     }
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
@@ -111,8 +108,14 @@ impl<S: System> Model for SystemModel<S> {
             }
 
             // option 2: message is delivered
-            let event = Event::Receive(env.src, env.msg.clone());
-            actions.push(SystemAction::Act(env.dst, event));
+            actions.push(SystemAction::Deliver { src: env.src, dst: env.dst, msg: env.msg.clone() });
+        }
+
+        // option 3: actor timeout
+        for (index, &is_scheduled) in state.is_timer_set.iter().enumerate() {
+            if is_scheduled {
+                actions.push(SystemAction::Timeout(Id::from(index)));
+            }
         }
     }
 
@@ -123,19 +126,13 @@ impl<S: System> Model for SystemModel<S> {
                 next_state.network.remove(&env);
                 Some(next_state)
             },
-            SystemAction::Act(id, event) => {
+            SystemAction::Deliver { src, dst: id, msg } => {
                 // Early exit if this was a no-op.
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
-                let Event::Receive(src, msg) = event;
-                let out = self.actors[index].next_out(id, last_actor_state, Event::Receive(src, msg.clone()));
+                let out = self.actors[index].on_msg_out(id, last_actor_state, src, msg.clone());
                 if out.state.is_none() && out.commands.is_empty() { return None; }
-
-                // Replace the actor state if changed.
                 let mut next_sys_state = last_sys_state.clone();
-                if let Some(next_actor_state) = out.state {
-                    next_sys_state.actor_states[index] = Arc::new(next_actor_state);
-                }
 
                 // If we're a non-duplicating network, drop the message that was delivered.
                 if self.duplicating_network == DuplicatingNetwork::No {
@@ -143,15 +140,27 @@ impl<S: System> Model for SystemModel<S> {
                     next_sys_state.network.remove(&env);
                 }
 
-                // Then insert the messages that were generated in response.
-                for c in out.commands {
-                    match c {
-                        Command::Send(dst, msg) => {
-                            next_sys_state.network.insert(Envelope { src: id, dst, msg });
-                        },
-                    }
+                if let Some(next_actor_state) = out.state {
+                    next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
+                process_output(id, out.commands, &mut next_sys_state);
+                Some(next_sys_state)
+            },
+            SystemAction::Timeout(id) => {
+                // Early exit if this was a no-op.
+                let index = usize::from(id);
+                let last_actor_state = &last_sys_state.actor_states[index];
+                let out = self.actors[index].on_timeout_out(id, last_actor_state);
+                if out.state.is_none() && out.commands.is_empty() { return None; }
+                let mut next_sys_state = last_sys_state.clone();
 
+                // Timer is no longer valid.
+                next_sys_state.is_timer_set[index] = false;
+
+                if let Some(next_actor_state) = out.state {
+                    next_sys_state.actor_states[index] = Arc::new(next_actor_state);
+                }
+                process_output(id, out.commands, &mut next_sys_state);
                 Some(next_sys_state)
             },
         }
@@ -167,17 +176,30 @@ impl<S: System> Model for SystemModel<S> {
             commands: Vec<Command<Msg>>,
         }
 
-        if let SystemAction::Act(id, event) = action {
-            let index = usize::from(id);
-            let actor_state = &last_state.actor_states[index];
-            let out = self.actors[index].next_out(id, actor_state, event);
-            Some(format!("{:#?}", ActorStep {
-                last_state: actor_state,
-                next_state: out.state,
-                commands: out.commands,
-            }))
-        } else {
-            None
+        match action {
+            SystemAction::Drop(_) => {
+                None
+            },
+            SystemAction::Deliver { src, dst: id, msg } => {
+                let index = usize::from(id);
+                let actor_state = &last_state.actor_states[index];
+                let out = self.actors[index].on_msg_out(id, actor_state, src, msg);
+                Some(format!("{:#?}", ActorStep {
+                    last_state: actor_state,
+                    next_state: out.state,
+                    commands: out.commands,
+                }))
+            },
+            SystemAction::Timeout(id) => {
+                let index = usize::from(id);
+                let actor_state = &last_state.actor_states[index];
+                let out = self.actors[index].on_timeout_out(id, actor_state);
+                Some(format!("{:#?}", ActorStep {
+                    last_state: actor_state,
+                    next_state: out.state,
+                    commands: out.commands,
+                }))
+            },
         }
     }
 
@@ -187,6 +209,27 @@ impl<S: System> Model for SystemModel<S> {
 
     fn within_boundary(&self, state: &Self::State) -> bool {
         self.system.within_boundary(state)
+    }
+}
+
+/// Updates the actor state, sends messages, and configures the timer.
+fn process_output<Msg: Ord, State>(id: Id, commands: Vec<Command<Msg>>, next_sys_state: &mut _SystemState<Msg, State>) {
+    let index = usize::from(id);
+    for c in commands {
+        match c {
+            Command::Send(dst, msg) => {
+                next_sys_state.network.insert(Envelope { src: id, dst, msg });
+            },
+            Command::SetTimer(_) => {
+                if next_sys_state.is_timer_set.is_empty() {
+                    next_sys_state.is_timer_set = vec![false; next_sys_state.actor_states.len()];
+                }
+                next_sys_state.is_timer_set[index] = true;
+            },
+            Command::CancelTimer => {
+                next_sys_state.is_timer_set[index] = false;
+            },
+        }
     }
 }
 
@@ -200,6 +243,7 @@ pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 pub struct _SystemState<Msg, State> {
     pub actor_states: Vec<Arc<State>>,
     pub network: Network<Msg>,
+    pub is_timer_set: Vec<bool>,
 }
 
 /// A type alias that accepts an actor type and resolves the associated `Msg` and `State`
@@ -210,10 +254,12 @@ pub type SystemState<A> = _SystemState<<A as Actor>::Msg, <A as Actor>::State>;
 /// Indicates possible steps that an actor system can take as it evolves.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SystemAction<Msg> {
-    /// An event can be delivered to an actor.
-    Act(Id, Event<Msg>),
+    /// A message can be delivered to an actor.
+    Deliver { src: Id, dst: Id, msg: Msg },
     /// A message can be dropped if the network is lossy.
     Drop(Envelope<Msg>),
+    /// An actor can by notified after a timeout.
+    Timeout(Id),
 }
 
 impl From<Id> for usize {
@@ -245,6 +291,7 @@ mod test {
             fingerprint(&_SystemState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
+                is_timer_set: Vec::new(),
             })
         };
 

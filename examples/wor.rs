@@ -22,18 +22,17 @@ impl Actor for WriteOnceActor {
     type Msg = RegisterMsg<Value, ()>;
     type State = WriteOnceState;
 
-    fn init(_i: InitIn<Self>, o: &mut Out<Self>) {
+    fn on_start(&self, _id: Id, o: &mut Out<Self>) {
         o.set_state(WriteOnceState(None));
     }
 
-    fn next(i: NextIn<Self>, o: &mut Out<Self>) {
-        let Event::Receive(src, msg) = i.event;
+    fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
-            RegisterMsg::Put(value) if i.state.0.is_none() => {
+            RegisterMsg::Put(value) if state.0.is_none() => {
                 o.set_state(WriteOnceState(Some(value)));
             }
             RegisterMsg::Get => {
-                if let Some(value) = i.state.0 {
+                if let Some(value) = state.0 {
                     o.send(src, RegisterMsg::Respond(value));
                 }
             }
@@ -96,9 +95,8 @@ impl System for WriteOnceSystem {
 #[cfg(test)]
 #[test]
 fn can_model_wor() {
-    use Event::Receive;
     use RegisterMsg::*;
-    use SystemAction::Act;
+    use SystemAction::Deliver;
     use stateright::checker::Path;
 
     // Consistent if only one server.
@@ -112,14 +110,16 @@ fn can_model_wor() {
     assert_eq!(
         checker.counterexample("valid and consistent").map(Path::into_actions),
         Some(vec![
-            Act(Id::from(0), Receive(Id::from(2), Put('A'))),
-            Act(Id::from(0), Receive(Id::from(2), Get)),
-            Act(Id::from(1), Receive(Id::from(3), Put('B'))),
-            Act(Id::from(1), Receive(Id::from(2), Get)),
+            Deliver { dst: Id::from(0), src: Id::from(2), msg: Put('A') },
+            Deliver { dst: Id::from(0), src: Id::from(2), msg: Get },
+            Deliver { dst: Id::from(1), src: Id::from(3), msg: Put('B') },
+            Deliver { dst: Id::from(1), src: Id::from(2), msg: Get },
         ]));
 }
 
 fn main() {
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+
     let mut app = App::new("wor")
         .about("write-once register")
         .setting(AppSettings::SubcommandRequiredElseHelp)

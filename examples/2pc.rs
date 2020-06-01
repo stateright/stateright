@@ -41,7 +41,7 @@ enum Action<R> {
     RmRcvAbortMsg(R),
 }
 
-impl<R: Clone + Eq + Hash + Ord> Model for TwoPhaseSys<R> {
+impl<R: Clone + PartialEq + Hash + Ord> Model for TwoPhaseSys<R> {
     type State = TwoPhaseState<R>;
     type Action = Action<R>;
 
@@ -133,6 +133,8 @@ fn can_model_2pc() {
 }
 
 fn main() {
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+
     let mut app = App::new("2pc")
         .about("model check abstract two phase commit")
         .subcommand(SubCommand::with_name("check")

@@ -52,7 +52,7 @@ impl Actor for PaxosActor {
     type Msg = RegisterMsg<Value, PaxosMsg>;
     type State = PaxosState;
 
-    fn init(_i: InitIn<Self>, o: &mut Out<Self>) {
+    fn on_start(&self, _id: Id, o: &mut Out<Self>) {
         o.set_state(PaxosState {
             // shared state
             ballot: (0, 0),
@@ -68,63 +68,62 @@ impl Actor for PaxosActor {
         });
     }
 
-    fn next(i: NextIn<Self>, o: &mut Out<Self>) {
+    fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         use crate::PaxosMsg::*;
-        let Event::Receive(src, msg) = i.event;
         match msg {
-            Put(value) if !i.state.is_decided && i.state.proposal.is_none() => {
-                let mut state = i.state.clone();
-                state.ballot = (state.ballot.0 + 1, i.context.rank);
+            Put(value) if !state.is_decided && state.proposal.is_none() => {
+                let mut state = state.clone();
+                state.ballot = (state.ballot.0 + 1, self.rank);
                 state.proposal = Some(value);
                 state.prepares = Default::default();
                 state.accepts = Default::default();
                 o.broadcast(
-                    &i.context.peer_ids,
+                    &self.peer_ids,
                     &Internal(Prepare { ballot: state.ballot }));
                 o.set_state(state);
             }
-            Get if i.state.is_decided => {
-                if let Some((_ballot, value)) = i.state.accepted {
+            Get if state.is_decided => {
+                if let Some((_ballot, value)) = state.accepted {
                     o.send(src, Respond(value));
                 }
             }
-            Internal(Prepare { ballot }) if i.state.ballot < ballot => {
-                let mut state = i.state.clone();
+            Internal(Prepare { ballot }) if state.ballot < ballot => {
+                let mut state = state.clone();
                 state.ballot = ballot;
-                o.set_state(state);
                 o.send(src, Internal(Prepared {
                     ballot,
-                    last_accepted: i.state.accepted,
+                    last_accepted: state.accepted,
                 }));
+                o.set_state(state);
             }
-            Internal(Prepared { ballot, last_accepted }) if ballot == i.state.ballot => {
-                let mut state = i.state.clone();
+            Internal(Prepared { ballot, last_accepted }) if ballot == state.ballot => {
+                let mut state = state.clone();
                 state.prepares.insert(src, last_accepted);
-                if state.prepares.len() > (i.context.peer_ids.len() + 1)/2 {
+                if state.prepares.len() > (self.peer_ids.len() + 1) / 2 {
                     state.proposal = state.prepares
-                        .values().max().unwrap().map(|(_b,v)| v)
+                        .values().max().unwrap().map(|(_b, v)| v)
                         .or(state.proposal);
                     state.accepted = Some((ballot, state.proposal.unwrap()));
-                    o.broadcast(&i.context.peer_ids, &Internal(Accept {
+                    o.broadcast(&self.peer_ids, &Internal(Accept {
                         ballot,
                         value: state.proposal.unwrap(),
                     }));
                 }
                 o.set_state(state);
             }
-            Internal(Accept { ballot, value }) if i.state.ballot <= ballot => {
-                let mut state = i.state.clone();
+            Internal(Accept { ballot, value }) if state.ballot <= ballot => {
+                let mut state = state.clone();
                 state.ballot = ballot;
                 state.accepted = Some((ballot, value));
                 o.set_state(state);
                 o.send(src, Internal(Accepted { ballot }));
             }
-            Internal(Accepted { ballot }) if ballot == i.state.ballot => {
-                let mut state = i.state.clone();
+            Internal(Accepted { ballot }) if ballot == state.ballot => {
+                let mut state = state.clone();
                 state.accepts.insert(src);
-                if state.accepts.len() > (i.context.peer_ids.len() + 1)/2 {
+                if state.accepts.len() > (self.peer_ids.len() + 1) / 2 {
                     state.is_decided = true;
-                    o.broadcast(&i.context.peer_ids, &Internal(Decided {
+                    o.broadcast(&self.peer_ids, &Internal(Decided {
                         ballot,
                         value: state.proposal.unwrap()
                     }));
@@ -132,7 +131,7 @@ impl Actor for PaxosActor {
                 o.set_state(state);
             }
             Internal(Decided { ballot, value }) => {
-                let mut state = i.state.clone();
+                let mut state = state.clone();
                 state.accepted = Some((ballot, value));
                 state.is_decided = true;
                 o.set_state(state);
@@ -210,30 +209,31 @@ impl System for PaxosSystem {
 #[cfg(test)]
 #[test]
 fn can_model_paxos() {
-    use Event::Receive;
     use PaxosMsg::*;
-    use SystemAction::Act;
+    use SystemAction::Deliver;
     use stateright::checker::Path;
 
     let mut checker = PaxosSystem { client_count: 2 }.into_model().checker();
     assert_eq!(checker.check(10_000).is_done(), true);
     assert_eq!(checker.generated_count(), 1529);
     assert_eq!(checker.example("value chosen").map(Path::into_actions), Some(vec![
-        Act(Id::from(0), Receive(Id::from(3), Put('A'))),
-        Act(Id::from(1), Receive(Id::from(0), Internal(Prepare { ballot: (1, 0) }))),
-        Act(Id::from(2), Receive(Id::from(0), Internal(Prepare { ballot: (1, 0) }))),
-        Act(Id::from(0), Receive(Id::from(1), Internal(Prepared { ballot: (1, 0), last_accepted: None }))),
-        Act(Id::from(0), Receive(Id::from(2), Internal(Prepared { ballot: (1, 0), last_accepted: None }))),
-        Act(Id::from(1), Receive(Id::from(0), Internal(Accept { ballot: (1, 0), value: 'A' }))),
-        Act(Id::from(2), Receive(Id::from(0), Internal(Accept { ballot: (1, 0), value: 'A' }))),
-        Act(Id::from(0), Receive(Id::from(1), Internal(Accepted { ballot: (1, 0) }))),
-        Act(Id::from(0), Receive(Id::from(2), Internal(Accepted { ballot: (1, 0) }))),
-        Act(Id::from(0), Receive(Id::from(3), Get)),
+        Deliver { dst: Id::from(0), src: Id::from(3), msg: Put('A') },
+        Deliver { dst: Id::from(1), src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) },
+        Deliver { dst: Id::from(2), src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) },
+        Deliver { dst: Id::from(0), src: Id::from(1), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) },
+        Deliver { dst: Id::from(0), src: Id::from(2), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) },
+        Deliver { dst: Id::from(1), src: Id::from(0), msg: Internal(Accept { ballot: (1, 0), value: 'A' }) },
+        Deliver { dst: Id::from(2), src: Id::from(0), msg: Internal(Accept { ballot: (1, 0), value: 'A' }) },
+        Deliver { dst: Id::from(0), src: Id::from(1), msg: Internal(Accepted { ballot: (1, 0) }) },
+        Deliver { dst: Id::from(0), src: Id::from(2), msg: Internal(Accepted { ballot: (1, 0) }) },
+        Deliver { dst: Id::from(0), src: Id::from(3), msg: Get },
     ]));
     assert_eq!(checker.counterexample("valid and consistent"), None);
 }
 
 fn main() {
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+
     let mut app = clap::App::new("paxos")
         .about("single decree paxos")
         .setting(AppSettings::SubcommandRequiredElseHelp)

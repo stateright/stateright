@@ -45,8 +45,8 @@ where
     type Msg = Server::Msg;
     type State = RegisterActorState<Server::State>;
 
-    fn init(i: InitIn<Self>, o: &mut Out<Self>) {
-        match i.context {
+    fn on_start(&self, id: Id, o: &mut Out<Self>) {
+        match self {
             RegisterActor::Client { ref server_ids, ref desired_value } => {
                 o.set_state(RegisterActorState::Client);
                 for server_id in server_ids {
@@ -55,21 +55,26 @@ where
                 }
             }
             RegisterActor::Server(ref server) => {
-                let server_out = server.init_out(i.id);
+                let server_out = server.on_start_out(id);
                 o.state = server_out.state.map(|state| RegisterActorState::Server(state));
                 o.commands = server_out.commands;
             }
         }
     }
 
-    fn next(i: NextIn<Self>, o: &mut Out<Self>) {
-        match (i.context, i.state) {
-            (RegisterActor::Server(server), RegisterActorState::Server(server_state)) => {
-                let server_out = server.next_out(i.id, server_state, i.event);
-                o.state = server_out.state.map(|state| RegisterActorState::Server(state));
-                o.commands = server_out.commands;
-            },
-            _ => {},
+    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+        if let (RegisterActor::Server(server), RegisterActorState::Server(server_state)) = (self, state) {
+            let server_out = server.on_msg_out(id, server_state, src, msg);
+            o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+            o.commands = server_out.commands;
+        }
+    }
+
+    fn on_timeout(&self, id: Id, state: &Self::State, o: &mut Out<Self>) {
+        if let (RegisterActor::Server(server), RegisterActorState::Server(server_state)) = (self, state) {
+            let server_out = server.on_timeout_out(id, server_state);
+            o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+            o.commands = server_out.commands;
         }
     }
 

@@ -28,6 +28,10 @@ function Step({action, outcome, state, fingerprint, prevStep}) {
                     fingerprint: nextStep.fingerprint,
                     prevStep: step,
                 }));
+            })
+            .catch(err => {
+                console.log('Failed. Removing from cache.', {path: step.path, err});
+                Step._NEXT_STEPS[step.path] = undefined;
             });
         let nextSteps = await Step._NEXT_STEPS[step.path];
         step.nextSteps(nextSteps);

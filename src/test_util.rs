@@ -101,6 +101,7 @@ pub mod ping_pong {
     use crate::actor::*;
     use crate::actor::system::*;
 
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub enum PingPongActor { PingActor { pong_id: Id }, PongActor }
 
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -113,32 +114,29 @@ pub mod ping_pong {
         type Msg = PingPongMsg;
         type State = PingPongCount;
 
-        fn init(i: InitIn<Self>, o: &mut Out<Self>) {
+        fn on_start(&self, _id: Id, o: &mut Out<Self>) {
             o.set_state(PingPongCount(0));
-            if let PingPongActor::PingActor { pong_id } = i.context {
+            if let PingPongActor::PingActor { pong_id } = self {
                 o.send(*pong_id, PingPongMsg::Ping(0));
             }
         }
 
-        fn next(i: NextIn<Self>, o: &mut Out<Self>) {
-            match i.event {
-                Event::Receive(src, PingPongMsg::Pong(msg_value)) if i.state.0 == msg_value => {
-                    if let PingPongActor::PingActor { .. } = i.context {
-                        o.set_state(PingPongCount(i.state.0 + 1));
-                        o.send(src, PingPongMsg::Ping(msg_value + 1));
-                    }
+        fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+            match (self, msg) {
+                (PingPongActor::PingActor { .. }, PingPongMsg::Pong(msg_value)) if state.0 == msg_value => {
+                    o.set_state(PingPongCount(state.0 + 1));
+                    o.send(src, PingPongMsg::Ping(msg_value + 1));
                 },
-                Event::Receive(src, PingPongMsg::Ping(msg_value)) if i.state.0 == msg_value => {
-                    if let PingPongActor::PongActor = i.context {
-                        o.set_state(PingPongCount(i.state.0 + 1));
-                        o.send(src, PingPongMsg::Pong(msg_value));
-                    }
+                (PingPongActor::PongActor, PingPongMsg::Ping(msg_value)) if state.0 == msg_value => {
+                    o.set_state(PingPongCount(state.0 + 1));
+                    o.send(src, PingPongMsg::Pong(msg_value));
                 },
                 _ => {},
             }
         }
     }
 
+    #[derive(Clone)]
     pub struct PingPongSystem {
         pub max_nat: u32,
         pub lossy: LossyNetwork,
