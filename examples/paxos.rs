@@ -211,12 +211,10 @@ impl System for PaxosSystem {
 fn can_model_paxos() {
     use PaxosMsg::*;
     use SystemAction::Deliver;
-    use stateright::checker::Path;
 
     let mut checker = PaxosSystem { client_count: 2 }.into_model().checker();
-    assert_eq!(checker.check(10_000).is_done(), true);
-    assert_eq!(checker.generated_count(), 1529);
-    assert_eq!(checker.example("value chosen").map(Path::into_actions), Some(vec![
+    assert_eq!(checker.check(10_000).generated_count(), 1529);
+    assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
         Deliver { dst: Id::from(0), src: Id::from(3), msg: Put('A') },
         Deliver { dst: Id::from(1), src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) },
         Deliver { dst: Id::from(2), src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) },
@@ -227,8 +225,8 @@ fn can_model_paxos() {
         Deliver { dst: Id::from(0), src: Id::from(1), msg: Internal(Accepted { ballot: (1, 0) }) },
         Deliver { dst: Id::from(0), src: Id::from(2), msg: Internal(Accepted { ballot: (1, 0) }) },
         Deliver { dst: Id::from(0), src: Id::from(3), msg: Get },
-    ]));
-    assert_eq!(checker.counterexample("valid and consistent"), None);
+    ]);
+    checker.assert_no_counterexample("valid and consistent");
 }
 
 fn main() {

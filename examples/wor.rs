@@ -97,24 +97,21 @@ impl System for WriteOnceSystem {
 fn can_model_wor() {
     use RegisterMsg::*;
     use SystemAction::Deliver;
-    use stateright::checker::Path;
 
     // Consistent if only one server.
     let mut checker = WriteOnceSystem { server_count: 1, client_count: 2 }.into_model().checker();
-    assert!(checker.check(10_000).is_done());
-    assert_eq!(checker.counterexample("valid and consistent"), None);
+    checker.check(10_000).assert_no_counterexample("valid and consistent");
 
     // But the consistency requirement is violated with two servers.
     let mut checker = WriteOnceSystem { server_count: 2, client_count: 2 }.into_model().checker();
-    assert!(checker.check(10_000).is_done());
     assert_eq!(
-        checker.counterexample("valid and consistent").map(Path::into_actions),
-        Some(vec![
+        checker.check(10_000).assert_counterexample("valid and consistent").into_actions(),
+        vec![
             Deliver { dst: Id::from(0), src: Id::from(2), msg: Put('A') },
             Deliver { dst: Id::from(0), src: Id::from(2), msg: Get },
             Deliver { dst: Id::from(1), src: Id::from(3), msg: Put('B') },
             Deliver { dst: Id::from(1), src: Id::from(2), msg: Get },
-        ]));
+        ]);
 }
 
 fn main() {

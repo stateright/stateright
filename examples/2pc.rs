@@ -122,14 +122,14 @@ fn can_model_2pc() {
     for rm in 1..(3+1) { rms.insert(rm); }
     let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(300).generated_count(), 288);
-    assert!(checker.is_done());
+    checker.assert_no_counterexample("consistent");
 
     // for slightly larger state space
     let mut rms = BTreeSet::new();
     for rm in 1..(5+1) { rms.insert(rm); }
     let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(10_000).generated_count(), 8_832);
-    assert!(checker.is_done());
+    checker.assert_no_counterexample("consistent");
 }
 
 fn main() {

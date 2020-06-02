@@ -465,6 +465,60 @@ where
     pub fn generated_fingerprints(&self) -> HashSet<Fingerprint> {
         self.sources.iter().map(|rm| *rm.key()).collect()
     }
+
+    /// Panics if an example is not found. Otherwise returns a path to the example.
+    pub fn assert_example(&self, name: &'static str) -> Path<M::State, M::Action> {
+        if let Some(path) = self.example(name) {
+            return path;
+        }
+        assert!(self.is_done(),
+                "Example for '{}' not found, but model checking is incomplete.");
+        panic!("Example for '{}' not found. `stateright::explorer` may be useful for debugging.", name);
+    }
+
+    /// Panics if a counterexample is not found. Otherwise returns a path to the counterexample.
+    pub fn assert_counterexample(&self, name: &'static str) -> Path<M::State, M::Action> {
+        if let Some(path) = self.counterexample(name) {
+            return path;
+        }
+        assert!(self.is_done(),
+                "Counterexample for '{}' not found, but model checking is incomplete.");
+        panic!("Counterexample for '{}' not found. `stateright::explorer` may be useful for debugging.", name);
+    }
+
+    /// Panics if an example is found.
+    pub fn assert_no_example(&self, name: &'static str) {
+        if let Some(example) = self.example(name) {
+            let last_state = format!("{:#?}", example.last_state());
+            let actions = example.into_actions()
+                .iter()
+                .map(|a| format!("{:?}", a))
+                .collect::<Vec<_>>()
+                .join("\n");
+            panic!("Example for '{}' found.\n\n== ACTIONS ==\n{}\n\n== LAST STATE ==\n{}",
+                   name, actions, last_state);
+        }
+        assert!(self.is_done(),
+                "Example for '{}' not found, but model checking is incomplete.",
+                name);
+    }
+
+    /// Panics if a counterexample is found.
+    pub fn assert_no_counterexample(&self, name: &'static str) {
+        if let Some(counterexample) = self.counterexample(name) {
+            let last_state = format!("{:#?}", counterexample.last_state());
+            let actions = counterexample.into_actions()
+                .iter()
+                .map(|a| format!("{:?}", a))
+                .collect::<Vec<_>>()
+                .join("\n");
+            panic!("Counterexample for '{}' found.\n\n== ACTIONS ==\n{}\n\n== LAST STATE ==\n{}",
+                   name, actions, last_state);
+        }
+        assert!(self.is_done(),
+                "Counterexample for '{}' not found, but model checking is incomplete.",
+                name);
+    }
 }
 
 #[cfg(test)]
@@ -507,7 +561,7 @@ mod test {
 
         // Not solved, and done checking, so no solution in the domain.
         assert_eq!(checker.check(100_000).is_done(), true);
-        assert_eq!(checker.example("solvable"), None);
+        checker.assert_no_example("solvable");
 
         // Now sources is less than the check size (256^2 = 65,536).
         assert_eq!(checker.sources.len(), 256 * 256);
@@ -518,12 +572,13 @@ mod test {
         let mut checker = LinearEquation { a: 1, b: 2, c: 3 }.checker();
 
         // Solved and done (with example identified) ...
-        assert!(checker.check(100).is_done());
-        assert_eq!(checker.example("solvable"), Some(Path(vec![
-            ((0, 0), Some(Guess::IncreaseX)),
-            ((1, 0), Some(Guess::IncreaseY)),
-            ((1, 1), None),
-        ])));
+        assert_eq!(
+            checker.check(100).assert_example("solvable"),
+            Path(vec![
+                ((0, 0), Some(Guess::IncreaseX)),
+                ((1, 0), Some(Guess::IncreaseY)),
+                ((1, 1), None),
+            ]));
 
         // but didn't need to enumerate all of state space...
         assert_eq!(checker.pending.len(), 15); 

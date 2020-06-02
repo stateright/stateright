@@ -381,10 +381,8 @@ mod test {
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
         }.into_model().checker();
-        assert!(checker.check(10_000).is_done());
-        assert_eq!(checker.generated_count(), 4_094);
-
-        assert_eq!(checker.counterexample("delta within 1"), None);
+        assert_eq!(checker.check(10_000).generated_count(), 4_094);
+        checker.assert_no_counterexample("delta within 1");
     }
 
     #[test]
@@ -398,12 +396,11 @@ mod test {
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
         }.into_model().checker();
-        assert!(checker.check(10_000).is_done());
-        assert_eq!(checker.generated_count(), 4_094);
+        assert_eq!(checker.check(10_000).generated_count(), 4_094);
 
         // can lose the first message and get stuck, for example
-        let counterexample = checker.counterexample("reaches max").unwrap();
-        assert!(counterexample.last_state().network.is_empty());
+        let counterexample = checker.assert_counterexample("reaches max");
+        assert_eq!(counterexample.last_state().network, Default::default());
         assert_eq!(counterexample.into_actions(), vec![
             SystemAction::Drop(Envelope { src: Id(0), dst: Id(1), msg: PingPongMsg::Ping(0) })
         ]);
@@ -416,10 +413,8 @@ mod test {
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
         }.into_model().checker();
-        assert!(checker.check(10_000).is_done());
-        assert_eq!(checker.generated_count(), 11);
-
-        assert_eq!(checker.counterexample("reaches max"), None);
+        assert_eq!(checker.check(10_000).generated_count(), 11);
+        checker.assert_no_counterexample("reaches max");
     }
 
     #[test]
@@ -429,12 +424,11 @@ mod test {
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes,
         }.into_model().checker();
-        assert!(checker.check(10_000).is_done());
-        assert_eq!(checker.generated_count(), 11);
+        assert_eq!(checker.check(10_000).generated_count(), 11);
 
         // this is an example of a safety property that fails to hold as we can reach the max (but not exceed it)
         assert_eq!(
-            checker.counterexample("less than max").unwrap().last_state().actor_states,
+            checker.assert_counterexample("less than max").last_state().actor_states,
             vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
     }
 
@@ -445,12 +439,11 @@ mod test {
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
         }.into_model().checker();
-        assert!(checker.check(10_000).is_done());
-        assert_eq!(checker.generated_count(), 11);
+        assert_eq!(checker.check(10_000).generated_count(), 11);
 
         // this is an example of a liveness property that fails to hold (due to the boundary)
         assert_eq!(
-            checker.counterexample("reaches beyond max").unwrap().last_state().actor_states,
+            checker.assert_counterexample("reaches beyond max").last_state().actor_states,
             vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
     }
 
@@ -461,12 +454,11 @@ mod test {
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes, // this triggers the bug
         }.into_model().checker();
-        assert!(checker.check(10_000).is_done());
-        assert_eq!(checker.generated_count(), 11);
+        assert_eq!(checker.check(10_000).generated_count(), 11);
 
         // revisits state where liveness property was not yet satisfied and falsely assumes will never be
         assert_eq!(
-            checker.counterexample("reaches max").unwrap().last_state().actor_states,
+            checker.assert_counterexample("reaches max").last_state().actor_states,
             vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(1))]);
     }
 }
