@@ -96,6 +96,7 @@
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
 //! are available in the repository.
 
+pub mod ordered_reliable_link;
 pub mod register;
 pub mod spawn;
 pub mod system;
