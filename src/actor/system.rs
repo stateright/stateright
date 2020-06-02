@@ -93,8 +93,8 @@ impl<S: System> Model for SystemModel<S> {
             let id = Id::from(index);
             let out = actor.on_start_out(id);
             init_sys_state.actor_states.push(Arc::new(out.state.expect(&format!(
-                "Actor state not assigned at init. id={:?}", id))));
-            process_output(id, out.commands, &mut init_sys_state);
+                "on_start must assign state. id={:?}", id))));
+            process_commands(id, out.commands, &mut init_sys_state);
         }
 
         vec![init_sys_state]
@@ -127,11 +127,11 @@ impl<S: System> Model for SystemModel<S> {
                 Some(next_state)
             },
             SystemAction::Deliver { src, dst: id, msg } => {
-                // Early exit if this was a no-op.
+                // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
                 let out = self.actors[index].on_msg_out(id, last_actor_state, src, msg.clone());
-                if out.state.is_none() && out.commands.is_empty() { return None; }
+                if out.is_no_op() { return None; }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // If we're a non-duplicating network, drop the message that was delivered.
@@ -143,15 +143,15 @@ impl<S: System> Model for SystemModel<S> {
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
-                process_output(id, out.commands, &mut next_sys_state);
+                process_commands(id, out.commands, &mut next_sys_state);
                 Some(next_sys_state)
             },
             SystemAction::Timeout(id) => {
-                // Early exit if this was a no-op.
+                // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
                 let out = self.actors[index].on_timeout_out(id, last_actor_state);
-                if out.state.is_none() && out.commands.is_empty() { return None; }
+                if out.is_no_op() { return None; }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
@@ -160,7 +160,7 @@ impl<S: System> Model for SystemModel<S> {
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
-                process_output(id, out.commands, &mut next_sys_state);
+                process_commands(id, out.commands, &mut next_sys_state);
                 Some(next_sys_state)
             },
         }
@@ -213,21 +213,22 @@ impl<S: System> Model for SystemModel<S> {
 }
 
 /// Updates the actor state, sends messages, and configures the timer.
-fn process_output<Msg: Ord, State>(id: Id, commands: Vec<Command<Msg>>, next_sys_state: &mut _SystemState<Msg, State>) {
+fn process_commands<Msg: Ord, State>(id: Id, commands: Vec<Command<Msg>>, state: &mut _SystemState<Msg, State>) {
     let index = usize::from(id);
     for c in commands {
         match c {
             Command::Send(dst, msg) => {
-                next_sys_state.network.insert(Envelope { src: id, dst, msg });
+                state.network.insert(Envelope { src: id, dst, msg });
             },
             Command::SetTimer(_) => {
-                if next_sys_state.is_timer_set.is_empty() {
-                    next_sys_state.is_timer_set = vec![false; next_sys_state.actor_states.len()];
+                // must use the index to infer how large as actor state may not be initialized yet
+                for _ in state.is_timer_set.len() .. index + 1 {
+                    state.is_timer_set.push(false);
                 }
-                next_sys_state.is_timer_set[index] = true;
+                state.is_timer_set[index] = true;
             },
             Command::CancelTimer => {
-                next_sys_state.is_timer_set[index] = false;
+                state.is_timer_set[index] = false;
             },
         }
     }

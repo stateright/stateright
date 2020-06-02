@@ -167,6 +167,11 @@ impl<A: Actor> Out<A> {
             self.send(*recipient, msg.clone());
         }
     }
+
+    // Indicates whether no output was generated.
+    pub fn is_no_op(&self) -> bool {
+        self.state.is_none() && self.commands.is_empty()
+    }
 }
 
 /// An actor initializes internal state optionally emitting outputs; then it waits for incoming
@@ -178,7 +183,7 @@ pub trait Actor: Sized {
     type Msg: Clone + Debug + Ord;
 
     /// The type of state maintained by the actor.
-    type State: Clone + Debug;
+    type State: Clone + Debug + Hash;
 
     /// Indicates the initial state and commands.
     fn on_start(&self, id: Id, o: &mut Out<Self>);
