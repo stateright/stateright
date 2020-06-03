@@ -61,10 +61,10 @@
 //! let example = Puzzle(vec![1, 4, 2,
 //!                           3, 5, 8,
 //!                           6, 7, 0])
-//!     .checker().check(100).example("solved");
+//!     .checker().check(100).assert_example("solved");
 //! assert_eq!(
 //!     example,
-//!     Some(Path(vec![
+//!     Path(vec![
 //!         (vec![1, 4, 2,
 //!               3, 5, 8,
 //!               6, 7, 0], Some(Slide::Down)),
@@ -79,7 +79,7 @@
 //!               6, 7, 8], Some(Slide::Right)),
 //!         (vec![0, 1, 2,
 //!               3, 4, 5,
-//!               6, 7, 8], None)])));
+//!               6, 7, 8], None)]));
 //! ```
 //!
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
