@@ -1,6 +1,9 @@
-//! An ordered reliable link based loosely on the "perfect link" described in
-//! "Introduction to Reliable and Secure Distributed Programming" by Cachin,
-//! Guerraoui, and Rodrigues (although that link was not ordered).
+//! An ordered reliable link (ORL) based loosely on the "perfect link" described
+//! in "Introduction to Reliable and Secure Distributed Programming" by Cachin,
+//! Guerraoui, and Rodrigues (with enhancements to provide ordering).
+//!
+//! Order is maintained for messages between a source/destination pair. Order
+//! is not maintained between different destinations or different sources.
 
 use crate::actor::*;
 use serde::Deserialize;
@@ -11,15 +14,17 @@ use std::ops::Range;
 use std::hash::Hash;
 use std::collections::BTreeMap;
 
-/// Wraps an actor with a "perfect link" providing the abstraction of a
-/// lossless non-duplicating ordered network.
+/// Wraps an actor with logic to:
+/// 1. Maintain message order.
+/// 2. Resend lost messages.
+/// 3. Avoid message redelivery.
 #[derive(Clone)]
 pub struct ActorWrapper<A: Actor> {
     pub resend_interval: Range<Duration>,
     pub wrapped_actor: A,
 }
 
-/// Defines an interface for a register-like actor.
+/// An envelope for ORL messages.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(Serialize, Deserialize)]
 pub enum MsgWrapper<Msg> {
@@ -27,10 +32,10 @@ pub enum MsgWrapper<Msg> {
     Ack(Sequencer),
 }
 
-/// Perfect link sequencer.
+/// Message sequencer.
 pub type Sequencer = u64;
 
-/// A wrapper state for model-checking a register-like actor.
+/// Maintains state for the ORL.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StateWrapper<Msg, State> {
     // send side
