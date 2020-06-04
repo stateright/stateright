@@ -139,22 +139,16 @@ mod test {
         Receiver,
     }
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-    pub struct TestState {
-        sent: Vec<(Id, TestMsg)>,
-        received: Vec<(Id, TestMsg)>,
-    }
+    pub struct Received(Vec<(Id, TestMsg)>);
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct TestMsg(u64);
 
     impl Actor for TestActor {
         type Msg = TestMsg;
-        type State = TestState;
+        type State = Received;
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-            let state = TestState {
-                sent: Vec::new(),
-                received: Vec::new(),
-            };
+            let state = Received(Vec::new());
             if let TestActor::Sender { receiver_id } = self {
                 o.send(*receiver_id, TestMsg(42));
                 o.send(*receiver_id, TestMsg(43));
@@ -162,10 +156,10 @@ mod test {
             o.set_state(state);
         }
 
-        fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
-            let mut state = state.clone();
-            state.received.push((src, msg));
-            o.set_state(state);
+        fn on_msg(&self, _id: Id, received: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+            let mut received = received.clone();
+            received.0.push((src, msg));
+            o.set_state(received);
         }
     }
 
@@ -197,19 +191,19 @@ mod test {
         fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
             vec![
                 Property::<SystemModel<TestSystem>>::always("no redelivery", |_, state| {
-                    let received = &state.actor_states[1].wrapped_state.received;
+                    let received = &state.actor_states[1].wrapped_state.0;
                     received.iter().filter(|(_, TestMsg(v))| *v == 42).count() < 2
                         && received.iter().filter(|(_, TestMsg(v))| *v == 43).count() < 2
                 }),
                 Property::<SystemModel<TestSystem>>::always("ordered", |_, state| {
-                    state.actor_states[1].wrapped_state.received.iter()
+                    state.actor_states[1].wrapped_state.0.iter()
                         .map(|(_, TestMsg(v))| *v)
                         .fold((true, 0), |(acc, last), next| (acc && last <= next, next))
                         .0
                 }),
                 // FIXME: convert to an eventually property once the liveness checker is complete
                 Property::<SystemModel<TestSystem>>::sometimes("delivered", |_, state| {
-                    state.actor_states[1].wrapped_state.received == vec![
+                    state.actor_states[1].wrapped_state.0 == vec![
                         (Id::from(0), TestMsg(42)),
                         (Id::from(0), TestMsg(43)),
                     ]
@@ -218,8 +212,7 @@ mod test {
         }
 
         fn within_boundary(&self, state: &SystemState<Self::Actor>) -> bool {
-            state.actor_states.iter().all(|s|
-                s.wrapped_state.sent.len() < 4 && s.wrapped_state.received.len() < 4)
+            state.actor_states.iter().all(|s| s.wrapped_state.0.len() < 4)
         }
     }
 
