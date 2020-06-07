@@ -113,10 +113,20 @@ impl<State, Action> Path<State, Action> {
     pub fn into_vec(self) -> Vec<(State, Option<Action>)> {
         self.into()
     }
+
+    pub fn name(&self) -> PathName where State: Hash {
+        self.0.iter()
+            .map(|(s, _a)| format!("{}", fingerprint(s)))
+            .collect::<Vec<String>>()
+            .join("/")
+    }
 }
 impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
     fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
 }
+
+/// An identifier that fully qualifies a path.
+pub type PathName = String;
 
 /// EventuallyBits tracks one bit per 'eventually' property being checked. Properties are assigned
 /// bit-numbers just by counting the 'eventually' properties up from 0 in the properties list. If a
@@ -346,7 +356,7 @@ where
         }
     }
 
-    fn path(&self, fp: Fingerprint) -> Path<M::State, M::Action> {
+    pub fn path(&self, fp: Fingerprint) -> Path<M::State, M::Action> {
         // First build a stack of digests representing the path (with the init digest at top of
         // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
         // uses a similar technique, which is documented in the paper "Model Checking TLA+

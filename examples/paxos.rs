@@ -268,7 +268,8 @@ fn main() {
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
-            Explorer(PaxosSystem { client_count }.into_model()).serve(address).unwrap();
+            PaxosSystem { client_count }
+                .into_model().checker().serve(address).unwrap();
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

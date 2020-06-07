@@ -153,7 +153,8 @@ fn main() {
             println!(
                 "Exploring state space for write-once register with {} clients on {}.",
                 client_count, address);
-            Explorer(WriteOnceSystem { server_count: 1, client_count }.into_model()).serve(address).unwrap();
+            WriteOnceSystem { server_count: 1, client_count }
+                .into_model().checker().serve(address).unwrap();
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

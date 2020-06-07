@@ -105,12 +105,20 @@ impl<R: Clone + PartialEq + Hash + Ord> Model for TwoPhaseSys<R> {
     }
 
     fn properties(&self) -> Vec<Property<Self>> {
-        vec![Property::<Self>::always("consistent", |sys, state| {
-            !sys.rms.iter().any(|rm1|
-                sys.rms.iter().any(|rm2|
-                    state.rm_state[rm1] == RmState::Aborted
-                        && state.rm_state[rm2] == RmState::Committed))
-        })]
+        vec![
+            Property::<Self>::sometimes("abort agreement", |sys, state| {
+                sys.rms.iter().all(|rm| state.rm_state[rm] == RmState::Aborted)
+            }),
+            Property::<Self>::sometimes("commit agreement", |sys, state| {
+                sys.rms.iter().all(|rm| state.rm_state[rm] == RmState::Committed)
+            }),
+            Property::<Self>::always("consistent", |sys, state| {
+                !sys.rms.iter().any(|rm1|
+                    sys.rms.iter().any(|rm2|
+                        state.rm_state[rm1] == RmState::Aborted
+                            && state.rm_state[rm2] == RmState::Committed))
+            }),
+        ]
     }
 }
 
@@ -164,8 +172,8 @@ fn main() {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             let address = value_t!(args, "address", String).expect("address");
             println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
-            Explorer(TwoPhaseSys { rms: BTreeSet::from_iter(0..rm_count) })
-                .serve(address).unwrap();
+            TwoPhaseSys { rms: BTreeSet::from_iter(0..rm_count) }
+                .checker().serve(address).unwrap();
         }
         _ => app.print_help().unwrap(),
     }

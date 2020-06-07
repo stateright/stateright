@@ -1,3 +1,22 @@
+/// Represents the checker status. Reloads periodically until checking completes.
+function Status({discoveries, generated, model, pending, threads}) {
+    let status = this;
+
+    status.discoveries = discoveries;
+    status.generated = generated;
+    status.model = model;
+    status.pending = pending;
+    status.threads = threads;
+}
+/// Placeholder status.
+Status.LOADING = new Status({
+    discoveries: 'loading...',
+    generated: 'loading...',
+    model: 'loading...',
+    pending: 'loading...',
+    threads: 'loading...',
+});
+
 /// Represents a model step. Only loads next steps on demand.
 function Step({action, outcome, state, fingerprint, prevStep}) {
     let step = this;
@@ -19,7 +38,10 @@ function Step({action, outcome, state, fingerprint, prevStep}) {
         console.log('Fetching next steps.', {path: step.path});
         Step._NEXT_STEPS[step.path] = fetch(`/.states${step.path}`)
             .then(r => r.json())
-            .then(nextSteps => {
+            .then((nextSteps, err) => {
+                if (err) {
+                    console.log(err);
+                }
                 console.log('Response received.', {path: step.path, nextSteps});
                 return nextSteps.map((nextStep, i) => new Step({
                     action: nextStep.action || `Init ${i}`,
@@ -53,10 +75,22 @@ function App() {
     app.selectedStep = ko.observable(Step.PRE_INIT);
     app.isCompact = ko.observable(false);
     app.isStepNoOp = (step) => step.state == app.selectedStep().state;
+    app.status = ko.observable(Status.LOADING);
 
     window.onhashchange = prepareView;
     window.onhashchange();
+    refreshStatus();
 
+    async function refreshStatus() {
+        console.log('Refreshing status.');
+        let response = await fetch('/.status');
+        let json = await response.json();
+        console.log(json);
+        app.status(json);
+        if (json.pending !== 0) {
+            setTimeout(refreshStatus, 5000);
+        }
+    }
     async function prepareView() {
         let hash = window.location.hash;
         console.log('Hash changed. Preparing view.', {hash});

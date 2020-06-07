@@ -18,6 +18,38 @@
     </header>
     <main class="main-flex">
         <nav class="main-flex-left">
+            <h2>Status</h2>
+            <ul class="font-small" data-bind="with: status">
+                <li>
+                    <label>Model:</label>
+                    <span data-bind="text: model">MODEL</span>
+                </li>
+                <li>
+                    <label>Threads:</label>
+                    <span data-bind="text: threads">THREADS</span>
+                </li>
+                <li>
+                    <label>Pending:</label>
+                    <span data-bind="text: pending">PENDING</span>
+                </li>
+                <li>
+                    <label>Generated:</label>
+                    <span data-bind="text: generated">GENERATED</span>
+                </li>
+            </ul>
+
+            <h2>Discoveries</h2>
+            <ul class="font-small" data-bind="foreach: {
+                                                        data: Object.keys(status().discoveries),
+                                                        as: 'discoveryName',
+                                                        noChildContext: true }">
+                <li>
+                    <a class="font-code" href="#"
+                       data-bind="attr: {href: '#/steps/' + status().discoveries[discoveryName]},
+                                  text: discoveryName">DISCOVERY</a>
+                </li>
+            </ul>
+
             <h2>Path</h2>
             <ol class="font-small"
                 data-bind="foreach: selectedStep().pathSteps()">
