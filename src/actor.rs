@@ -74,12 +74,12 @@ pub mod spawn;
 pub mod system;
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Serialize,Deserialize};
 use std::hash::Hash;
 
 /// Uniquely identifies an `Actor`. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Id(u64);
 
 /// Events to which an actor can respond.
