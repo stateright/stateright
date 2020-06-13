@@ -205,7 +205,15 @@ mod test {
 
     #[test]
     fn can_next() {
-        assert_eq!(states("/2660964032595151061/9177167138362116600").unwrap(), vec![
+        // We need a static string for TestRequest, so this is precomputed, but you can recompute
+        // the values if needed as follows:
+        // ```
+        // let first = fingerprint(&0_i8);
+        // let second = fingerprint(&1_i8);
+        // let path_name = format!("/{}/{}", first, second);
+        // println!("New path name is: {}", path_name);
+        // ```
+        assert_eq!(states("/2716592049047647680/9080728272894440685").unwrap(), vec![
             StateView { action: Some(BinaryClockAction::GoHigh), outcome: Some("1".to_string()), state: 1 },
         ]);
     }
@@ -218,11 +226,11 @@ mod test {
             "Unable to find state following fingerprints /1/2/3");
     }
 
-    fn states(fingerprints: &'static str)
+    fn states(path_name: &'static str)
             -> Result<Vec<StateView<BinaryClockState, BinaryClockAction>>> {
         use actix_web::test::*;
         let req = TestRequest::get()
-            .param("fingerprints", &fingerprints)
+            .param("fingerprints", &path_name)
             .to_http_request();
         let data = web::Data::new(Arc::new(Context {
             model: BinaryClock,
