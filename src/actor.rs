@@ -14,7 +14,6 @@
 //! use stateright::actor::*;
 //! use stateright::actor::system::*;
 //! use stateright::checker::*;
-//! use std::collections::BTreeSet;
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
@@ -27,7 +26,7 @@
 //! struct Timestamp(u32);
 //!
 //! /// And we define a generic message containing a timestamp.
-//! #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+//! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 //! struct MsgWithTimestamp(u32);
 //!
 //! impl Actor for LogicalClockActor {
@@ -181,7 +180,7 @@ impl<A: Actor> Out<A> {
 /// likely be added.
 pub trait Actor: Sized {
     /// The type of messages sent and received by this actor.
-    type Msg: Clone + Debug + Ord;
+    type Msg: Clone + Debug + Eq + Hash;
 
     /// The type of state maintained by the actor.
     type State: Clone + Debug + Hash;

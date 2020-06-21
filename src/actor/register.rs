@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
+use std::hash::Hash;
 
 /// A wrapper configuration for model-checking a register-like actor.
 #[derive(Clone)]
@@ -20,7 +21,7 @@ pub enum RegisterActor<Value, ServerActor> {
 }
 
 /// Defines an interface for a register-like actor.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
 pub enum RegisterMsg<Value, InternalMsg> {
     Put(Value),
@@ -30,7 +31,7 @@ pub enum RegisterMsg<Value, InternalMsg> {
 }
 
 /// A wrapper state for model-checking a register-like actor.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RegisterActorState<ServerState> {
     Client,
     Server(ServerState),
@@ -38,9 +39,9 @@ pub enum RegisterActorState<ServerState> {
 
 impl<Value, Server, ServerMsg> Actor for RegisterActor<Value, Server>
 where
-    Value: Clone + Debug + Ord,
+    Value: Clone + Debug + Eq + Hash,
     Server: Actor<Msg = RegisterMsg<Value, ServerMsg>>,
-    ServerMsg: Clone + Debug + Ord + Serialize + DeserializeOwned,
+    ServerMsg: Clone + Debug + Eq + Hash + Serialize + DeserializeOwned,
 {
     type Msg = Server::Msg;
     type State = RegisterActorState<Server::State>;
@@ -95,7 +96,7 @@ where
 }
 
 /// Indicates unique values with which the server has responded.
-pub fn response_values<Value: Clone + Ord, ServerMsg, ServerState>(
+pub fn response_values<Value: Clone + Hash + Ord, ServerMsg: Eq + Hash, ServerState>(
     state: &_SystemState<
         RegisterMsg<Value, ServerMsg>,
         RegisterActorState<ServerState>

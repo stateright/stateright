@@ -2,26 +2,26 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use clap::*;
-use stateright::*;
-use stateright::explorer::*;
-use std::collections::{BTreeMap, BTreeSet};
+use clap::{App, Arg, SubCommand, value_t};
+use stateright::{Model, Property};
+use stateright::explorer::Explorer;
+use stateright::util::{HashableHashMap, HashableHashSet};
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::hash::Hash;
 
 #[derive(Clone)]
-struct TwoPhaseSys<R> { pub rms: BTreeSet<R> }
+struct TwoPhaseSys<R> { pub rms: HashableHashSet<R> }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct TwoPhaseState<R> {
-    rm_state: BTreeMap<R, RmState>,
+struct TwoPhaseState<R: Eq + Hash> {
+    rm_state: HashableHashMap<R, RmState>,
     tm_state: TmState,
-    tm_prepared: BTreeSet<R>,
-    msgs: BTreeSet<Message<R>>
+    tm_prepared: HashableHashSet<R>,
+    msgs: HashableHashSet<Message<R>>
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialOrd, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum Message<R> { Prepared { rm: R }, Commit, Abort }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -41,7 +41,7 @@ enum Action<R> {
     RmRcvAbortMsg(R),
 }
 
-impl<R: Clone + PartialEq + Hash + Ord> Model for TwoPhaseSys<R> {
+impl<R: Clone + Eq + Hash> Model for TwoPhaseSys<R> {
     type State = TwoPhaseState<R>;
     type Action = Action<R>;
 
@@ -49,8 +49,8 @@ impl<R: Clone + PartialEq + Hash + Ord> Model for TwoPhaseSys<R> {
         vec![TwoPhaseState {
             rm_state: self.rms.iter().map(|rm| (rm.clone(), RmState::Working)).collect(),
             tm_state: TmState::Init,
-            tm_prepared: BTreeSet::new(),
-            msgs: BTreeSet::new()
+            tm_prepared: Default::default(),
+            msgs: Default::default(),
         }]
     }
 
@@ -126,14 +126,14 @@ impl<R: Clone + PartialEq + Hash + Ord> Model for TwoPhaseSys<R> {
 #[test]
 fn can_model_2pc() {
     // for very small state space
-    let mut rms = BTreeSet::new();
+    let mut rms = HashableHashSet::new();
     for rm in 1..(3+1) { rms.insert(rm); }
     let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(300).generated_count(), 288);
     checker.assert_no_counterexample("consistent");
 
     // for slightly larger state space
-    let mut rms = BTreeSet::new();
+    let mut rms = HashableHashSet::new();
     for rm in 1..(5+1) { rms.insert(rm); }
     let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(10_000).generated_count(), 8_832);
@@ -164,7 +164,7 @@ fn main() {
         ("check", Some(args)) => {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             println!("Checking two phase commit with {} resource managers.", rm_count);
-            TwoPhaseSys { rms: BTreeSet::from_iter(0..rm_count) }
+            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }
                 .checker_with_threads(num_cpus::get())
                 .check_and_report(&mut std::io::stdout());
         }
@@ -172,7 +172,7 @@ fn main() {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             let address = value_t!(args, "address", String).expect("address");
             println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
-            TwoPhaseSys { rms: BTreeSet::from_iter(0..rm_count) }
+            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }
                 .checker().serve(address).unwrap();
         }
         _ => app.print_help().unwrap(),

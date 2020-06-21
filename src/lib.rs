@@ -6,7 +6,7 @@
 //! submodules for additional details.
 
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use crate::checker::Checker;
 
 pub mod actor;
@@ -14,6 +14,7 @@ pub mod checker;
 pub mod explorer;
 #[cfg(test)]
 pub mod test_util;
+pub mod util;
 
 /// Models a possibly nondeterministic system's evolution. See `Checker`.
 pub trait Model: Sized {
@@ -171,10 +172,25 @@ pub enum Expectation {
 pub type Fingerprint = std::num::NonZeroU64;
 
 /// Converts a state to a fingerprint.
+#[inline]
 pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
-    use std::hash::Hasher;
-    let mut hasher = ahash::AHasher::new_with_keys(
-        123_456_789_987_654_321, 98_765_432_123_456_789);
+    let mut hasher = stable::hasher();
     value.hash(&mut hasher);
     Fingerprint::new(hasher.finish()).expect("hasher returned zero, an invalid fingerprint")
+}
+
+// Helpers for stable hashing, wherein hashes should not vary across builds.
+mod stable {
+    use ahash::{AHasher, RandomState};
+
+    const KEY1: u64 = 123_456_789_987_654_321;
+    const KEY2: u64 = 98_765_432_123_456_789;
+
+    pub(crate) fn hasher() -> AHasher {
+        AHasher::new_with_keys(KEY1, KEY2)
+    }
+
+    pub(crate) fn build_hasher() -> RandomState {
+        RandomState::with_seeds(KEY1, KEY2)
+    }
 }

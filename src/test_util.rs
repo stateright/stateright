@@ -107,7 +107,7 @@ pub mod ping_pong {
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub struct PingPongCount(pub u32);
 
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub enum PingPongMsg { Ping(u32), Pong(u32) }
 
     impl Actor for PingPongActor {

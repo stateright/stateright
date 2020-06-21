@@ -9,7 +9,7 @@ use stateright::actor::register::RegisterMsg::*;
 use stateright::actor::spawn::*;
 use stateright::actor::system::*;
 use stateright::explorer::*;
-use std::collections::*;
+use stateright::util::{HashableHashMap, HashableHashSet};
 use std::net::{SocketAddrV4, Ipv4Addr};
 use stateright::{Property, Model};
 
@@ -18,7 +18,7 @@ type Rank = u32;
 type Ballot = (Round, Rank);
 type Value = char;
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
 enum PaxosMsg {
     Prepare { ballot: Ballot },
@@ -30,15 +30,15 @@ enum PaxosMsg {
     Decided { ballot: Ballot, value: Value },
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct PaxosState {
     // shared state
     ballot: Ballot,
 
     // leader state
     proposal: Option<Value>,
-    prepares: BTreeMap<Id, Option<(Ballot, Value)>>,
-    accepts: BTreeSet<Id>,
+    prepares: HashableHashMap<Id, Option<(Ballot, Value)>>,
+    accepts: HashableHashSet<Id>,
 
     // acceptor state
     accepted: Option<(Ballot, Value)>,
@@ -215,16 +215,16 @@ fn can_model_paxos() {
     let mut checker = PaxosSystem { client_count: 2 }.into_model().checker();
     assert_eq!(checker.check(10_000).generated_count(), 1529);
     assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
-        Deliver { dst: Id::from(0), src: Id::from(3), msg: Put('A') },
-        Deliver { dst: Id::from(1), src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) },
-        Deliver { dst: Id::from(2), src: Id::from(0), msg: Internal(Prepare { ballot: (1, 0) }) },
-        Deliver { dst: Id::from(0), src: Id::from(1), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) },
-        Deliver { dst: Id::from(0), src: Id::from(2), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) },
-        Deliver { dst: Id::from(1), src: Id::from(0), msg: Internal(Accept { ballot: (1, 0), value: 'A' }) },
-        Deliver { dst: Id::from(2), src: Id::from(0), msg: Internal(Accept { ballot: (1, 0), value: 'A' }) },
-        Deliver { dst: Id::from(0), src: Id::from(1), msg: Internal(Accepted { ballot: (1, 0) }) },
-        Deliver { dst: Id::from(0), src: Id::from(2), msg: Internal(Accepted { ballot: (1, 0) }) },
-        Deliver { dst: Id::from(0), src: Id::from(3), msg: Get },
+        Deliver { src: Id::from(4), dst: Id::from(1), msg: Put('B') },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1) }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(4), dst: Id::from(1), msg: Get },
     ]);
     checker.assert_no_counterexample("valid and consistent");
 }

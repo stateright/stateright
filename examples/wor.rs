@@ -12,7 +12,7 @@ use stateright::{Property, Model};
 
 type Value = char;
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct WriteOnceState(Option<Value>);
 
 #[derive(Clone)]
@@ -107,10 +107,10 @@ fn can_model_wor() {
     assert_eq!(
         checker.check(10_000).assert_counterexample("valid and consistent").into_actions(),
         vec![
-            Deliver { dst: Id::from(0), src: Id::from(2), msg: Put('A') },
-            Deliver { dst: Id::from(0), src: Id::from(2), msg: Get },
-            Deliver { dst: Id::from(1), src: Id::from(3), msg: Put('B') },
-            Deliver { dst: Id::from(1), src: Id::from(2), msg: Get },
+            Deliver { src: Id::from(2), dst: Id::from(0), msg: Put('A') },
+            Deliver { src: Id::from(3), dst: Id::from(0), msg: Get },
+            Deliver { src: Id::from(3), dst: Id::from(1), msg: Put('B') },
+            Deliver { src: Id::from(3), dst: Id::from(1), msg: Get },
         ]);
 }
 

@@ -2,10 +2,11 @@
 
 use crate::*;
 use crate::actor::*;
+use crate::util::HashableHashSet;
 use std::sync::Arc;
 
 /// Represents a network of messages.
-pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
+pub type Network<Msg> = HashableHashSet<Envelope<Msg>>;
 
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
 /// the network state, losing a message is indistinguishable from an unlimited delay, so in
@@ -14,7 +15,7 @@ pub type Network<Msg> = std::collections::BTreeSet<Envelope<Msg>>;
 pub enum LossyNetwork { Yes, No }
 
 /// Indicates whether the network duplicates messages. If duplication is disabled, messages
-/// are forgotten once delivered, which can improve model checking perfomance.
+/// are forgotten once delivered, which can improve model checking performance.
 #[derive(Copy, Clone, PartialEq)]
 pub enum DuplicatingNetwork { Yes, No }
 
@@ -79,7 +80,7 @@ impl<S: System> Model for SystemModel<S> {
     fn init_states(&self) -> Vec<Self::State> {
         let mut init_sys_state = _SystemState {
             actor_states: Vec::with_capacity(self.actors.len()),
-            network: Network::new(),
+            network: Network::with_hasher(stable::build_hasher()), // for consistent discoveries
             is_timer_set: Vec::new(),
         };
 
@@ -213,7 +214,7 @@ impl<S: System> Model for SystemModel<S> {
 }
 
 /// Updates the actor state, sends messages, and configures the timer.
-fn process_commands<Msg: Ord, State>(id: Id, commands: Vec<Command<Msg>>, state: &mut _SystemState<Msg, State>) {
+fn process_commands<Msg: Eq + Hash, State>(id: Id, commands: Vec<Command<Msg>>, state: &mut _SystemState<Msg, State>) {
     let index = usize::from(id);
     for c in commands {
         match c {
@@ -235,13 +236,13 @@ fn process_commands<Msg: Ord, State>(id: Id, commands: Vec<Command<Msg>>, state:
 }
 
 /// Indicates the source and destination for a message.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 
 /// Represents a snapshot in time for the entire actor system. Consider using
 /// `SystemState<Actor>` instead for simpler type signatures.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct _SystemState<Msg, State> {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct _SystemState<Msg: Eq + Hash, State> {
     pub actor_states: Vec<Arc<State>>,
     pub network: Network<Msg>,
     pub is_timer_set: Vec<bool>,

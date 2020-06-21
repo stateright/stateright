@@ -6,13 +6,13 @@
 //! is not maintained between different destinations or different sources.
 
 use crate::actor::*;
+use crate::util::HashableHashMap;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Debug;
 use std::time::Duration;
 use std::ops::Range;
 use std::hash::Hash;
-use std::collections::BTreeMap;
 
 /// Wraps an actor with logic to:
 /// 1. Maintain message order.
@@ -25,7 +25,7 @@ pub struct ActorWrapper<A: Actor> {
 }
 
 /// An envelope for ORL messages.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
 pub enum MsgWrapper<Msg> {
     Deliver(Sequencer, Msg),
@@ -36,14 +36,14 @@ pub enum MsgWrapper<Msg> {
 pub type Sequencer = u64;
 
 /// Maintains state for the ORL.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StateWrapper<Msg, State> {
     // send side
     next_send_seq: Sequencer,
-    msgs_pending_ack: BTreeMap<Sequencer, (Id, Msg)>,
+    msgs_pending_ack: HashableHashMap<Sequencer, (Id, Msg)>,
 
     // receive (ack'ing) side
-    last_delivered_seqs: BTreeMap<Id, Sequencer>,
+    last_delivered_seqs: HashableHashMap<Id, Sequencer>,
 
     wrapped_state: State,
 }
@@ -140,7 +140,7 @@ mod test {
     }
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub struct Received(Vec<(Id, TestMsg)>);
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub struct TestMsg(u64);
 
     impl Actor for TestActor {

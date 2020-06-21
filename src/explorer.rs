@@ -208,8 +208,8 @@ mod test {
         // We need a static string for TestRequest, so this is precomputed, but you can recompute
         // the values if needed as follows:
         // ```
-        // let first = fingerprint(&0_i8);
-        // let second = fingerprint(&1_i8);
+        // let first = fingerprint(&1_i8);
+        // let second = fingerprint(&0_i8);
         // let path_name = format!("/{}/{}", first, second);
         // println!("New path name is: {}", path_name);
         // ```
