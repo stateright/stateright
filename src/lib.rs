@@ -109,7 +109,7 @@ pub trait Model: Sized {
             thread_count,
             model: self,
             pending: VecDeque::with_capacity(50_000),
-            sources: DashMap::with_capacity(1_000_000),
+            sources: DashMap::with_capacity_and_hasher(1_000_000, Default::default()),
             discoveries: DashMap::with_capacity(10),
         }
     }

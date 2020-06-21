@@ -88,10 +88,12 @@
 use crate::*;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use id_set::IdSet;
+use nohash_hasher::NoHashHasher;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::hash::{BuildHasher, BuildHasherDefault};
 use std::sync::Arc;
-use id_set::IdSet;
 
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
 /// You can convert to a `Vec<_>` with `path.into_vec()`. If you only need the actions, then use
@@ -143,7 +145,7 @@ pub struct Checker<M: Model> {
     pub(crate) thread_count: usize,
     pub(crate) model: M,
     pub(crate) pending: VecDeque<(Fingerprint, EventuallyBits, M::State)>,
-    pub(crate) sources: DashMap<Fingerprint, Option<Fingerprint>>,
+    pub(crate) sources: DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
     pub(crate) discoveries: DashMap<&'static str, Fingerprint>,
 }
 
@@ -254,11 +256,11 @@ where
         }
     }
 
-    fn check_block(
+    fn check_block<S: Clone + BuildHasher>(
         max_count: usize,
         model: &M,
         pending: &mut VecDeque<(Fingerprint, EventuallyBits, M::State)>,
-        sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>>>,
+        sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>, S>>,
         discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
 
         let mut remaining = max_count;
