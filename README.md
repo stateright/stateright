@@ -76,6 +76,12 @@ cargo run --release --example paxos check 4
 cargo run --release --example wor check 6
 ```
 
+A script that runs all the examples multiple times is provided for convenience:
+
+```sh
+./bench.sh
+```
+
 ## Contributing
 
 1. Clone the repository:
