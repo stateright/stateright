@@ -215,7 +215,8 @@ fn can_model_paxos() {
     use SystemAction::Deliver;
 
     let mut checker = PaxosSystem { client_count: 2 }.into_model().checker();
-    assert_eq!(checker.check(10_000).generated_count(), 1529);
+    checker.check(10_000).assert_properties();
+    assert_eq!(checker.generated_count(), 1529);
     assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
         Deliver { src: Id::from(4), dst: Id::from(1), msg: Put('B') },
         Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1) }) },
@@ -228,7 +229,6 @@ fn can_model_paxos() {
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
         Deliver { src: Id::from(4), dst: Id::from(1), msg: Get },
     ]);
-    checker.assert_no_counterexample("valid and consistent");
 }
 
 fn main() {

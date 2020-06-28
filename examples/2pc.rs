@@ -130,14 +130,14 @@ fn can_model_2pc() {
     for rm in 1..(3+1) { rms.insert(rm); }
     let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(300).generated_count(), 288);
-    checker.assert_no_counterexample("consistent");
+    checker.assert_properties();
 
     // for slightly larger state space
     let mut rms = HashableHashSet::new();
     for rm in 1..(5+1) { rms.insert(rm); }
     let mut checker = TwoPhaseSys { rms }.checker();
     assert_eq!(checker.check(10_000).generated_count(), 8_832);
-    checker.assert_no_counterexample("consistent");
+    checker.assert_properties();
 }
 
 fn main() {

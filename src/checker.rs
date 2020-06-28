@@ -480,7 +480,7 @@ where
 
     /// A helper that verifies examples exist for all `sometimes` properties and no counterexamples
     /// exist for any `always`/`eventually` properties.
-    pub fn verify_properties(&self) {
+    pub fn assert_properties(&self) -> &Self {
         for p in self.model.properties() {
             match p.expectation {
                 Expectation::Always => self.assert_no_counterexample(p.name),
@@ -488,6 +488,7 @@ where
                 Expectation::Sometimes => { self.assert_example(p.name); },
             }
         }
+        self
     }
 
     /// Panics if an example is not found. Otherwise returns a path to the example.

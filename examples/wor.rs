@@ -102,7 +102,7 @@ fn can_model_wor() {
 
     // Consistent if only one server.
     let mut checker = WriteOnceSystem { server_count: 1, client_count: 2 }.into_model().checker();
-    checker.check(10_000).assert_no_counterexample("valid and consistent");
+    checker.check(10_000).assert_properties();
 
     // But the consistency requirement is violated with two servers.
     let mut checker = WriteOnceSystem { server_count: 2, client_count: 2 }.into_model().checker();

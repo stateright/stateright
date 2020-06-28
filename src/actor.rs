@@ -81,7 +81,7 @@
 //! // actor timestamp to reach a specified maximum.
 //! let counterexample = LogicalClockSystem { max_expected: 3 }
 //!     .into_model().checker().check(1_000)
-//!     .counterexample("less than max").unwrap();
+//!     .assert_counterexample("less than max");
 //! assert_eq!(
 //!     counterexample.last_state().actor_states,
 //!     vec![Arc::new(Timestamp(2)), Arc::new(Timestamp(3))]);
