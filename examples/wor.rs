@@ -81,7 +81,9 @@ impl System for WriteOnceSystem {
 
                     // check for consistency: everyone agrees (false if more than one server)
                     if let Some(sole_value) = sole_value {
-                        return sole_value == v;
+                        if v != sole_value {
+                            return false;
+                        }
                     } else {
                         sole_value = Some(v);
                     }

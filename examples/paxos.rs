@@ -184,7 +184,9 @@ impl System for PaxosSystem {
 
                         // check for consistency: everyone agrees
                         if let Some(sole_value) = sole_value {
-                            return sole_value == v;
+                            if v != sole_value {
+                                return false;
+                            }
                         } else {
                             sole_value = Some(v);
                         }
