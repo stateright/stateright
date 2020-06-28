@@ -478,6 +478,18 @@ where
         self.sources.iter().map(|rm| *rm.key()).collect()
     }
 
+    /// A helper that verifies examples exist for all `sometimes` properties and no counterexamples
+    /// exist for any `always`/`eventually` properties.
+    pub fn verify_properties(&self) {
+        for p in self.model.properties() {
+            match p.expectation {
+                Expectation::Always => self.assert_no_counterexample(p.name),
+                Expectation::Eventually => self.assert_no_counterexample(p.name),
+                Expectation::Sometimes => { self.assert_example(p.name); },
+            }
+        }
+    }
+
     /// Panics if an example is not found. Otherwise returns a path to the example.
     pub fn assert_example(&self, name: &'static str) -> Path<M::State, M::Action> {
         if let Some(path) = self.example(name) {
