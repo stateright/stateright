@@ -298,7 +298,7 @@ pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
 mod test {
     use crate::*;
     use crate::actor::system::*;
-    use crate::test_util::ping_pong::*;
+    use crate::actor::actor_test_util::ping_pong::*;
     use std::collections::HashSet;
     use std::sync::Arc;
 
@@ -409,7 +409,7 @@ mod test {
     fn may_never_reach_max_on_lossy_network() {
         use crate::actor::Id;
         use crate::actor::system::SystemAction;
-        use crate::test_util::ping_pong::PingPongMsg;
+        use crate::actor::actor_test_util::ping_pong::PingPongMsg;
 
         let mut checker = PingPongSystem {
             max_nat: 5,

@@ -95,6 +95,8 @@
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
 //! are available in the repository.
 
+#[cfg(test)]
+mod actor_test_util;
 pub mod ordered_reliable_link;
 pub mod register;
 pub mod spawn;

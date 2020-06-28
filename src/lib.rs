@@ -13,7 +13,7 @@ pub mod actor;
 pub mod checker;
 pub mod explorer;
 #[cfg(test)]
-pub mod test_util;
+mod test_util;
 pub mod util;
 
 /// Models a possibly nondeterministic system's evolution. See `Checker`.
