@@ -3,7 +3,9 @@
 use crate::*;
 use crate::actor::*;
 use crate::util::HashableHashSet;
+use std::ops::Range;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Represents a network of messages.
 pub type Network<Msg> = HashableHashSet<Envelope<Msg>>;
@@ -274,6 +276,22 @@ impl From<usize> for Id {
     fn from(u: usize) -> Self {
         Id(u as u64)
     }
+}
+
+/// The specific timeout value is not relevant for model checking, so this helper can be used to
+/// generate an arbitrary timeout range. The specific value is subject to change, so this helper
+/// must only be used for model checking.
+pub fn model_timeout() -> Range<Duration> {
+    Duration::from_micros(0)..Duration::from_micros(0)
+}
+
+/// A helper to generate a list of peer `Id`s given an actor count and the index of a particular
+/// actor.
+pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
+    (0..count).into_iter()
+        .filter(|j| *j != self_ix)
+        .map(Into::into)
+        .collect()
 }
 
 #[cfg(test)]
