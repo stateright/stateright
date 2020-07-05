@@ -35,6 +35,23 @@ nc -u 0 3000
 "Get"
 ```
 
+Checker features include:
+
+- Invariants via "always" properties.
+- Nontriviality checks via "sometimes" properties.
+- Liveness checks via "eventually" properties (with some limitations at this time).
+- UI for interactively exploring state space.
+
+Actor system features include:
+
+- Ability to execute actors via JSON over UDP.
+- Can model lossy/lossless networks.
+- Can model duplicating/non-duplicating networks.
+- Can capture actor system
+  [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
+  to check properties such as
+  [linearizability](https://en.wikipedia.org/wiki/Linearizability).
+
 ## Examples
 
 Stateright includes a variety of

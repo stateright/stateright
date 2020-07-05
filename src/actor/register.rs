@@ -3,7 +3,6 @@
 //! implementation.
 
 use crate::actor::*;
-use crate::actor::system::*;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -93,20 +92,4 @@ where
             _ => serde_json::to_vec(msg),
         }
     }
-}
-
-/// Indicates unique values with which the server has responded.
-pub fn response_values<Value: Clone + Hash + Ord, ServerMsg: Eq + Hash, ServerState>(
-    state: &_SystemState<
-        RegisterMsg<Value, ServerMsg>,
-        RegisterActorState<ServerState>
-    >) -> Vec<Value> {
-    let mut values: Vec<Value> = state.network.iter().filter_map(
-        |env| match &env.msg {
-            RegisterMsg::Respond(value) => Some(value.clone()),
-            _ => None,
-        }).collect();
-    values.sort();
-    values.dedup();
-    values
 }

@@ -46,6 +46,7 @@ struct WriteOnceSystem { server_count: u8, client_count: u8 }
 
 impl System for WriteOnceSystem {
     type Actor = RegisterActor<Value, WriteOnceActor>;
+    type History = ();
 
     fn actors(&self) -> Vec<Self::Actor> {
         let mut actors = Vec::new();

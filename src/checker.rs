@@ -98,7 +98,7 @@ use std::sync::Arc;
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
 /// You can convert to a `Vec<_>` with `path.into_vec()`. If you only need the actions, then use
 /// `path.into_actions()`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
     /// Extracts the last state.

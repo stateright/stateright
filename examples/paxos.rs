@@ -147,6 +147,7 @@ struct PaxosSystem { client_count: u8 }
 
 impl System for PaxosSystem {
     type Actor = RegisterActor<Value, PaxosActor>;
+    type History = ();
 
     fn actors(&self) -> Vec<Self::Actor> {
         let mut actors = vec![
@@ -197,7 +198,7 @@ impl System for PaxosSystem {
         ]
     }
 
-    fn within_boundary(&self, state: &SystemState<Self::Actor>) -> bool {
+    fn within_boundary(&self, state: &SystemState<Self>) -> bool {
         state.actor_states.iter().all(|s| {
             if let RegisterActorState::Server(ref state) = **s {
                 state.ballot.0 < 4

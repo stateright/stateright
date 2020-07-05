@@ -166,6 +166,7 @@ mod test {
     struct TestSystem;
     impl System for TestSystem {
         type Actor = ActorWrapper<TestActor>;
+        type History = ();
 
         fn actors(&self) -> Vec<Self::Actor> {
             vec![
@@ -211,7 +212,7 @@ mod test {
             ]
         }
 
-        fn within_boundary(&self, state: &SystemState<Self::Actor>) -> bool {
+        fn within_boundary(&self, state: &SystemState<Self>) -> bool {
             state.actor_states.iter().all(|s| s.wrapped_state.0.len() < 4)
         }
     }

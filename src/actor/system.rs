@@ -27,6 +27,12 @@ pub trait System: Sized {
     /// The type of actor for this system.
     type Actor: Actor;
 
+    /// The type of history to maintain as auxiliary state, if any.
+    /// See [Auxiliary Variables in TLA](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
+    /// for a thorough introduction to that concept. Use `()` if history is not needed to define
+    /// the relevant properties of this system.
+    type History: Clone + Debug + Default + Hash;
+
     /// Defines the actors.
     fn actors(&self) -> Vec<Self::Actor>;
 
@@ -45,11 +51,31 @@ pub trait System: Sized {
         DuplicatingNetwork::Yes
     }
 
+    /// Defines whether/how an incoming message contributes to relevant history. Returning
+    /// `Some(new_history)` updates the relevant history, while `None` does not.
+    fn record_msg_in(&self, history: &Self::History, src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+        let _ = history;
+        let _ = src;
+        let _ = dst;
+        let _ = msg;
+        None
+    }
+
+    /// Defines whether/how an outgoing messages contributes to relevant history. Returning
+    /// `Some(new_history)` updates the relevant history, while `None` does not.
+    fn record_msg_out(&self, history: &Self::History, src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+        let _ = history;
+        let _ = src;
+        let _ = dst;
+        let _ = msg;
+        None
+    }
+
     /// Generates the expected properties for this model.
     fn properties(&self) -> Vec<Property<SystemModel<Self>>>;
 
     /// Indicates whether a state is within the state space that should be model checked.
-    fn within_boundary(&self, _state: &SystemState<Self::Actor>) -> bool {
+    fn within_boundary(&self, _state: &SystemState<Self>) -> bool {
         true
     }
 
@@ -76,14 +102,15 @@ pub struct SystemModel<S: System> {
 }
 
 impl<S: System> Model for SystemModel<S> {
-    type State = SystemState<S::Actor>;
+    type State = SystemState<S>;
     type Action = SystemAction<<S::Actor as Actor>::Msg>;
 
     fn init_states(&self) -> Vec<Self::State> {
-        let mut init_sys_state = _SystemState {
+        let mut init_sys_state = SystemState {
             actor_states: Vec::with_capacity(self.actors.len()),
             network: Network::with_hasher(stable::build_hasher()), // for consistent discoveries
             is_timer_set: Vec::new(),
+            history: S::History::default(),
         };
 
         // init the network
@@ -97,7 +124,7 @@ impl<S: System> Model for SystemModel<S> {
             let out = actor.on_start_out(id);
             init_sys_state.actor_states.push(Arc::new(out.state.expect(&format!(
                 "on_start must assign state. id={:?}", id))));
-            process_commands(id, out.commands, &mut init_sys_state);
+            self.process_commands(id, out.commands, &mut init_sys_state);
         }
 
         vec![init_sys_state]
@@ -133,9 +160,15 @@ impl<S: System> Model for SystemModel<S> {
                 // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
+                let history = self.system.record_msg_in(&last_sys_state.history, src, id, &msg);
                 let out = self.actors[index].on_msg_out(id, last_actor_state, src, msg.clone());
-                if out.is_no_op() { return None; }
+                if history.is_none() && out.is_no_op() { return None; }
                 let mut next_sys_state = last_sys_state.clone();
+
+                // Revise relevant history if requested.
+                if let Some(history) = history {
+                    next_sys_state.history = history;
+                }
 
                 // If we're a non-duplicating network, drop the message that was delivered.
                 if self.duplicating_network == DuplicatingNetwork::No {
@@ -146,7 +179,7 @@ impl<S: System> Model for SystemModel<S> {
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
-                process_commands(id, out.commands, &mut next_sys_state);
+                self.process_commands(id, out.commands, &mut next_sys_state);
                 Some(next_sys_state)
             },
             SystemAction::Timeout(id) => {
@@ -163,7 +196,7 @@ impl<S: System> Model for SystemModel<S> {
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
-                process_commands(id, out.commands, &mut next_sys_state);
+                self.process_commands(id, out.commands, &mut next_sys_state);
                 Some(next_sys_state)
             },
         }
@@ -215,24 +248,29 @@ impl<S: System> Model for SystemModel<S> {
     }
 }
 
-/// Updates the actor state, sends messages, and configures the timer.
-fn process_commands<Msg: Eq + Hash, State>(id: Id, commands: Vec<Command<Msg>>, state: &mut _SystemState<Msg, State>) {
-    let index = usize::from(id);
-    for c in commands {
-        match c {
-            Command::Send(dst, msg) => {
-                state.network.insert(Envelope { src: id, dst, msg });
-            },
-            Command::SetTimer(_) => {
-                // must use the index to infer how large as actor state may not be initialized yet
-                for _ in state.is_timer_set.len() .. index + 1 {
-                    state.is_timer_set.push(false);
-                }
-                state.is_timer_set[index] = true;
-            },
-            Command::CancelTimer => {
-                state.is_timer_set[index] = false;
-            },
+impl<S: System> SystemModel<S> {
+    /// Updates the actor state, sends messages, and configures the timer.
+    fn process_commands(&self, id: Id, commands: Vec<Command<<S::Actor as Actor>::Msg>>, state: &mut SystemState<S>) {
+        let index = usize::from(id);
+        for c in commands {
+            match c {
+                Command::Send(dst, msg) => {
+                    if let Some(history) = self.system.record_msg_out(&state.history, id, dst, &msg) {
+                        state.history = history;
+                    }
+                    state.network.insert(Envelope { src: id, dst, msg });
+                },
+                Command::SetTimer(_) => {
+                    // must use the index to infer how large as actor state may not be initialized yet
+                    for _ in state.is_timer_set.len()..index + 1 {
+                        state.is_timer_set.push(false);
+                    }
+                    state.is_timer_set[index] = true;
+                },
+                Command::CancelTimer => {
+                    state.is_timer_set[index] = false;
+                },
+            }
         }
     }
 }
@@ -241,19 +279,62 @@ fn process_commands<Msg: Eq + Hash, State>(id: Id, commands: Vec<Command<Msg>>, 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 
-/// Represents a snapshot in time for the entire actor system. Consider using
-/// `SystemState<Actor>` instead for simpler type signatures.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct _SystemState<Msg: Eq + Hash, State> {
-    pub actor_states: Vec<Arc<State>>,
-    pub network: Network<Msg>,
+/// Represents a snapshot in time for the entire actor system.
+pub struct SystemState<S: System> {
+    pub actor_states: Vec<Arc<<S::Actor as Actor>::State>>,
+    pub network: Network<<S::Actor as Actor>::Msg>,
     pub is_timer_set: Vec<bool>,
+    pub history: S::History,
 }
 
-/// A type alias that accepts an actor type and resolves the associated `Msg` and `State`
-/// types. Introduced because parameterizing `_SystemState` by `Actor`
-/// necessitates implementing extra traits.
-pub type SystemState<A> = _SystemState<<A as Actor>::Msg, <A as Actor>::State>;
+// Manual implementation to avoid `S: Clone` constraint that `#derive(Clone)` would introduce on
+// `SystemState<S>`.
+impl<S: System> Clone for SystemState<S> {
+    fn clone(&self) -> Self {
+        SystemState {
+            actor_states: self.actor_states.clone(),
+            network: self.network.clone(),
+            is_timer_set: self.is_timer_set.clone(),
+            history: self.history.clone(),
+        }
+    }
+}
+
+// Manual implementation to avoid `S: Debug` constraint that `#derive(Debug)` would introduce on
+// `SystemState<S>`.
+impl<S: System> Debug for SystemState<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut builder = f.debug_struct("SystemState");
+        builder.field("actor_state", &self.actor_states);
+        builder.field("history", &self.history);
+        builder.field("is_timer_set", &self.is_timer_set);
+        builder.field("network", &self.network);
+        builder.finish()
+    }
+}
+
+// Manual implementation to avoid `S: Hash` constraint that `#derive(Hash)` would introduce on
+// `SystemState<S>`.
+impl<S: System> Hash for SystemState<S> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.actor_states.hash(state);
+        self.history.hash(state);
+        self.is_timer_set.hash(state);
+        self.network.hash(state);
+    }
+}
+
+// Manual implementation to avoid `S: PartialEq` constraint that `#derive(PartialEq)` would introduce on
+// `SystemState<S>`.
+impl<S: System> PartialEq for SystemState<S>
+where S::Actor: PartialEq, S::History: PartialEq {
+    fn eq(&self, other: &Self) -> bool {
+        self.actor_states.eq(&other.actor_states)
+            && self.history.eq(&other.history)
+            && self.is_timer_set.eq(&other.is_timer_set)
+            && self.network.eq(&other.network)
+    }
+}
 
 /// Indicates possible steps that an actor system can take as it evolves.
 #[derive(Clone, Debug, PartialEq)]
@@ -308,17 +389,19 @@ mod test {
 
         // helper to make the test more concise
         let fingerprint = |states: Vec<PingPongCount>, envelopes: Vec<Envelope<_>>| {
-            fingerprint(&_SystemState {
+            fingerprint(&SystemState::<PingPongSystem> {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
                 is_timer_set: Vec::new(),
+                history: (0_u32, 0_u32), // constant as `maintains_history: false`
             })
         };
 
         let mut checker = PingPongSystem {
             max_nat: 1,
             lossy: LossyNetwork::Yes,
-            duplicating: DuplicatingNetwork::Yes
+            duplicating: DuplicatingNetwork::Yes,
+            maintains_history: false,
         }.into_model().checker();
         assert!(checker.check(1_000).is_done());
         assert_eq!(checker.generated_count(), 14);
@@ -400,6 +483,7 @@ mod test {
             max_nat: 5,
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
+            maintains_history: false,
         }.into_model().checker();
         assert_eq!(checker.check(10_000).generated_count(), 4_094);
         checker.assert_no_counterexample("delta within 1");
@@ -415,6 +499,7 @@ mod test {
             max_nat: 5,
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
+            maintains_history: false,
         }.into_model().checker();
         assert_eq!(checker.check(10_000).generated_count(), 4_094);
 
@@ -432,6 +517,7 @@ mod test {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
+            maintains_history: false,
         }.into_model().checker();
         assert_eq!(checker.check(10_000).generated_count(), 11);
         checker.assert_no_counterexample("reaches max");
@@ -443,6 +529,7 @@ mod test {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes,
+            maintains_history: false,
         }.into_model().checker();
         assert_eq!(checker.check(10_000).generated_count(), 11);
 
@@ -458,6 +545,7 @@ mod test {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
+            maintains_history: false,
         }.into_model().checker();
         assert_eq!(checker.check(10_000).generated_count(), 11);
 
@@ -473,6 +561,7 @@ mod test {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes, // this triggers the bug
+            maintains_history: false,
         }.into_model().checker();
         assert_eq!(checker.check(10_000).generated_count(), 11);
 
@@ -480,5 +569,57 @@ mod test {
         assert_eq!(
             checker.assert_counterexample("reaches max").last_state().actor_states,
             vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(1))]);
+    }
+
+    #[test]
+    fn maintains_history() {
+        // When network duplicates messages, can have more messages in than out, and model checking
+        // will not complete, but messages out will never exceed one more than the messages in.
+        let mut checker = PingPongSystem {
+            max_nat: 1,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::Yes,
+            maintains_history: true,
+        }.into_model().checker();
+        checker.check(10_000);
+        let counterexample = checker.assert_counterexample("#in <= #out");
+        assert_eq!(counterexample.into_actions(), vec![
+            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
+            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
+            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
+        ]);
+        assert!(!checker.is_done());
+        assert_eq!(checker.counterexample("#out <= #in + 1"), None);
+
+        // When network loses messages, (1) can have more messages in than out, and (2) #messages
+        // out can exceed one more than #messages in.
+        let mut checker = PingPongSystem {
+            max_nat: 1,
+            lossy: LossyNetwork::Yes,
+            duplicating: DuplicatingNetwork::No,
+            maintains_history: true,
+        }.into_model().checker();
+        checker.check(10_000);
+        let counterexample = checker.assert_counterexample("#in <= #out");
+        assert_eq!(counterexample.into_actions(), vec![
+            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
+            SystemAction::Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }),
+        ]);
+        let counterexample = checker.assert_counterexample("#out <= #in + 1");
+        assert_eq!(counterexample.into_actions(), vec![
+            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
+            SystemAction::Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }),
+        ]);
+
+        // Whereas those two properties hold for a non-lossy non-duplicating network.
+        let mut checker = PingPongSystem {
+            max_nat: 1,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::No,
+            maintains_history: true,
+        }.into_model().checker();
+        checker.check(10_000);
+        checker.assert_no_counterexample("#in <= #out");
+        checker.assert_no_counterexample("#out <= #in + 1");
     }
 }

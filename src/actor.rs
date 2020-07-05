@@ -59,6 +59,7 @@
 //!
 //! impl System for LogicalClockSystem {
 //!     type Actor = LogicalClockActor;
+//!     type History = ();
 //!
 //!     /// The system contains two actors, one of which bootstraps.
 //!     fn actors(&self) -> Vec<Self::Actor> {
@@ -185,7 +186,7 @@ pub trait Actor: Sized {
     type Msg: Clone + Debug + Eq + Hash;
 
     /// The type of state maintained by the actor.
-    type State: Clone + Debug + Hash;
+    type State: Clone + Debug + Eq + Hash;
 
     /// Indicates the initial state and commands.
     fn on_start(&self, id: Id, o: &mut Out<Self>);
