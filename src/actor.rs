@@ -113,8 +113,16 @@ use std::ops::Range;
 
 /// Uniquely identifies an `Actor`. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Id(u64);
+
+impl Debug for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // KLUDGE: work around the issue identified in https://github.com/rust-lang/rfcs/pull/1198
+        //         by not conveying that `Id` is a struct.
+        f.write_fmt(format_args!("Id({})", self.0))
+    }
+}
 
 impl Display for Id {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
