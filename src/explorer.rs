@@ -99,11 +99,27 @@ where M: 'static + Clone + Model + Send + Sync,
         }
 
         HttpServer::new(move || {
+            macro_rules! get_ui_file {
+                ($filename:literal) => {
+                    web::get().to(|| HttpResponse::Ok().body({
+                        if let Ok(content) = std::fs::read(concat!("./ui/", $filename)) {
+                            log::info!("Explorer dev mode. Loading {} from disk.", $filename);
+                            content
+                        } else {
+                            include_bytes!(concat!("../ui/", $filename)).to_vec()
+                        }
+                    }))
+                }
+            };
+
             App::new()
                 .data(Arc::clone(&data))
                 .route("/.status", web::get().to(Self::status))
                 .route("/.states{fingerprints:.*}", web::get().to(Self::states))
-                .service(actix_files::Files::new("/", "./ui").index_file("index.htm"))
+                .route("/", get_ui_file!("index.htm"))
+                .route("/app.css", get_ui_file!("app.css"))
+                .route("/app.js", get_ui_file!("app.js"))
+                .route("/knockout-3.5.0.js", get_ui_file!("knockout-3.5.0.js"))
         }).bind(addr)?.run()?;
 
         Ok(())

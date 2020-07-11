@@ -13,7 +13,6 @@ keywords = ["actor", "distributed-systems", "model-checking", "paxos"]
 
 [dependencies]
 ahash = "0.3"
-actix-files = "0.1"
 actix-web = "1.0"
 crossbeam-utils = "0.7"
 dashmap = "3.11"
