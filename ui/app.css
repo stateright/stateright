@@ -37,7 +37,7 @@ ul {
     column-rule: solid #c3f 1px;
 }
 .columns {
-    column-width: 200px;
+    column-width: 300px;
 }
 .font-code {
     font-family: "Lucida Console", Monaco, monospace;
@@ -62,6 +62,14 @@ ul {
 }
 .header-links-container a {
     padding: 5px;
+}
+
+.heading-with-controls {
+    display: block;
+}
+.heading-with-controls h2 {
+    display: inline-block;
+    margin-right: 40px;
 }
 
 .main-flex {
