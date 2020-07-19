@@ -74,6 +74,7 @@ function App() {
 
     app.selectedStep = ko.observable(Step.PRE_INIT);
     app.isCompact = ko.observable(false);
+    app.isCompleteState = ko.observable(false);
     app.isStepNoOp = (step) => step.state == app.selectedStep().state;
     app.status = ko.observable(Status.LOADING);
 

@@ -65,13 +65,19 @@
             <div class="heading-with-controls">
                 <h2>Current State</h2>
                 <label>
+                    <input type="checkbox" data-bind="checked: isCompleteState" />
+                    Complete State?
+                </label>
+                <label>
                     <input type="checkbox" data-bind="checked: isCompact" />
-                    Compact
+                    Compact?
                 </label>
             </div>
             <div class="font-code font-small color-dark columns padding-small"
                  data-bind="style: { 'white-space': isCompact() ? 'normal' : 'pre-wrap' },
-                            text: selectedStep().outcome || selectedStep().state">CURR STATE</div>
+                            text: isCompleteState()
+                                  ? selectedStep().state
+                                  : selectedStep().outcome || selectedStep().state">CURR STATE</div>
 
             <h2>Next Steps</h2>
             <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">
