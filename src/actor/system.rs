@@ -157,27 +157,37 @@ impl<S: System> Model for SystemModel<S> {
                 Some(next_state)
             },
             SystemAction::Deliver { src, dst: id, msg } => {
-                // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
-                let last_actor_state = &last_sys_state.actor_states[index];
+                let last_actor_state = &last_sys_state.actor_states.get(index);
+
+                // Not all messags can be delivered, so ignore those.
+                if last_actor_state.is_none() { return None; }
+                let last_actor_state = last_actor_state.unwrap();
+
+                // Some operations are no-ops, so ignore those as well.
                 let history = self.system.record_msg_in(&last_sys_state.history, src, id, &msg);
                 let out = self.actors[index].on_msg_out(id, last_actor_state, src, msg.clone());
                 if history.is_none() && out.is_no_op() { return None; }
+
+                // Update the state as necessary:
+                // - Drop delivered message if not a duplicating network.
+                // - Swap out revised actor state.
+                // - Track message input history.
+                // - Handle effect of commands on timers, network, and message output history.
                 let mut next_sys_state = last_sys_state.clone();
-
-                // Revise relevant history if requested.
-                if let Some(history) = history {
-                    next_sys_state.history = history;
-                }
-
-                // If we're a non-duplicating network, drop the message that was delivered.
                 if self.duplicating_network == DuplicatingNetwork::No {
+                    // Strictly speaking, this state should be updated regardless of whether the
+                    // actor and history updates are a no-op. The current implementation is only
+                    // safe if invariants do not relate to the existence of envelopes on the
+                    // network.
                     let env = Envelope { src, dst: id, msg };
                     next_sys_state.network.remove(&env);
                 }
-
                 if let Some(next_actor_state) = out.state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
+                }
+                if let Some(history) = history {
+                    next_sys_state.history = history;
                 }
                 self.process_commands(id, out.commands, &mut next_sys_state);
                 Some(next_sys_state)
@@ -218,13 +228,16 @@ impl<S: System> Model for SystemModel<S> {
             },
             SystemAction::Deliver { src, dst: id, msg } => {
                 let index = usize::from(id);
-                let actor_state = &last_state.actor_states[index];
-                let out = self.actors[index].on_msg_out(id, actor_state, src, msg);
-                Some(format!("{:#?}", ActorStep {
-                    last_state: actor_state,
-                    next_state: out.state,
-                    commands: out.commands,
-                }))
+                if let Some(actor_state) = &last_state.actor_states.get(index) {
+                    let out = self.actors[index].on_msg_out(id, actor_state, src, msg);
+                    Some(format!("{:#?}", ActorStep {
+                        last_state: actor_state,
+                        next_state: out.state,
+                        commands: out.commands,
+                    }))
+                } else {
+                    None
+                }
             },
             SystemAction::Timeout(id) => {
                 let index = usize::from(id);
@@ -621,5 +634,28 @@ mod test {
         checker.check(10_000);
         checker.assert_no_counterexample("#in <= #out");
         checker.assert_no_counterexample("#out <= #in + 1");
+    }
+
+    #[test]
+    fn handles_undeliverable_messages() {
+        impl Actor for () {
+            type State = ();
+            type Msg = ();
+            fn on_start(&self, _: Id, o: &mut Out<Self>) { o.set_state(()); }
+            fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+        }
+        impl System for () {
+            type Actor = ();
+            type History = ();
+            fn actors(&self) -> Vec<Self::Actor> { Vec::new() }
+            fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+                // need one property, otherwise checking early exits
+                vec![Property::always("unused", |_, _| true)]
+            }
+            fn init_network(&self) -> Vec<Envelope<<Self::Actor as Actor>::Msg>> {
+                vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }]
+            }
+        }
+        assert!(().into_model().checker().check(1_000).is_done());
     }
 }
