@@ -224,9 +224,9 @@ fn can_model_paxos() {
         Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
         Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
         Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
         Deliver { src: Id::from(4), dst: Id::from(1), msg: Get },
     ]);
