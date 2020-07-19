@@ -9,25 +9,25 @@ use stateright::actor::register::RegisterMsg::*;
 use stateright::actor::spawn::*;
 use stateright::actor::system::*;
 use stateright::explorer::*;
+use stateright::Model;
 use stateright::util::{HashableHashMap, HashableHashSet};
 use std::net::{SocketAddrV4, Ipv4Addr};
-use stateright::{Property, Model};
 
 type Round = u32;
 type Rank = u32;
 type Ballot = (Round, Rank);
-type Value = char;
+type Proposal = (TestRequestId, Id, TestValue);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
 enum PaxosMsg {
     Prepare { ballot: Ballot },
-    Prepared { ballot: Ballot, last_accepted: Option<(Ballot, Value)> },
+    Prepared { ballot: Ballot, last_accepted: Option<(Ballot, Proposal)> },
 
-    Accept { ballot: Ballot, value: Value },
+    Accept { ballot: Ballot, proposal: Proposal },
     Accepted { ballot: Ballot },
 
-    Decided { ballot: Ballot, value: Value },
+    Decided { ballot: Ballot, proposal: Proposal },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -36,12 +36,12 @@ struct PaxosState {
     ballot: Ballot,
 
     // leader state
-    proposal: Option<Value>,
-    prepares: HashableHashMap<Id, Option<(Ballot, Value)>>,
+    proposal: Option<Proposal>,
+    prepares: HashableHashMap<Id, Option<(Ballot, Proposal)>>,
     accepts: HashableHashSet<Id>,
 
     // acceptor state
-    accepted: Option<(Ballot, Value)>,
+    accepted: Option<(Ballot, Proposal)>,
     is_decided: bool,
 }
 
@@ -49,7 +49,7 @@ struct PaxosState {
 struct PaxosActor { rank: Rank, peer_ids: Vec<Id> }
 
 impl Actor for PaxosActor {
-    type Msg = RegisterMsg<Value, PaxosMsg>;
+    type Msg = RegisterMsg<TestRequestId, TestValue, PaxosMsg>;
     type State = PaxosState;
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) {
@@ -71,10 +71,10 @@ impl Actor for PaxosActor {
     fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         use crate::PaxosMsg::*;
         match msg {
-            Put(value) if !state.is_decided && state.proposal.is_none() => {
+            Put(request_id, value) if !state.is_decided && state.proposal.is_none()  => {
                 let mut state = state.clone();
                 state.ballot = (state.ballot.0 + 1, self.rank);
-                state.proposal = Some(value);
+                state.proposal = Some((request_id, src, value));
                 state.prepares = Default::default();
                 state.accepts = Default::default();
                 o.broadcast(
@@ -82,11 +82,19 @@ impl Actor for PaxosActor {
                     &Internal(Prepare { ballot: state.ballot }));
                 o.set_state(state);
             }
-            Get if state.is_decided => {
-                if let Some((_ballot, value)) = state.accepted {
-                    o.send(src, Respond(value));
+            Get(request_id) if state.is_decided => {
+                if let Some((_ballot, (_request_id, _requester_id, value))) = state.accepted {
+                    o.send(src, GetOk(request_id, Some(value)));
+                } else {
+                    // See `Internal(Decided ...)` case below.
+                    unreachable!("accepted state present when decided");
                 }
-            }
+                // While it's tempting to `o.send(src, GetOk(request_id, None))` for undecided,
+                // we don't know if a value was decided elsewhere and the delivery is pending. Our
+                // solution is to not reply in this case, but a more useful choice might be
+                // to broadcast to the other actors and let them reply to the originator, or query
+                // the other actors and reply based on that.
+            },
             Internal(Prepare { ballot }) if state.ballot < ballot => {
                 let mut state = state.clone();
                 state.ballot = ballot;
@@ -96,25 +104,29 @@ impl Actor for PaxosActor {
                 }));
                 o.set_state(state);
             }
-            Internal(Prepared { ballot, last_accepted }) if ballot == state.ballot => {
+            Internal(Prepared { ballot, last_accepted })
+            if ballot == state.ballot && !state.is_decided => {
                 let mut state = state.clone();
                 state.prepares.insert(src, last_accepted);
                 if state.prepares.len() > (self.peer_ids.len() + 1) / 2 {
-                    state.proposal = state.prepares
-                        .values().max().unwrap().map(|(_b, v)| v)
-                        .or(state.proposal);
-                    state.accepted = Some((ballot, state.proposal.unwrap()));
+                    let proposal = state.prepares
+                        .values().max().unwrap().map(|(_b, p)| p)
+                        .unwrap_or_else(||
+                            state.proposal.expect("proposal expected")); // See `Put` case above.
+                    state.proposal = Some(proposal);
+                    state.accepted = Some((ballot, proposal));
                     o.broadcast(&self.peer_ids, &Internal(Accept {
                         ballot,
-                        value: state.proposal.unwrap(),
+                        proposal,
                     }));
                 }
                 o.set_state(state);
             }
-            Internal(Accept { ballot, value }) if state.ballot <= ballot => {
+            Internal(Accept { ballot, proposal })
+            if state.ballot <= ballot && !state.is_decided => {
                 let mut state = state.clone();
                 state.ballot = ballot;
-                state.accepted = Some((ballot, value));
+                state.accepted = Some((ballot, proposal));
                 o.set_state(state);
                 o.send(src, Internal(Accepted { ballot }));
             }
@@ -123,16 +135,21 @@ impl Actor for PaxosActor {
                 state.accepts.insert(src);
                 if state.accepts.len() > (self.peer_ids.len() + 1) / 2 {
                     state.is_decided = true;
+                    let proposal = state.proposal
+                        .expect("proposal expected"); // See `Put` case above.
                     o.broadcast(&self.peer_ids, &Internal(Decided {
                         ballot,
-                        value: state.proposal.unwrap()
+                        proposal,
                     }));
+                    let (request_id, requester_id, _) = proposal;
+                    o.send(requester_id, PutOk(request_id));
                 }
                 o.set_state(state);
             }
-            Internal(Decided { ballot, value }) => {
+            Internal(Decided { ballot, proposal }) => {
                 let mut state = state.clone();
-                state.accepted = Some((ballot, value));
+                state.ballot = ballot;
+                state.accepted = Some((ballot, proposal));
                 state.is_decided = true;
                 o.set_state(state);
             }
@@ -141,72 +158,10 @@ impl Actor for PaxosActor {
     }
 }
 
-/// A Paxos actor system with 3 servers and a variable number of clients.
-#[derive(Clone)]
-struct PaxosSystem { client_count: u8 }
-
-impl System for PaxosSystem {
-    type Actor = RegisterActor<Value, PaxosActor>;
-    type History = ();
-
-    fn actors(&self) -> Vec<Self::Actor> {
-        let mut actors = vec![
-            RegisterActor::Server(PaxosActor { rank: 0, peer_ids: vec![Id::from(1), Id::from(2)] }),
-            RegisterActor::Server(PaxosActor { rank: 1, peer_ids: vec![Id::from(0), Id::from(2)] }),
-            RegisterActor::Server(PaxosActor { rank: 2, peer_ids: vec![Id::from(0), Id::from(1)] }),
-        ];
-        for i in 0..self.client_count {
-            actors.push(RegisterActor::Client {
-                server_ids: vec![Id::from((i % 3) as usize)], // one for each client
-                desired_value: ('A' as u8 + i) as char
-            });
-        }
-        actors
-    }
-
-    fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-        vec![
-            Property::<SystemModel<Self>>::sometimes("value chosen",  |_, state| {
-                for env in &state.network {
-                    if let RegisterMsg::Respond(_v) = env.msg {
-                        return true;
-                    }
-                }
-                return false
-            }),
-            Property::<SystemModel<Self>>::always("valid and consistent", |model, state| {
-                let mut sole_value = None;
-                for env in &state.network {
-                    if let RegisterMsg::Respond(v) = env.msg {
-                        // check for validity: only values sent by clients are chosen
-                        if v < 'A' || (('A' as u8 + model.system.client_count) as char) < v {
-                            return false;
-                        }
-
-                        // check for consistency: everyone agrees
-                        if let Some(sole_value) = sole_value {
-                            if v != sole_value {
-                                return false;
-                            }
-                        } else {
-                            sole_value = Some(v);
-                        }
-                    }
-                }
-                return true;
-            }),
-        ]
-    }
-
-    fn within_boundary(&self, state: &SystemState<Self>) -> bool {
-        state.actor_states.iter().all(|s| {
-            if let RegisterActorState::Server(ref state) = **s {
-                state.ballot.0 < 4
-            } else {
-                true
-            }
-        })
-    }
+fn within_boundary(state: &SystemState<RegisterTestSystem<PaxosActor, PaxosMsg>>) -> bool {
+    state.actor_states.iter().all(|s| {
+        s.ballot.0 < 4
+    })
 }
 
 #[cfg(test)]
@@ -215,21 +170,31 @@ fn can_model_paxos() {
     use PaxosMsg::*;
     use SystemAction::Deliver;
 
-    let mut checker = PaxosSystem { client_count: 2 }.into_model().checker();
+    let mut checker = RegisterTestSystem {
+        servers: vec![
+            PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
+            PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
+            PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+        ],
+        put_count: 2,
+        get_count: 1,
+        within_boundary,
+        .. Default::default()
+    }.into_model().checker();
     checker.check(10_000).assert_properties();
-    assert_eq!(checker.generated_count(), 1529);
     assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
-        Deliver { src: Id::from(4), dst: Id::from(1), msg: Put('B') },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1) }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), value: 'B' }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
-        Deliver { src: Id::from(4), dst: Id::from(1), msg: Get },
+        Deliver { src: Id::from(999), dst: Id::from(0), msg: Put(0, 'A') },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepare { ballot: (1, 0) }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) },
+        Deliver { src: Id::from(0), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 0) }) },
+        Deliver { src: Id::from(2), dst: Id::from(0), msg: Internal(Prepared { ballot: (1, 0), last_accepted: None }) },
+        Deliver { src: Id::from(0), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 0), proposal: (0, Id::from(999), 'A') }) },
+        Deliver { src: Id::from(2), dst: Id::from(0), msg: Internal(Accepted { ballot: (1, 0) }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accept { ballot: (1, 0), proposal: (0, Id::from(999), 'A') }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accepted { ballot: (1, 0) }) },
+        Deliver { src: Id::from(997), dst: Id::from(0), msg: Get(2) },
     ]);
+    assert_eq!(checker.generated_count(), 1_112);
 }
 
 fn main() {
@@ -240,13 +205,19 @@ fn main() {
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name("check")
             .about("model check")
-            .arg(Arg::with_name("client_count")
-                 .help("number of clients proposing values")
-                 .default_value("2")))
+            .arg(Arg::with_name("put_count")
+                .help("number of puts")
+                .default_value("2"))
+            .arg(Arg::with_name("get_count")
+                .help("number of gets")
+                .default_value("2")))
         .subcommand(SubCommand::with_name("explore")
             .about("interactively explore state space")
-            .arg(Arg::with_name("client_count")
-                .help("number of clients proposing values")
+            .arg(Arg::with_name("put_count")
+                .help("number of puts")
+                .default_value("2"))
+            .arg(Arg::with_name("get_count")
+                .help("number of gets")
                 .default_value("2"))
             .arg(Arg::with_name("address")
                 .help("address Explorer service should listen upon")
@@ -257,22 +228,46 @@ fn main() {
 
     match args.subcommand() {
         ("check", Some(args)) => {
-            let client_count = std::cmp::min(
-                26, value_t!(args, "client_count", u8).expect("client_count"));
-            println!("Model checking Single Decree Paxos with {} clients.", client_count);
-            PaxosSystem { client_count }.into_model()
+            let put_count = std::cmp::min(
+                26, value_t!(args, "put_count", u8).expect("put count missing"));
+            let get_count = std::cmp::min(
+                26, value_t!(args, "get_count", u8).expect("get count missing"));
+            println!("Model checking Single Decree Paxos with {} puts and {} gets.",
+                     put_count, get_count);
+            RegisterTestSystem {
+                servers: vec![
+                    PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
+                    PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
+                    PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+                ],
+                put_count,
+                get_count,
+                within_boundary,
+                .. Default::default()
+            }.into_model()
                 .checker_with_threads(num_cpus::get())
                 .check_and_report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
-            let client_count = std::cmp::min(
-                26, value_t!(args, "client_count", u8).expect("client_count"));
+            let put_count = std::cmp::min(
+                26, value_t!(args, "put_count", u8).expect("put count missing"));
+            let get_count = std::cmp::min(
+                26, value_t!(args, "get_count", u8).expect("get count missing"));
             let address = value_t!(args, "address", String).expect("address");
             println!(
-                "Exploring state space for Single Decree Paxos with {} clients on {}.",
-                client_count, address);
-            PaxosSystem { client_count }
-                .into_model().checker().serve(address).unwrap();
+                "Exploring state space for Single Decree Paxos with {} puts and {} gets on {}.",
+                put_count, get_count, address);
+            RegisterTestSystem {
+                servers: vec![
+                    PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
+                    PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
+                    PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+                ],
+                put_count,
+                get_count,
+                within_boundary,
+                .. Default::default()
+            }.into_model().checker().serve(address).unwrap();
         }
         ("spawn", Some(_args)) => {
             let port = 3000;
@@ -280,18 +275,18 @@ fn main() {
             println!("  A set of servers that implement Single Decree Paxos.");
             println!("  You can monitor and interact using tcpdump and netcat. Examples:");
             println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
-            println!("$ nc -u 0 {}", port);
-            println!("{}", serde_json::to_string(&RegisterMsg::Put::<Value, ()>('X')).unwrap());
-            println!("{}", serde_json::to_string(&RegisterMsg::Get::<Value, ()>).unwrap());
+            println!("$ nc -u localhost {}", port);
+            println!("{}", serde_json::to_string(&RegisterMsg::Put::<TestRequestId, TestValue, ()>(1, 'X')).unwrap());
+            println!("{}", serde_json::to_string(&RegisterMsg::Get::<TestRequestId, TestValue, ()>(2)).unwrap());
             println!();
 
             let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 0));
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             let actors = vec![
-                spawn(RegisterActor::Server(PaxosActor { rank: 0, peer_ids: vec![id1, id2] }), id0),
-                spawn(RegisterActor::Server(PaxosActor { rank: 1, peer_ids: vec![id0, id2] }), id1),
-                spawn(RegisterActor::Server(PaxosActor { rank: 2, peer_ids: vec![id0, id1] }), id2),
+                spawn(PaxosActor { rank: 0, peer_ids: vec![id1, id2] }, id0),
+                spawn(PaxosActor { rank: 1, peer_ids: vec![id0, id2] }, id1),
+                spawn(PaxosActor { rank: 2, peer_ids: vec![id0, id1] }, id2),
             ];
             for actor in actors {
                 actor.join().unwrap();

@@ -339,7 +339,7 @@ where
             self.discoveries.get(name).map(|mapref| self.path(*mapref.value()))
         } else {
             let available: Vec<_> = self.model.properties().iter().map(|p| p.name).collect();
-            panic!("Unknown property. requested={}, available={:?}", name, available);
+            panic!("Unknown property. requested={:?}, available={:?}", name, available);
         }
     }
 

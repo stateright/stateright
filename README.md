@@ -21,18 +21,19 @@ A typical workflow might involve:
 
 ```sh
 # 1. Interactively explore reachable states in a web browser.
-cargo run --release --example paxos explore 2 localhost:3000
+cargo run --release --example paxos explore 2 1 localhost:3000
 
 # 2. Then model check to ensure all edge cases are addressed.
-cargo run --release --example paxos check 3
+cargo run --release --example paxos check 4 2
 
 # 3. Finally, run the service on a real network, with JSON messages over UDP...
 cargo run --release --example paxos spawn
 
-# ... and send it commands.
-nc -u 0 3000
-{"Put":{"value":"X"}}
-"Get"
+# ... and send it commands. In this example 1 and 2 are request IDs, while "X"
+#     is a value.
+nc -u localhost 3000
+{"Put":[1,"X"]}
+{"Get":2}
 ```
 
 Checker features include:
@@ -62,9 +63,12 @@ model.
 To model check, run:
 
 ```sh
-cargo run --release --example 2pc check 3   # 2 phase commit, 3 resource managers
-cargo run --release --example paxos check 2 # paxos, 2 clients
-cargo run --release --example wor check 3   # write-once register, 3 clients
+# Two phase commit with 3 resource managers.
+cargo run --release --example 2pc check 3
+# Paxos cluster (fixed size of 3) with 4 puts and 2 gets, all concurrent.
+cargo run --release --example paxos check 4 2
+# Single-copy register with 4 puts and 2 gets, all concurrent.
+cargo run --release --example single-copy-register 4 2
 ```
 
 To interactively explore a model's state space in a web browser UI, run:
@@ -72,7 +76,7 @@ To interactively explore a model's state space in a web browser UI, run:
 ```sh
 cargo run --release --example 2pc explore
 cargo run --release --example paxos explore
-cargo run --release --example wor explore
+cargo run --release --example single-copy-register explore
 ```
 
 Stateright also includes a simple runtime for executing an actor mapping
@@ -80,7 +84,7 @@ messages to JSON over UDP:
 
 ```sh
 cargo run --release --example paxos spawn
-cargo run --release --example wor spawn
+cargo run --release --example single-copy-register spawn
 ```
 
 ## Performance
@@ -88,9 +92,9 @@ cargo run --release --example wor spawn
 To benchmark model checking speed, run with larger state spaces:
 
 ```sh
-cargo run --release --example 2pc check 8
-cargo run --release --example paxos check 4
-cargo run --release --example wor check 6
+cargo run --release --example 2pc check 9
+cargo run --release --example paxos check 6 2
+cargo run --release --example single-copy-register check 3 3
 ```
 
 A script that runs all the examples multiple times is provided for convenience:
