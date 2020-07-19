@@ -62,8 +62,8 @@ impl<A: Actor> Actor for ActorWrapper<A>
             next_send_seq: 1,
             msgs_pending_ack: Default::default(),
             last_delivered_seqs: Default::default(),
-            wrapped_state: wrapped_out.state.take().expect(&format!(
-                "on_start must assign state. id={:?}", id)),
+            wrapped_state: wrapped_out.state.take()
+                .unwrap_or_else(|| panic!("on_start must assign state. id={:?}", id)),
         };
         process_output(wrapped_out, state, o);
     }

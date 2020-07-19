@@ -132,7 +132,7 @@ impl<V: Hash, S> Hash for HashableHashSet<V, S> {
             }));
             buffer.sort();
             for v in &*buffer {
-                hasher.write_u64(u64::from(*v));
+                hasher.write_u64(*v);
             }
         });
     }
@@ -262,7 +262,7 @@ impl<K: Hash, V: Hash, S> Hash for HashableHashMap<K, V, S> {
             }));
             buffer.sort();
             for hash in &*buffer {
-                state.write_u64(u64::from(*hash));
+                state.write_u64(*hash);
             }
         });
     }

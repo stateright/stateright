@@ -56,7 +56,7 @@ where
             }
             RegisterActor::Server(ref server) => {
                 let server_out = server.on_start_out(id);
-                o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+                o.state = server_out.state.map(RegisterActorState::Server);
                 o.commands = server_out.commands;
             }
         }
@@ -65,7 +65,7 @@ where
     fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         if let (RegisterActor::Server(server), RegisterActorState::Server(server_state)) = (self, state) {
             let server_out = server.on_msg_out(id, server_state, src, msg);
-            o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+            o.state = server_out.state.map(RegisterActorState::Server);
             o.commands = server_out.commands;
         }
     }
@@ -73,7 +73,7 @@ where
     fn on_timeout(&self, id: Id, state: &Self::State, o: &mut Out<Self>) {
         if let (RegisterActor::Server(server), RegisterActorState::Server(server_state)) = (self, state) {
             let server_out = server.on_timeout_out(id, server_state);
-            o.state = server_out.state.map(|state| RegisterActorState::Server(state));
+            o.state = server_out.state.map(RegisterActorState::Server);
             o.commands = server_out.commands;
         }
     }

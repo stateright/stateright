@@ -213,7 +213,7 @@ where
     fn check_properties(model: &M,
                         state: &M::State,
                         digest: Fingerprint,
-                        props: &Vec<Property<M>>,
+                        props: &[Property<M>],
                         ebits: &mut EventuallyBits,
                         discoveries: &DashMap<&'static str, Fingerprint>,
                         update_props: &mut bool)
@@ -243,7 +243,7 @@ where
     }
 
     fn note_terminal_state(digest: Fingerprint,
-                           props: &Vec<Property<M>>,
+                           props: &[Property<M>],
                            ebits: &EventuallyBits,
                            discoveries: &DashMap<&'static str, Fingerprint>,
                            update_props: &mut bool)
@@ -497,7 +497,7 @@ where
             return path;
         }
         assert!(self.is_done(),
-                "Example for '{}' not found, but model checking is incomplete.");
+                "Example for '{}' not found, but model checking is incomplete.", name);
         panic!("Example for '{}' not found. `stateright::explorer` may be useful for debugging.", name);
     }
 
@@ -507,7 +507,7 @@ where
             return path;
         }
         assert!(self.is_done(),
-                "Counterexample for '{}' not found, but model checking is incomplete.");
+                "Counterexample for '{}' not found, but model checking is incomplete.", name);
         panic!("Counterexample for '{}' not found. `stateright::explorer` may be useful for debugging.", name);
     }
 
