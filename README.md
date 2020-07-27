@@ -15,7 +15,7 @@ be run on a real network without being reimplemented in a different language.
 It also features a web browser UI that can be used to interactively explore how
 a system behaves, which is useful for both learning and debugging.
 
-![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
+![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
 
 A typical workflow might involve:
 

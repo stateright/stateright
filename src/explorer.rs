@@ -1,6 +1,6 @@
 //! A web service for interactively exploring a model.
 //!
-//! ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
+//! ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
 //!
 //! API summary:
 //! - `GET /` returns a web browser UI as HTML.
