@@ -2,18 +2,47 @@
 [![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
 [![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
 
-Correctly implementing distributed algorithms such as the
+Correctly designing and implementing distributed algorithms such as the
 [Paxos](https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) and
 [Raft](https://en.wikipedia.org/wiki/Raft_%28computer_science%29) consensus
-protocols is notoriously difficult due to the presence of nondeterminism,
-whereby nodes lack perfectly synchronized clocks and the network reorders and
-drops messages.  Stateright is a library and tool for designing, implementing,
-and verifying the correctness of distributed systems by leveraging a technique
-called [model checking](https://en.wikipedia.org/wiki/Model_checking).  Unlike
-with traditional model checkers, systems implemented using Stateright can also
-be run on a real network without being reimplemented in a different language.
-It also features a web browser UI that can be used to interactively explore how
-a system behaves, which is useful for both learning and debugging.
+protocols is notoriously difficult due to the presence of inherent
+nondeterminism, whereby nodes lack synchronized clocks and IP networks can
+reorder, drop, or redeliver messages. Stateright is an actor library for
+designing, implementing, and verifying the correctness of such distributed
+systems using the [Rust programming language](https://www.rust-lang.org/). It
+leverages a verification technique called [model
+checking](https://en.wikipedia.org/wiki/Model_checking), a category of property
+based testing that involves enumerating every possible outcome of a
+nondeterministic system rather than randomly testing a subset of outcomes.
+
+Stateright's model checking features include:
+
+- Invariants via "always" properties.
+- Nontriviality checks via "sometimes" properties.
+- Liveness checks via "eventually" properties (with some limitations at this time).
+- A web browser UI for interactively exploring state space.
+
+Stateright's actor system features include:
+
+- The ability to execute actors via JSON over UDP.
+- Can model lossy/lossless networks.
+- Can model duplicating/non-duplicating networks.
+- Can capture actor system
+  [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
+  to check properties such as
+  [linearizability](https://en.wikipedia.org/wiki/Linearizability).
+
+In contrast with other actor libraries, Stateright enables you to [formally
+verify](https://en.wikipedia.org/wiki/Formal_verification) the correctness of
+both your design and implementation, which is particularly useful for
+distributed algorithms.
+
+In contrast with other model checkers (like TLC for
+[TLA+](https://lamport.azurewebsites.net/tla/tla.html)), systems implemented
+using Stateright can also be run on a real network without being reimplemented
+in a different language.  Stateright also features a web browser UI that can be
+used to interactively explore how a system behaves, which is useful for both
+learning and debugging.
 
 ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
 
@@ -36,29 +65,15 @@ nc -u localhost 3000
 {"Get":2}
 ```
 
-Checker features include:
-
-- Invariants via "always" properties.
-- Nontriviality checks via "sometimes" properties.
-- Liveness checks via "eventually" properties (with some limitations at this time).
-- UI for interactively exploring state space.
-
-Actor system features include:
-
-- Ability to execute actors via JSON over UDP.
-- Can model lossy/lossless networks.
-- Can model duplicating/non-duplicating networks.
-- Can capture actor system
-  [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
-  to check properties such as
-  [linearizability](https://en.wikipedia.org/wiki/Linearizability).
 
 ## Examples
 
 Stateright includes a variety of
 [examples](https://github.com/stateright/stateright/tree/master/examples), such
-as an actor based Single Decree Paxos cluster and an abstract two phase commit
-model.
+as an actor based [Single Decree Paxos
+cluster](https://github.com/stateright/stateright/blob/master/examples/paxos.rs)
+and an [abstract two phase commit
+model](https://github.com/stateright/stateright/blob/master/examples/2pc.rs).
 
 To model check, run:
 
@@ -87,9 +102,11 @@ cargo run --release --example paxos spawn
 cargo run --release --example single-copy-register spawn
 ```
 
-## Performance
+## Model Checking Performance
 
-To benchmark model checking speed, run with larger state spaces:
+Model checking is computationally expensive, so Stateright features a
+variety of optimizations to help minimize model checking time. To
+benchmark model checking performance, run with larger state spaces:
 
 ```sh
 cargo run --release --example 2pc check 9
@@ -97,7 +114,9 @@ cargo run --release --example paxos check 6 2
 cargo run --release --example single-copy-register check 3 3
 ```
 
-A script that runs all the examples multiple times is provided for convenience:
+The repository includes a script that runs all the examples multiple times,
+which is particularly useful for validating that changes do not introduce
+performance regressions.
 
 ```sh
 ./bench.sh
