@@ -78,7 +78,7 @@ impl Actor for PaxosActor {
             }
             Get(request_id) if state.is_decided => {
                 if let Some((_ballot, (_request_id, _requester_id, value))) = state.accepted {
-                    o.send(src, GetOk(request_id, Some(value)));
+                    o.send(src, GetOk(request_id, value));
                 } else {
                     // See `Internal(Decided ...)` case below.
                     unreachable!("accepted state present when decided");

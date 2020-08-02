@@ -27,7 +27,7 @@ pub enum RegisterMsg<RequestId, Value, InternalMsg> {
     /// Indicates a successful `Put`. Analogous to an HTTP 2XX.
     PutOk(RequestId),
     /// Indicates a successful `Get`. Analogous to an HTTP 2XX.
-    GetOk(RequestId, Option<Value>),
+    GetOk(RequestId, Value),
 }
 use RegisterMsg::*;
 
@@ -143,10 +143,8 @@ impl<A, I> System for RegisterTestSystem<A, I>
             // property to accept a wider variety of linearizable behaviors.
             Property::<SystemModel<Self>>::always("linearizable", |_model, state| {
                 match (state.history.last_put_req_id, state.history.current_get_value) {
-                    // Expect no value until put. An equally valid definition would be that the
-                    // value is undefined until put, but in practice that's an unlikely
-                    // implementation.
-                    (None, Some(observed_value)) => observed_value.is_none(),
+                    // Expect default value until put.
+                    (None, Some(observed_value)) => observed_value == TestValue::default(),
                     // Can't disprove anything without a get.
                     (_, None) => true,
                     // Otherwise the current get needs to match the last acknowledged put.
@@ -154,7 +152,7 @@ impl<A, I> System for RegisterTestSystem<A, I>
                         match state.history.put_history.get(&req_id) {
                             None => false, // indicates service replied to a put it never received
                             Some(expected_value) => {
-                                observed_value.as_ref() == Some(expected_value)
+                                observed_value == *expected_value
                             }
                         }
                     }
@@ -162,8 +160,8 @@ impl<A, I> System for RegisterTestSystem<A, I>
             }),
             Property::<SystemModel<Self>>::sometimes("value chosen",  |_, state| {
                 for env in &state.network {
-                    if let RegisterMsg::GetOk(_req_id, Some(_value)) = env.msg {
-                        return true;
+                    if let RegisterMsg::GetOk(_req_id, value) = env.msg {
+                        if value != TestValue::default() { return true; }
                     }
                 }
                 false
@@ -189,7 +187,6 @@ pub struct RegisterHistory<RequestId: Eq + Hash, Value: Eq + Hash> {
     put_history: HashableHashMap<RequestId, Value>,
     /// Request ID of the last successfully completed put.
     last_put_req_id: Option<RequestId>,
-    /// Value of a get that just successfully completed. `None` indicates no recent get, while
-    /// `Some(None)` indicates an empty get.
-    current_get_value: Option<Option<Value>>,
+    /// Value of a get that just successfully completed. `None` indicates no recent get.
+    current_get_value: Option<Value>,
 }

@@ -11,16 +11,16 @@ struct SingleCopyActor;
 
 impl Actor for SingleCopyActor {
     type Msg = RegisterMsg<TestRequestId, TestValue, ()>;
-    type State = Option<TestValue>;
+    type State = TestValue;
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-        o.set_state(None);
+        o.set_state(TestValue::default());
     }
 
     fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
             Put(req_id, value) => {
-                o.set_state(Some(value));
+                o.set_state(value);
                 o.send(src, PutOk(req_id));
             }
             Get(req_id) => {
