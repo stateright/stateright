@@ -1,16 +1,10 @@
 //! An actor system where each server exposes a rewritable single-copy register. Servers do not
 //! provide consensus.
 
-use clap::*;
-use stateright::actor::{Actor, Id, Out};
-use stateright::actor::register::{RegisterMsg, TestRequestId, TestValue};
-use stateright::actor::register::RegisterMsg::*;
-use stateright::actor::register::RegisterTestSystem;
-use stateright::actor::spawn::spawn;
-use stateright::actor::system::{System, LossyNetwork};
-use stateright::explorer::Explorer;
 use stateright::Model;
-use std::net::{SocketAddrV4, Ipv4Addr};
+use stateright::actor::{Actor, Id, Out};
+use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
+use stateright::actor::system::{System, LossyNetwork};
 
 #[derive(Clone)]
 struct SingleCopyActor;
@@ -40,7 +34,6 @@ impl Actor for SingleCopyActor {
 #[cfg(test)]
 #[test]
 fn can_model_single_copy_register() {
-    use stateright::Model;
     use stateright::actor::system::SystemAction::Deliver;
 
     // Consistent if only one server.
@@ -83,6 +76,11 @@ fn can_model_single_copy_register() {
 }
 
 fn main() {
+    use clap::{App, AppSettings, Arg, SubCommand, value_t};
+    use stateright::actor::spawn::spawn;
+    use stateright::explorer::Explorer;
+    use std::net::{SocketAddrV4, Ipv4Addr};
+
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
 
     let mut app = App::new("wor")

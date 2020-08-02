@@ -1,17 +1,11 @@
 //! A cluster that implements Single Decree Paxos.
 
-use clap::*;
-use serde_derive::Deserialize;
-use serde_derive::Serialize;
-use stateright::actor::*;
-use stateright::actor::register::*;
-use stateright::actor::register::RegisterMsg::*;
-use stateright::actor::spawn::*;
-use stateright::actor::system::*;
-use stateright::explorer::*;
+use serde_derive::{Deserialize, Serialize};
 use stateright::Model;
+use stateright::actor::{Actor, Id, Out};
+use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
+use stateright::actor::system::{model_peers, System, SystemState};
 use stateright::util::{HashableHashMap, HashableHashSet};
-use std::net::{SocketAddrV4, Ipv4Addr};
 
 type Round = u32;
 type Rank = u32;
@@ -29,6 +23,7 @@ enum PaxosMsg {
 
     Decided { ballot: Ballot, proposal: Proposal },
 }
+use PaxosMsg::*;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct PaxosState {
@@ -69,7 +64,6 @@ impl Actor for PaxosActor {
     }
 
     fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
-        use crate::PaxosMsg::*;
         match msg {
             Put(request_id, value) if !state.is_decided && state.proposal.is_none()  => {
                 let mut state = state.clone();
@@ -167,8 +161,7 @@ fn within_boundary(state: &SystemState<RegisterTestSystem<PaxosActor, PaxosMsg>>
 #[cfg(test)]
 #[test]
 fn can_model_paxos() {
-    use PaxosMsg::*;
-    use SystemAction::Deliver;
+    use stateright::actor::system::SystemAction::Deliver;
 
     let mut checker = RegisterTestSystem {
         servers: vec![
@@ -198,9 +191,14 @@ fn can_model_paxos() {
 }
 
 fn main() {
+    use clap::{App, AppSettings, Arg, SubCommand, value_t};
+    use stateright::actor::spawn::spawn;
+    use stateright::explorer::Explorer;
+    use std::net::{SocketAddrV4, Ipv4Addr};
+
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
 
-    let mut app = clap::App::new("paxos")
+    let mut app = App::new("paxos")
         .about("single decree paxos")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name("check")

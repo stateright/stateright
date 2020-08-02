@@ -2,12 +2,8 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use clap::{App, Arg, SubCommand, value_t};
 use stateright::{Model, Property};
-use stateright::explorer::Explorer;
 use stateright::util::{HashableHashMap, HashableHashSet};
-use std::fmt::Debug;
-use std::iter::FromIterator;
 use std::hash::Hash;
 
 #[derive(Clone)]
@@ -141,6 +137,10 @@ fn can_model_2pc() {
 }
 
 fn main() {
+    use clap::{App, Arg, SubCommand, value_t};
+    use stateright::explorer::Explorer;
+    use std::iter::FromIterator;
+
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
 
     let mut app = App::new("2pc")
