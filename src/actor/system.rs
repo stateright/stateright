@@ -139,7 +139,9 @@ impl<S: System> Model for SystemModel<S> {
             }
 
             // option 2: message is delivered
-            actions.push(SystemAction::Deliver { src: env.src, dst: env.dst, msg: env.msg.clone() });
+            if usize::from(env.dst) < self.actors.len() {
+                actions.push(SystemAction::Deliver { src: env.src, dst: env.dst, msg: env.msg.clone() });
+            }
         }
 
         // option 3: actor timeout
