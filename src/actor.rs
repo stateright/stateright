@@ -161,8 +161,9 @@ impl<A: Actor> Out<A> {
     }
 
     /// Updates the actor state.
-    pub fn set_state(&mut self, state: A::State) {
+    pub fn set_state(&mut self, state: A::State) -> &mut A::State {
         self.state = Some(state);
+        self.state.as_mut().unwrap()
     }
 
     /// Records the need to send a message.
