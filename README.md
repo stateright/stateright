@@ -82,8 +82,10 @@ To model check, run:
 cargo run --release --example 2pc check 3
 # Paxos cluster (fixed size of 3) with 4 puts and 2 gets, all concurrent.
 cargo run --release --example paxos check 4 2
-# Single-copy register with 4 puts and 2 gets, all concurrent.
-cargo run --release --example single-copy-register 4 2
+# Single-copy register with 3 puts and 2 gets, all concurrent.
+cargo run --release --example single-copy-register check 3 2
+# Linearizable distributed register with 2 puts and 1 get, all concurrent.
+cargo run --release --example linearizable-register check 2 2
 ```
 
 To interactively explore a model's state space in a web browser UI, run:
@@ -92,6 +94,7 @@ To interactively explore a model's state space in a web browser UI, run:
 cargo run --release --example 2pc explore
 cargo run --release --example paxos explore
 cargo run --release --example single-copy-register explore
+cargo run --release --example linearizable-register explore
 ```
 
 Stateright also includes a simple runtime for executing an actor mapping
@@ -100,6 +103,7 @@ messages to JSON over UDP:
 ```sh
 cargo run --release --example paxos spawn
 cargo run --release --example single-copy-register spawn
+cargo run --release --example linearizable-register spawn
 ```
 
 ## Model Checking Performance
@@ -112,6 +116,7 @@ benchmark model checking performance, run with larger state spaces:
 cargo run --release --example 2pc check 9
 cargo run --release --example paxos check 6 2
 cargo run --release --example single-copy-register check 3 3
+cargo run --release --example linearizable-register check 3 2
 ```
 
 The repository includes a script that runs all the examples multiple times,
