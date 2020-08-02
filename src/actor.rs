@@ -248,3 +248,17 @@ pub trait Actor: Sized {
         serde_json::to_vec(msg)
     }
 }
+
+/// Indicates the number of nodes that constitute a majority for a particular cluster size.
+pub fn majority(cluster_size: usize) -> usize {
+    cluster_size / 2 + 1
+}
+
+#[test]
+fn majority_is_computed_correctly() {
+    assert_eq!(majority(1), 1);
+    assert_eq!(majority(2), 2);
+    assert_eq!(majority(3), 2);
+    assert_eq!(majority(4), 3);
+    assert_eq!(majority(5), 3);
+}
