@@ -1,8 +1,5 @@
 //! Defines an interface for register-like actors (via [`RegisterMsg`]) and also provides
 //! [`RegisterTestSystem`] for model checking.
-//!
-//! [`RegisterTestSystem`]: struct.RegisterTestSystem.html
-//! [`RegisterMsg`]: enum.RegisterMsg.html
 
 use crate::Property;
 use crate::actor::{Actor, Id};

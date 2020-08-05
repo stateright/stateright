@@ -4,6 +4,8 @@
 //! [examples](https://github.com/stateright/stateright/tree/master/examples),
 //! [README](https://github.com/stateright/stateright/blob/master/README.md), and
 //! submodules for additional details.
+//!
+//! The [`actor`] submodule will be of particular interest to most individuals.
 
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -168,10 +170,10 @@ pub enum Expectation {
     Sometimes,
 }
 
-/// A state identifier. See `fingerprint`.
+/// A state identifier. See [`fingerprint`].
 pub type Fingerprint = std::num::NonZeroU64;
 
-/// Converts a state to a fingerprint.
+/// Converts a state to a [`Fingerprint`].
 #[inline]
 pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
     let mut hasher = stable::hasher();

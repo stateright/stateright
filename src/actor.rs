@@ -1,6 +1,6 @@
-//! This module provides an actor abstraction. See the `system` submodule for model checking.
-//! See the `spawn` submodule for a runtime that can run your actor over a real network. See the
-//! `register` submodule for an example wrapper.
+//! This module provides an actor abstraction. See the [`system`] submodule for model checking.
+//! See the [`spawn`] submodule for a runtime that can run your actor over a real network. See the
+//! [`register`] submodule for an example wrapper.
 //!
 //! ## Example
 //!
@@ -111,7 +111,7 @@ use std::time::Duration;
 use std::net::SocketAddrV4;
 use std::ops::Range;
 
-/// Uniquely identifies an `Actor`. Encodes the socket address for spawned
+/// Uniquely identifies an [`Actor`]. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
 #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Id(u64);

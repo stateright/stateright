@@ -382,7 +382,7 @@ pub fn model_timeout() -> Range<Duration> {
     Duration::from_micros(0)..Duration::from_micros(0)
 }
 
-/// A helper to generate a list of peer `Id`s given an actor count and the index of a particular
+/// A helper to generate a list of peer [`Id`]s given an actor count and the index of a particular
 /// actor.
 pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
     (0..count)

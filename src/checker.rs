@@ -1,6 +1,6 @@
-//! A `Model` checker.
+//! A [`Model`] checker.
 //!
-//! Models can have `sometimes` and `always` properties. The model checker will attempt to discover
+//! Models can have [`sometimes`] and [`always`] properties. The model checker will attempt to discover
 //! an example of every `sometimes` property and a counterexample of every `always` property.
 //! Usually the absence of a `sometimes` example or the presence of an `always` counterexample
 //! indicates a problem with the implementation.
@@ -84,6 +84,10 @@
 //!
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
 //! are available in the repository.
+//!
+//! [`always`]: Property::always
+//! [`Model`]: Model
+//! [`sometimes`]: Property::sometimes
 
 use crate::*;
 use dashmap::DashMap;
@@ -96,8 +100,11 @@ use std::hash::{BuildHasher, BuildHasherDefault};
 use std::sync::Arc;
 
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
-/// You can convert to a `Vec<_>` with `path.into_vec()`. If you only need the actions, then use
-/// `path.into_actions()`.
+/// You can convert to a `Vec<_>` with [`path.into_vec()`]. If you only need the actions, then use
+/// [`path.into_actions()`].
+///
+/// [`path.into_vec()`]: Path::into_vec
+/// [`path.into_actions()`]: Path::into_actions
 #[derive(Clone, Debug, PartialEq)]
 pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
@@ -127,7 +134,7 @@ impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
     fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
 }
 
-/// An identifier that fully qualifies a path.
+/// An identifier that fully qualifies a [`Path`].
 pub type PathName = String;
 
 /// EventuallyBits tracks one bit per 'eventually' property being checked. Properties are assigned
@@ -140,7 +147,7 @@ pub type PathName = String;
 type EventuallyBits = IdSet;
 
 /// Generates every state reachable by a model, and verifies that all properties hold.
-/// Can be instantiated with `Model::checker()` or `Model::checker_with_threads(...)`.
+/// Can be instantiated with [`Model::checker`] or [`Model::checker_with_threads`].
 pub struct Checker<M: Model> {
     pub(crate) thread_count: usize,
     pub(crate) model: M,
