@@ -103,7 +103,6 @@ pub mod register;
 pub mod spawn;
 pub mod system;
 
-use serde::de::DeserializeOwned;
 use serde::{Serialize,Deserialize};
 use std::hash::Hash;
 use std::fmt::{Debug, Display, Formatter};
@@ -236,16 +235,6 @@ pub trait Actor: Sized {
         };
         self.on_timeout(id, state, &mut o);
         o
-    }
-
-    /// Indicates how to deserialize messages received by a spawned actor.
-    fn deserialize(bytes: &[u8]) -> serde_json::Result<Self::Msg> where Self::Msg: DeserializeOwned {
-        serde_json::from_slice(bytes)
-    }
-
-    /// Indicates how to serialize messages sent by a spawned actor.
-    fn serialize(msg: &Self::Msg) -> serde_json::Result<Vec<u8>> where Self::Msg: Serialize {
-        serde_json::to_vec(msg)
     }
 }
 

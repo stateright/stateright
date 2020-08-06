@@ -281,14 +281,15 @@ fn main() {
             let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 0));
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
-            let actors = vec![
-                spawn(PaxosActor { rank: 0, peer_ids: vec![id1, id2] }, id0),
-                spawn(PaxosActor { rank: 1, peer_ids: vec![id0, id2] }, id1),
-                spawn(PaxosActor { rank: 2, peer_ids: vec![id0, id1] }, id2),
-            ];
-            for actor in actors {
-                actor.join().unwrap();
-            }
+            let handles = spawn(
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
+                vec![
+                    (id0, PaxosActor { rank: 0, peer_ids: vec![id1, id2] }),
+                    (id1, PaxosActor { rank: 1, peer_ids: vec![id0, id2] }),
+                    (id2, PaxosActor { rank: 2, peer_ids: vec![id0, id1] }),
+                ]);
+            for h in handles { let _ = h.join(); }
         }
         _ => app.print_help().unwrap(),
     }

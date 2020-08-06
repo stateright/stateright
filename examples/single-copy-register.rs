@@ -154,7 +154,13 @@ fn main() {
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<TestRequestId, TestValue, ()>(2)).unwrap());
             println!();
 
-            spawn(SingleCopyActor, SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).join().unwrap();
+            let handles = spawn(
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
+                vec![
+                    (SocketAddrV4::new(Ipv4Addr::LOCALHOST, port), SingleCopyActor)
+                ]);
+            for h in handles { let _ = h.join(); }
         }
         _ => app.print_help().unwrap(),
     }

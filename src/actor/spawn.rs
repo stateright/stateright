@@ -1,8 +1,6 @@
 //! A simple runtime for executing an actor mapping messages to JSON over UDP.
 
 use crate::actor::*;
-use serde::de::DeserializeOwned;
-use serde::ser::Serialize;
 use std::fmt::Debug;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::thread;
@@ -40,17 +38,23 @@ fn practically_never() -> Instant {
 }
 
 /// Runs an actor by mapping messages to JSON over UDP.
-pub fn spawn<A>(actor: A, id: impl Into<Id>) -> thread::JoinHandle<()>
+pub fn spawn<A, E: Debug + 'static>(
+    serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
+    deserialize: fn(&[u8]) -> Result<A::Msg, E>,
+    actors: Vec<(impl Into<Id>, A)>) -> Vec<thread::JoinHandle<()>>
 where
     A: 'static + Send + Actor,
-    A::Msg: Debug + DeserializeOwned + Serialize,
+    A::Msg: Debug,
     A::State: Debug,
 {
+    let mut handles = Vec::with_capacity(actors.len());
+
+    for (id, actor) in actors {
     let id = id.into();
     let addr = SocketAddrV4::from(id);
 
     // note that panics are returned as `Err` when `join`ing
-    thread::spawn(move || {
+    handles.push(thread::spawn(move || {
         let socket = UdpSocket::bind(addr).unwrap(); // panic if unable to bind
         let mut in_buf = [0; 65_535];
         let mut next_interrupt = practically_never();
@@ -61,7 +65,7 @@ where
                 || panic!("actor state not initialized. id={}", addr));
             log::info!("Actor started. id={}, state={:?}, commands={:?}", addr, state, out.commands);
             for c in out.commands {
-                on_command::<A>(addr, c, &socket, &mut next_interrupt);
+                on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupt);
             }
             state
         };
@@ -79,7 +83,7 @@ where
                             continue;
                         },
                         Ok((count, src_addr)) => {
-                            match A::deserialize(&in_buf[..count]) {
+                            match deserialize(&in_buf[..count]) {
                                 Ok(msg) => {
                                     if let SocketAddr::V4(src_addr) = src_addr {
                                         log::info!("Received message. id={}, src={}, msg={}",
@@ -109,27 +113,37 @@ where
                 log::debug!("Acted. id={}, last_state={:?}, next_state={:?}, commands={:?}",
                             addr, last_state, out.state, out.commands);
             }
-            for c in out.commands { on_command::<A>(addr, c, &socket, &mut next_interrupt); }
+            for c in out.commands { on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupt); }
             if let Some(next_state) = out.state { last_state = next_state; }
         }
-    })
+    }));
+    }
+
+    handles
 }
 
 /// The effect to perform in response to spawned actor outputs.
-fn on_command<A: Actor>(addr: SocketAddrV4, command: Command<A::Msg>, socket: &UdpSocket, next_interrupt: &mut Instant)
-where A::Msg: Debug + Serialize
+fn on_command<A, E>(
+    addr: SocketAddrV4,
+    command: Command<A::Msg>,
+    serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
+    socket: &UdpSocket,
+    next_interrupt: &mut Instant)
+where A: Actor,
+      A::Msg: Debug,
+      E: Debug,
 {
     match command {
         Command::Send(dst, msg) => {
             let dst_addr = SocketAddrV4::from(dst);
-            match A::serialize(&msg) {
+            match serialize(&msg) {
                 Err(e) => {
-                    log::warn!("Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={}",
+                    log::warn!("Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
                              addr, dst_addr, msg, e);
                 },
                 Ok(out_buf) => {
                     if let Err(e) = socket.send_to(&out_buf, dst_addr) {
-                        log::warn!("Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={}",
+                        log::warn!("Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
                                  addr, dst_addr, msg, e);
                     }
                 },

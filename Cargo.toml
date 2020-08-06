@@ -21,10 +21,10 @@ log = "0.4"
 nohash-hasher = "0.2.0"
 rand = "0.7"
 serde = { version = "1.0", features = ["rc"] }
-serde_json = "1.0"
 
 [dev-dependencies]
 clap = "2.33"
 env_logger = "0.7"
 num_cpus = "1.13"
 serde_derive = "1.0"
+serde_json = "1.0"
