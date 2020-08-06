@@ -57,11 +57,13 @@ where
 
         let mut last_state = {
             let out = actor.on_start_out(id);
-            log::info!("Actor started. id={}, state={:?}, commands={:?}", addr, out.state, out.commands);
+            let state = out.state.unwrap_or_else(
+                || panic!("actor state not initialized. id={}", addr));
+            log::info!("Actor started. id={}, state={:?}, commands={:?}", addr, state, out.commands);
             for c in out.commands {
                 on_command::<A>(addr, c, &socket, &mut next_interrupt);
             }
-            out.state.expect("actor not initialized")
+            state
         };
         loop {
             // Apply an interrupt if present, otherwise wait for a message.
