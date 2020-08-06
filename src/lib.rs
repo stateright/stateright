@@ -18,7 +18,7 @@ pub mod explorer;
 mod test_util;
 pub mod util;
 
-/// Models a possibly nondeterministic system's evolution. See `Checker`.
+/// Models a possibly nondeterministic system's evolution. See [`Checker`].
 pub trait Model: Sized {
     /// The type of state upon which this model operates.
     type State;
@@ -32,7 +32,7 @@ pub trait Model: Sized {
     /// Collects the subsequent possible actions based on a previous state.
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>);
 
-    /// Converts a previous state and action to a resulting state. `None` indicates that the action
+    /// Converts a previous state and action to a resulting state. [`None`] indicates that the action
     /// does not change the state.
     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State>;
 
@@ -60,7 +60,7 @@ pub trait Model: Sized {
     }
 
     /// Indicates the states that follow a particular state. Slightly more efficient than calling
-    /// `next_steps` and projecting out the states.
+    /// [`Model::next_steps`] and projecting out the states.
     fn next_states(&self, last_state: &Self::State) -> Vec<Self::State> {
         let mut actions = Vec::new();
         self.actions(&last_state, &mut actions);

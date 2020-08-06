@@ -1,5 +1,5 @@
-//! Utilities such as `HashableHashSet` and `HashableHashMap`. Those two in particular are useful
-//! because the corresponding `HashSet` and `HashMap` do not implement `Hash`, meaning they cannot
+//! Utilities such as [`HashableHashSet`] and [`HashableHashMap`]. Those two in particular are useful
+//! because the corresponding [`HashSet`] and [`HashMap`] do not implement [`Hash`], meaning they cannot
 //! be used directly in models.
 //!
 //! For example, the following is rejected by the compiler:
@@ -32,7 +32,7 @@
 //!             `std::collections::HashSet<u64>: std::hash::Hash`
 //! ```
 //!
-//! The error can be resolved by swapping `HashSet` with `HashableHashSet`:
+//! The error can be resolved by swapping [`HashSet`] with [`HashableHashSet`]:
 //!
 //! ```rust
 //! # use stateright::*;
@@ -66,8 +66,8 @@ use std::iter::FromIterator;
 // Reuse a buffer to avoid temporary allocations.
 thread_local!(static BUFFER: RefCell<Vec<u64>> = RefCell::new(Vec::with_capacity(100)));
 
-/// A `HashSet` wrapper that implements `Hash` by sorting pre-hashed entries and feeding those back
-/// into the passed-in `Hasher`.
+/// A [`HashSet`] wrapper that implements [`Hash`] by sorting pre-hashed entries and feeding those back
+/// into the passed-in [`Hasher`].
 #[derive(Clone)]
 pub struct HashableHashSet<V, S = ahash::RandomState>(HashSet<V, S>);
 
@@ -194,8 +194,8 @@ mod hashable_hash_set_test {
     }
 }
 
-/// A `HashMap` wrapper that implements `Hash` by sorting pre-hashed entries and feeding those back
-/// into the passed-in `Hasher`.
+/// A [`HashMap`] wrapper that implements [`Hash`] by sorting pre-hashed entries and feeding those back
+/// into the passed-in [`Hasher`].
 #[derive(Clone)]
 pub struct HashableHashMap<K, V, S = ahash::RandomState>(HashMap<K, V, S>);
 

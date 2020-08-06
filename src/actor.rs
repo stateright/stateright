@@ -149,7 +149,7 @@ pub struct Out<A: Actor> {
 }
 
 impl<A: Actor> Out<A> {
-    /// Records the need to set the timer.
+    /// Records the need to set the timer. See [`Actor::on_timeout`].
     pub fn set_timer(&mut self, duration: Range<Duration>) {
         self.commands.push(Command::SetTimer(duration));
     }
@@ -165,12 +165,12 @@ impl<A: Actor> Out<A> {
         self.state.as_mut().unwrap()
     }
 
-    /// Records the need to send a message.
+    /// Records the need to send a message. See [`Actor::on_msg`].
     pub fn send(&mut self, recipient: Id, msg: A::Msg) {
         self.commands.push(Command::Send(recipient, msg));
     }
 
-    /// Records the need to send a message to multiple recipient.
+    /// Records the need to send a message to multiple recipients. See [`Actor::on_msg`].
     pub fn broadcast(&mut self, recipients: &[Id], msg: &A::Msg)
     where A::Msg: Clone
     {
@@ -179,30 +179,46 @@ impl<A: Actor> Out<A> {
         }
     }
 
-    // Indicates whether no output was generated.
+    /// If true, then the actor did not update its state or record commands.
     pub fn is_no_op(&self) -> bool {
         self.state.is_none() && self.commands.is_empty()
     }
 }
 
-/// An actor initializes internal state optionally emitting outputs; then it waits for incoming
-/// events, responding by updating its internal state and optionally emitting outputs.  At the
-/// moment, the only inputs and outputs relate to messages, but other events like timers will
-/// likely be added.
+/// An actor initializes internal state optionally emitting [outputs]; then it waits for incoming
+/// events, responding by updating its internal state and optionally emitting [outputs].
+///
+/// [outputs]: Out
 pub trait Actor: Sized {
-    /// The type of messages sent and received by this actor.
+    /// The type of messages sent and received by the actor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use serde_derive::{Deserialize, Serialize};
+    /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    /// #[derive(Serialize, Deserialize)]
+    /// enum MyActorMsg { Msg1(u64), Msg2(char) }
+    /// ```
     type Msg: Clone + Debug + Eq + Hash;
 
     /// The type of state maintained by the actor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    /// struct MyActorState { sequencer: u64 }
+    /// ```
     type State: Clone + Debug + Eq + Hash;
 
     /// Indicates the initial state and commands.
     fn on_start(&self, id: Id, o: &mut Out<Self>);
 
-    /// Indicates the next state and commands when a message is received.
+    /// Indicates the next state and commands when a message is received. See [`Out::send`].
     fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>);
 
-    /// Indicates the next state and commands when a timeout is encountered.
+    /// Indicates the next state and commands when a timeout is encountered. See [`Out::set_timer`].
     fn on_timeout(&self, _id: Id, _state: &Self::State, _o: &mut Out<Self>) {
         // no-op by default
     }

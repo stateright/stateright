@@ -1,8 +1,52 @@
-//! A web service for interactively exploring a model.
+//! A web service for interactively exploring a model. Remember to import the [`Explorer`] trait to
+//! enable `model.serve()`.
 //!
 //! ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
 //!
-//! API summary:
+//! # Example
+//!
+//! ```no_run
+//! use stateright::Model;
+//! use stateright::explorer::Explorer; // IMPORTANT
+//!
+//! #[derive(Clone, Debug, Hash)]
+//! enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
+//! #[derive(Clone)]
+//! struct FizzBuzzModel { max: usize }
+//!
+//! impl Model for FizzBuzzModel {
+//!     type State = Vec<(usize, Option<FizzBuzzAction>)>;
+//!     type Action = Option<FizzBuzzAction>;
+//!     fn init_states(&self) -> Vec<Self::State> {
+//!         vec![Vec::new()]
+//!     }
+//!     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+//!         actions.push(
+//!             if state.len() % 15 == 0 {
+//!                 Some(FizzBuzzAction::FizzBuzz)
+//!             } else if state.len() % 5 == 0 {
+//!                 Some(FizzBuzzAction::Buzz)
+//!             } else if state.len() % 3 == 0 {
+//!                 Some(FizzBuzzAction::Fizz)
+//!             } else {
+//!                 None
+//!             });
+//!     }
+//!     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
+//!         let mut state = state.clone();
+//!         state.push((state.len(), action));
+//!         Some(state)
+//!     }
+//!     fn within_boundary(&self, state: &Self::State) -> bool {
+//!         state.len() <= self.max
+//!     }
+//! }
+//!
+//! let _ = FizzBuzzModel { max: 30 }.checker().serve("localhost:3000");
+//! ```
+//!
+//! # API
+//!
 //! - `GET /` returns a web browser UI as HTML.
 //! - `GET /.status` returns information about the model checker status.
 //! - `GET /.states` returns available initial states and fingerprints.
