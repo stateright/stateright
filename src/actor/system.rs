@@ -200,7 +200,9 @@ impl<S: System> Model for SystemModel<S> {
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states[index];
                 let out = self.actors[index].on_timeout_out(id, last_actor_state);
-                if out.is_no_op() { return None; }
+                let keep_timer = out.commands.iter()
+                    .any(|c| if let Command::SetTimer(_) = c { true } else { false });
+                if out.is_no_op() && keep_timer { return None; }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
@@ -641,14 +643,16 @@ mod test {
 
     #[test]
     fn handles_undeliverable_messages() {
-        impl Actor for () {
+        struct TestActor;
+        impl Actor for TestActor {
             type State = ();
             type Msg = ();
             fn on_start(&self, _: Id, o: &mut Out<Self>) { o.set_state(()); }
             fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
         }
-        impl System for () {
-            type Actor = ();
+        struct TestSystem;
+        impl System for TestSystem {
+            type Actor = TestActor;
             type History = ();
             fn actors(&self) -> Vec<Self::Actor> { Vec::new() }
             fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
@@ -659,6 +663,31 @@ mod test {
                 vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }]
             }
         }
-        assert!(().into_model().checker().check(1_000).is_done());
+        assert!(TestSystem.into_model().checker().check(1_000).is_done());
+    }
+
+    #[test]
+    fn resets_timer() {
+        struct TestActor;
+        impl Actor for TestActor {
+            type State = ();
+            type Msg = ();
+            fn on_start(&self, _: Id, o: &mut Out<Self>) {
+                o.set_state(());
+                o.set_timer(model_timeout());
+            }
+            fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+        }
+        struct TestSystem;
+        impl System for TestSystem {
+            type Actor = TestActor;
+            type History = ();
+            fn actors(&self) -> Vec<Self::Actor> { vec![TestActor] }
+            fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+                vec![Property::always("unused", |_, _| true)]
+            }
+        }
+        // Init state with timer, followed by next state without timer.
+        assert_eq!(2, TestSystem.into_model().checker().check(1_000).generated_count());
     }
 }
