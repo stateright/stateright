@@ -80,7 +80,7 @@ impl<A, I> System for RegisterTestSystem<A, I>
             network.push(Envelope {
                 src: Id::from(999 - unique_id as usize),
                 dst: Id::from(dst % self.servers.len()),
-                msg: Put(unique_id as u64, ('A' as u8 + unique_id) as char),
+                msg: Put(unique_id as u64, (b'A' + unique_id) as char),
             });
             unique_id += 1;
         }
@@ -102,7 +102,7 @@ impl<A, I> System for RegisterTestSystem<A, I>
     fn record_msg_in(&self, history: &Self::History, _src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
         if let Put(req_id, value) = msg {
             let mut history = history.clone();
-            history.put_history.insert(*req_id, value.clone());
+            history.put_history.insert(*req_id, *value);
             Some(history)
         } else {
             None
@@ -119,7 +119,7 @@ impl<A, I> System for RegisterTestSystem<A, I>
             },
             GetOk(_req_id, value) => {
                 let mut history = history.clone();
-                history.current_get_value = Some(value.clone());
+                history.current_get_value = Some(*value);
                 return Some(history);
             },
             _ => if history.current_get_value.is_some() {
