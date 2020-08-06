@@ -1,6 +1,6 @@
 [package]
 name = "stateright"
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Jonathan Nadal <jon.nadal@gmail.com>"]
 license = "MIT"
 edition = "2018"
@@ -8,7 +8,7 @@ edition = "2018"
 description = "A model checker for implementing distributed systems."
 repository = "https://github.com/stateright/stateright"
 readme = "README.md"
-categories = ["actor", "concurrency", "development-tools", "network-programming", "simulation"]
+categories = ["algorithms", "concurrency", "development-tools", "network-programming", "simulation"]
 keywords = ["actor", "distributed-systems", "model-checking", "paxos"]
 
 [dependencies]
