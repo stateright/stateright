@@ -19,28 +19,35 @@ Stateright's model checking features include:
 
 - Invariants via "always" properties.
 - Nontriviality checks via "sometimes" properties.
-- Liveness checks via "eventually" properties (with some limitations at this time).
+- Liveness checks via "eventually" properties (with some limitations at this
+  time).
 - A web browser UI for interactively exploring state space.
+- A [sequential consistency](https://en.wikipedia.org/wiki/Sequential_consistency)
+  tester for concurrent systems (such as actors operating on an asynchronous
+  network).
 
 Stateright's actor system features include:
 
-- The ability to execute actors via JSON over UDP.
-- Can model lossy/lossless networks.
-- Can model duplicating/non-duplicating networks.
-- Can capture actor system
-  [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
-  to check properties such as
-  [linearizability](https://en.wikipedia.org/wiki/Linearizability).
+- The ability to execute actors outside the model checker, sending JSON
+  messages over UDP.
+- A model for lossy/lossless duplicating/non-duplicating networks with the
+  ability to capture actor message [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
+  to check an actor system against an expected consistency model.
+- An optional network adapter that provides a lossless non-duplicating ordered
+  virtual channel for messages between a pair of actors.
 
 In contrast with other actor libraries, Stateright enables you to [formally
 verify](https://en.wikipedia.org/wiki/Formal_verification) the correctness of
 both your design and implementation, which is particularly useful for
 distributed algorithms.
 
-In contrast with other model checkers (like TLC for
+In contrast with most other model checkers (like TLC for
 [TLA+](https://lamport.azurewebsites.net/tla/tla.html)), systems implemented
 using Stateright can also be run on a real network without being reimplemented
-in a different language.  Stateright also features a web browser UI that can be
+in a different language, an idea pioneered by model checkers such as
+[VeriSoft](https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.25.8581)
+and [CMC](https://www.microsoft.com/en-us/research/publication/cmc-a-pragmatic-approach-to-model-checking-real-code/).
+Stateright also features a web browser UI that can be
 used to interactively explore how a system behaves, which is useful for both
 learning and debugging.
 

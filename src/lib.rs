@@ -5,7 +5,8 @@
 //! [README](https://github.com/stateright/stateright/blob/master/README.md), and
 //! submodules for additional details.
 //!
-//! The [`actor`] submodule will be of particular interest to most individuals.
+//! The [`actor`] and [`semantics`] submodules will be of particular interest
+//! to most individuals.
 
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -14,6 +15,7 @@ use crate::checker::Checker;
 pub mod actor;
 pub mod checker;
 pub mod explorer;
+pub mod semantics;
 #[cfg(test)]
 mod test_util;
 pub mod util;
