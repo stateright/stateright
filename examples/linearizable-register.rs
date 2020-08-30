@@ -260,8 +260,8 @@ fn main() {
                     AbdActor { peers: model_peers(0, 2) },
                     AbdActor { peers: model_peers(1, 2) },
                 ],
-                put_count: 2,
-                get_count: 1,
+                put_count,
+                get_count,
                 within_boundary,
                 .. Default::default()
             }.into_model()
@@ -282,8 +282,8 @@ fn main() {
                     AbdActor { peers: model_peers(0, 2) },
                     AbdActor { peers: model_peers(1, 2) },
                 ],
-                put_count: 2,
-                get_count: 1,
+                put_count,
+                get_count,
                 within_boundary,
                 .. Default::default()
             }.into_model().checker().serve(address).unwrap();
