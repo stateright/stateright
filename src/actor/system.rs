@@ -395,11 +395,12 @@ pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
 
 #[cfg(test)]
 mod test {
-    use crate::*;
-    use crate::actor::system::*;
-    use crate::actor::actor_test_util::ping_pong::*;
+    use super::*;
+    use crate::actor::actor_test_util::ping_pong::{PingPongCount, PingPongMsg::*, PingPongSystem};
+    use crate::actor::system::SystemAction::*;
     use std::collections::HashSet;
     use std::sync::Arc;
+
 
     #[test]
     fn visits_expected_states() {
@@ -430,19 +431,19 @@ mod test {
             // When the network loses no messages...
             fingerprint(
                 vec![PingPongCount(0), PingPongCount(0)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
             fingerprint(
                 vec![PingPongCount(0), PingPongCount(1)],
                 vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                 ]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
 
             // When the network loses the message for pinger-ponger state (0, 0)...
@@ -453,10 +454,10 @@ mod test {
             // When the network loses a message for pinger-ponger state (0, 1)
             fingerprint(
                 vec![PingPongCount(0), PingPongCount(1)],
-                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }]),
+                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
             fingerprint(
                 vec![PingPongCount(0), PingPongCount(1)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
             fingerprint(
                 vec![PingPongCount(0), PingPongCount(1)],
                 Vec::new()),
@@ -465,30 +466,30 @@ mod test {
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
-                    Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-                    Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) },
+                    Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+                    Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                 ]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(1) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) }]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
-                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }]),
+                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
             fingerprint(
                 vec![PingPongCount(1), PingPongCount(1)],
                 Vec::new()),
@@ -509,10 +510,6 @@ mod test {
 
     #[test]
     fn may_never_reach_max_on_lossy_network() {
-        use crate::actor::Id;
-        use crate::actor::system::SystemAction;
-        use crate::actor::actor_test_util::ping_pong::PingPongMsg;
-
         let mut checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::Yes,
@@ -525,7 +522,7 @@ mod test {
         let counterexample = checker.assert_counterexample("reaches max");
         assert_eq!(counterexample.last_state().network, Default::default());
         assert_eq!(counterexample.into_actions(), vec![
-            SystemAction::Drop(Envelope { src: Id(0), dst: Id(1), msg: PingPongMsg::Ping(0) })
+            Drop(Envelope { src: Id(0), dst: Id(1), msg: Ping(0) })
         ]);
     }
 
@@ -602,9 +599,9 @@ mod test {
         checker.check(10_000);
         let counterexample = checker.assert_counterexample("#in <= #out");
         assert_eq!(counterexample.into_actions(), vec![
-            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
+            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
         ]);
         assert!(!checker.is_done());
         assert_eq!(checker.counterexample("#out <= #in + 1"), None);
@@ -620,13 +617,13 @@ mod test {
         checker.check(10_000);
         let counterexample = checker.assert_counterexample("#in <= #out");
         assert_eq!(counterexample.into_actions(), vec![
-            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-            SystemAction::Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }),
+            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+            Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }),
         ]);
         let counterexample = checker.assert_counterexample("#out <= #in + 1");
         assert_eq!(counterexample.into_actions(), vec![
-            SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: PingPongMsg::Ping(0) },
-            SystemAction::Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: PingPongMsg::Pong(0) }),
+            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+            Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }),
         ]);
 
         // Whereas those two properties hold for a non-lossy non-duplicating network.
