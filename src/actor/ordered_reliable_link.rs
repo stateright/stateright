@@ -48,6 +48,15 @@ pub struct StateWrapper<Msg, State> {
     wrapped_state: State,
 }
 
+impl<A: Actor> ActorWrapper<A> {
+    pub fn with_default_timeout(wrapped_actor: A) -> Self {
+        Self {
+            resend_interval: Duration::from_secs(1)..Duration::from_secs(2),
+            wrapped_actor,
+        }
+    }
+}
+
 impl<A: Actor> Actor for ActorWrapper<A>
     where A::Msg: Hash
 {
@@ -131,7 +140,6 @@ mod test {
     use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
     use crate::actor::system::{SystemModel, System, LossyNetwork, DuplicatingNetwork, SystemState};
-    use std::time::Duration;
     use crate::actor::system::SystemAction;
 
     pub enum TestActor {
@@ -170,14 +178,10 @@ mod test {
 
         fn actors(&self) -> Vec<Self::Actor> {
             vec![
-                ActorWrapper {
-                    resend_interval: Duration::from_secs(1)..Duration::from_secs(2),
-                    wrapped_actor: TestActor::Sender { receiver_id: Id::from(1) },
-                },
-                ActorWrapper {
-                    resend_interval: Duration::from_secs(1)..Duration::from_secs(2),
-                    wrapped_actor: TestActor::Receiver,
-                },
+                ActorWrapper::with_default_timeout(
+                    TestActor::Sender { receiver_id: Id::from(1) }),
+                ActorWrapper::with_default_timeout(
+                    TestActor::Receiver),
             ]
         }
 
