@@ -1,15 +1,28 @@
+/* COLOR PALETTE */
+
+:root {
+    --bg-med: #2b5672;
+    --bg-drk: #142b46;
+
+    --fg-lit: #e7ecef;
+    --fg-med: #bbbbbb;
+
+    --contrast-dim: #fff9d1;
+    --contrast-brt: #f2e27a;
+}
+
 /* GENERAL STYLES */
 
 a {
-    color: #fff;
+    color: var(--contrast-dim);
     text-decoration: none;
 }
 a:hover {
-    color: #c3f;
+    color: var(--contrast-brt);
     text-decoration: underline;
 }
 a.is-no-op {
-    color: #bbb;
+    color: var(--fg-med);
 }
 body {
     font-family: sans-serif;
@@ -27,20 +40,20 @@ ul {
     margin: 0;
 }
 .color-med {
-    background: #222;
-    color: #bbb;
+    background: var(--bg-med);
+    color: var(--fg-lit);
 }
 .color-dark {
-    background: #111;
-    border: solid #c3f 1px;
-    color: #bbb;
-    column-rule: solid #c3f 1px;
+    background: var(--bg-drk);
+    border: solid var(--contrast-dim) 1px;
+    color: var(--fg-lit);
+    column-rule: solid var(--contrast-dim) 1px;
 }
 .columns {
     column-width: 300px;
 }
 .font-code {
-    font-family: "Lucida Console", Monaco, monospace;
+    font-family: "Courier New", "Lucida Console", Monaco, monospace;
 }
 .font-small {
     font-size: 0.8em;
@@ -48,12 +61,15 @@ ul {
 .padding-small {
     padding: 5px;
 }
+.rounded {
+    border-radius: 10px;
+}
 
 /* SECTION-SPECIFIC STYLES */
 
 .header {
     border: 0 !important;
-    border-bottom: solid #c3f 1px !important;
+    border-bottom: solid var(--contrast-dim) 1px !important;
     padding-left: 5px;
 }
 .header h1 {
