@@ -210,7 +210,7 @@ pub trait Actor: Sized {
     /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     /// struct MyActorState { sequencer: u64 }
     /// ```
-    type State: Clone + Debug + Eq + Hash;
+    type State: Clone + Debug + PartialEq + Hash;
 
     /// Indicates the initial state and commands.
     fn on_start(&self, id: Id, o: &mut Out<Self>);
