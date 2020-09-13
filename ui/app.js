@@ -4,7 +4,11 @@ function Status({discoveries, generated, model, pending, threads}) {
 
     status.discoveries = discoveries;
     status.generated = generated;
-    status.model = model;
+    status.model = model
+        .replaceAll('stateright::actor::register::', '')
+        .replaceAll('stateright::actor::system::', '')
+        .replaceAll('stateright::actor::', '')
+        .replaceAll('stateright::', '');
     status.pending = pending;
     status.threads = threads;
 }
@@ -87,7 +91,7 @@ function App() {
         let response = await fetch('/.status');
         let json = await response.json();
         console.log(json);
-        app.status(json);
+        app.status(new Status(json));
         if (json.pending !== 0) {
             setTimeout(refreshStatus, 5000);
         }
