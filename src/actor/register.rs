@@ -2,9 +2,10 @@
 //! [`RegisterTestSystem`] for model checking.
 
 use crate::Property;
-use crate::actor::{Actor, Id};
-use crate::actor::system::{Envelope, System, SystemModel, SystemState, LossyNetwork};
-use crate::util::HashableHashMap;
+use crate::actor::{Actor, Id, Out};
+use crate::actor::system::{DuplicatingNetwork, LossyNetwork, System, SystemModel, SystemState};
+use crate::semantics::register::{Register, RegisterOp, RegisterRet};
+use crate::semantics::SequentialConsistencyTester;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -30,130 +31,100 @@ use RegisterMsg::*;
 
 /// A system for testing an actor service with register semantics.
 #[derive(Clone)]
-pub struct RegisterTestSystem<A, I>
+pub struct RegisterTestSystem<ServerActor, InternalMsg>
 where
-    A: Actor<Msg = RegisterMsg<TestRequestId, TestValue, I>> + Clone,
-    I: Clone + Debug + Eq + Hash,
+    ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
+    InternalMsg: Clone + Debug + Eq + Hash,
 {
-    pub servers: Vec<A>,
-    pub put_count: u8,
-    pub get_count: u8,
+    pub servers: Vec<ServerActor>,
+    pub client_count: u8,
     pub within_boundary: fn(state: &SystemState<Self>) -> bool,
     pub lossy_network: LossyNetwork,
+    pub duplicating_network: DuplicatingNetwork,
 }
 
-impl<A, I> Default for RegisterTestSystem<A, I>
+impl<ServerActor, InternalMsg> Default for RegisterTestSystem<ServerActor, InternalMsg>
     where
-    A: Actor<Msg = RegisterMsg<TestRequestId, TestValue, I>> + Clone,
-    I: Clone + Debug + Eq + Hash,
+    ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
+    InternalMsg: Clone + Debug + Eq + Hash,
 {
     fn default() -> Self {
         Self {
             servers: Vec::new(),
-            put_count: 3,
-            get_count: 2,
+            client_count: 2,
             within_boundary: |_| true,
             lossy_network: LossyNetwork::No,
+            duplicating_network: DuplicatingNetwork::Yes,
         }
     }
 }
 
-impl<A, I> System for RegisterTestSystem<A, I>
+impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, InternalMsg>
     where
-        A: Actor<Msg = RegisterMsg<TestRequestId, TestValue, I>> + Clone,
-        I: Clone + Debug + Eq + Hash,
+        ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
+        InternalMsg: Clone + Debug + Eq + Hash,
 {
-    type Actor = A;
-    type History = RegisterHistory<TestRequestId, TestValue>;
+    type Actor = RegisterActor<ServerActor>;
+    type History = SequentialConsistencyTester<Id, Register<TestValue>>;
 
     fn actors(&self) -> Vec<Self::Actor> {
-        self.servers.clone()
-    }
-
-    /// The following code sets up the network based on the requested put and get counts. Each
-    /// operation has a unique request ID and network source, while puts also have a unique value.
-    /// We derive all three from the same unique ID.
-    fn init_network(&self) -> Vec<Envelope<<Self::Actor as Actor>::Msg>> {
-        let mut unique_id = 0_u8;
-        let mut network = Vec::new();
-        for dst in 0..self.put_count as usize {
-            network.push(Envelope {
-                src: Id::from(999 - unique_id as usize),
-                dst: Id::from(dst % self.servers.len()),
-                msg: Put(unique_id as u64, (b'A' + unique_id) as char),
-            });
-            unique_id += 1;
+        let mut actors: Vec<Self::Actor> = self.servers.iter().map(|s| {
+            RegisterActor::Server(s.clone())
+        }).collect();
+        for _ in 0..self.client_count {
+            actors.push(RegisterActor::Client { server_count: self.servers.len() as u64 });
         }
-        for dst in 0..self.get_count as usize {
-            network.push(Envelope {
-                src: Id::from(999 - unique_id as usize),
-                dst: Id::from(dst % self.servers.len()),
-                msg: Get(unique_id as u64),
-            });
-            unique_id += 1;
-        }
-        network
+        actors
     }
 
     fn lossy_network(&self) -> LossyNetwork {
         self.lossy_network
     }
 
-    fn record_msg_in(&self, history: &Self::History, _src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        if let Put(req_id, value) = msg {
+    fn duplicating_network(&self) -> DuplicatingNetwork {
+        self.duplicating_network
+    }
+
+    fn record_msg_in(&self, history: &Self::History, src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+        // FIXME: Currently panics for invalid histories. Ideally checking
+        //        would continue, but the property would be labeled with an
+        //        error.
+        if let Get(_) = msg {
             let mut history = history.clone();
-            history.put_history.insert(*req_id, *value);
+            history.on_invoke(src, RegisterOp::Read).unwrap();
+            Some(history)
+        } else if let Put(_req_id, value) = msg {
+            let mut history = history.clone();
+            history.on_invoke(src, RegisterOp::Write(*value)).unwrap();
             Some(history)
         } else {
             None
         }
     }
 
-    fn record_msg_out(&self, history: &Self::History, _src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+    fn record_msg_out(&self, history: &Self::History, _src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+        // FIXME: Currently panics for invalid histories. Ideally checking
+        //        would continue, but the property would be labeled with an
+        //        error.
         match msg {
-            PutOk(req_id) => {
+            GetOk(_, v) => {
                 let mut history = history.clone();
-                history.last_put_req_id = Some(*req_id);
-                history.current_get_value = None;
-                return Some(history);
-            },
-            GetOk(_req_id, value) => {
-                let mut history = history.clone();
-                history.current_get_value = Some(*value);
-                return Some(history);
-            },
-            _ => if history.current_get_value.is_some() {
-                let mut history = history.clone();
-                history.current_get_value = None;
-                return Some(history);
+                history.on_return(dst, RegisterRet::ReadOk(v.clone())).unwrap();
+                Some(history)
             }
+            PutOk(_) => {
+                let mut history = history.clone();
+                history.on_return(dst, RegisterRet::WriteOk).unwrap();
+                Some(history)
+            }
+            _ => None
         }
-        None
     }
 
     fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
         vec![
-            // This is an overly strict definition of linearizability. Namely, it requires that a
-            // read cannot observe an in-flight write; instead the write will always complete
-            // before the in-flight read is processed. This requirement simplifies history tracking
-            // and ensures linearizability, but a more sophisticated history would allow this
-            // property to accept a wider variety of linearizable behaviors.
-            Property::<SystemModel<Self>>::always("linearizable", |_model, state| {
-                match (state.history.last_put_req_id, state.history.current_get_value) {
-                    // Expect default value until put.
-                    (None, Some(observed_value)) => observed_value == TestValue::default(),
-                    // Can't disprove anything without a get.
-                    (_, None) => true,
-                    // Otherwise the current get needs to match the last acknowledged put.
-                    (Some(req_id), Some(observed_value)) => {
-                        match state.history.put_history.get(&req_id) {
-                            None => false, // indicates service replied to a put it never received
-                            Some(expected_value) => {
-                                observed_value == *expected_value
-                            }
-                        }
-                    }
-                }
+            Property::<SystemModel<Self>>::always("sequentially consistent", |_, state| {
+                state.history.serialized_history().is_some()
             }),
             Property::<SystemModel<Self>>::sometimes("value chosen",  |_, state| {
                 for env in &state.network {
@@ -171,19 +142,80 @@ impl<A, I> System for RegisterTestSystem<A, I>
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RegisterActor<ServerActor> {
+    /// A client that [`RegisterMsg::Put`]s a message and upon receving a
+    /// corresponding [`RegisterMsg::PutOk`] follows up with a
+    /// [`RegisterMsg::Get`].
+    Client {
+        server_count: u64,
+    },
+    /// A server actor being validated.
+    Server(ServerActor),
+}
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum RegisterActorState<ServerState> {
+    /// Indicates that the client sent a [`RegisterMsg::Put`] and will later
+    /// send a [`RegisterMsg::Get`].
+    ClientIncomplete,
+    /// Indicates that the client has no more messages to send.
+    ClientComplete,
+    /// Wraps the state of a server actor.
+    Server(ServerState),
+}
+
+// This implementation assumes the servers are at the beginning of the list of
+// actors in the system under test so that an arbitrary server destination ID
+// can be derived from `(client_id.0 + k) % server_count` for any `k`.
+impl<ServerActor, InternalMsg> Actor for RegisterActor<ServerActor>
+where
+    ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>>,
+    InternalMsg: Clone + Debug + Eq + Hash,
+{
+    type Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>;
+    type State = RegisterActorState<ServerActor::State>;
+
+    fn on_start(&self, id: Id, o: &mut Out<Self>) {
+        match self {
+            RegisterActor::Client { server_count } => {
+                let index = id.0;
+                let unique_request_id = 1 * index as TestRequestId; // next will be 2 * index
+                o.state = Some(RegisterActorState::ClientIncomplete);
+                o.send(
+                    Id((index + 0) % server_count),
+                    Put(unique_request_id, (b'A' + (index - server_count) as u8) as char));
+            }
+            RegisterActor::Server(server_actor) => {
+                let server_out = server_actor.on_start_out(id);
+                o.state = server_out.state.map(RegisterActorState::Server);
+                o.commands = server_out.commands;
+            }
+        }
+    }
+
+    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+        match (self, state) {
+            (RegisterActor::Client { server_count }, RegisterActorState::ClientIncomplete) => {
+                let index = id.0;
+                let unique_request_id = 2 * index as TestRequestId;
+                o.state = Some(RegisterActorState::ClientComplete);
+                o.send(
+                    Id((index + 1) % server_count),
+                    Get(unique_request_id));
+            }
+            (RegisterActor::Server(server_actor), RegisterActorState::Server(server_state)) => {
+                let server_out = server_actor.on_msg_out(id, server_state, src, msg);
+                o.state = server_out.state.map(RegisterActorState::Server);
+                o.commands = server_out.commands;
+            }
+            _ => {}
+        }
+    }
+}
+
+
 /// A simple request ID type for tests.
 pub type TestRequestId = u64;
 
 /// A simple value type for tests.
 pub type TestValue = char;
-
-/// Captures necessary history for validating register properties.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct RegisterHistory<RequestId: Eq + Hash, Value: Eq + Hash> {
-    /// All incoming puts, regardless of whether they completed.
-    put_history: HashableHashMap<RequestId, Value>,
-    /// Request ID of the last successfully completed put.
-    last_put_req_id: Option<RequestId>,
-    /// Value of a get that just successfully completed. `None` indicates no recent get.
-    current_get_value: Option<Value>,
-}

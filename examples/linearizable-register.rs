@@ -10,8 +10,8 @@
 use serde_derive::{Deserialize, Serialize};
 use stateright::Model;
 use stateright::actor::{Actor, Id, majority, Out};
-use stateright::actor::register::{TestRequestId, TestValue, RegisterMsg, RegisterMsg::*, RegisterTestSystem};
-use stateright::actor::system::{model_peers, System, SystemState};
+use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
+use stateright::actor::system::{DuplicatingNetwork, model_peers, System, SystemState};
 use stateright::util::{HashableHashMap, HashableHashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -169,7 +169,11 @@ impl Actor for AbdActor {
 
 fn within_boundary(state: &SystemState<RegisterTestSystem<AbdActor, AbdMsg>>) -> bool {
     state.actor_states.iter().all(|s| {
-        s.seq.0 < 3
+        if let RegisterActorState::Server(s) = &**s {
+            s.seq.0 <= 3
+        } else {
+            true
+        }
     })
 }
 
@@ -182,35 +186,26 @@ fn can_model_linearizable_register() {
             AbdActor { peers: model_peers(0, 2) },
             AbdActor { peers: model_peers(1, 2) },
         ],
-        put_count: 2,
-        get_count: 1,
+        client_count: 2,
         within_boundary,
+        duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
     }.into_model().checker();
-    checker.check(10_000);
-    // FIXME: the model checker finds a linearizability violation because our linearizability check
-    //        is too strict.
-    assert_eq!(checker.assert_counterexample("linearizable").into_actions(), vec![
-        Deliver { src: Id::from(998), dst: Id::from(1), msg: Put(1, 'B') },
-		Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(1)) },
-		Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckQuery(1, (0, Id::from(0)), '\u{0}')) },
-		Deliver { src: Id::from(997), dst: Id::from(0), msg: Get(2) },
-		Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Query(2)) },
-		Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckQuery(2, (1, Id::from(1)), 'B')) },
-		Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(2, (1, Id::from(1)), 'B')) },
-		Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(2)) }
-    ]);
+    checker.check(1_000).assert_properties();
     assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
-        Deliver { src: Id::from(998), dst: Id::from(1), msg: Put(1, 'B') },
-		Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(1)) },
-		Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckQuery(1, (0, Id::from(0)), '\u{0}')) },
-		Deliver { src: Id::from(997), dst: Id::from(0), msg: Get(2) },
-		Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Query(2)) },
-		Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckQuery(2, (1, Id::from(1)), 'B')) },
-		Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(2, (1, Id::from(1)), 'B')) },
-		Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(2)) }
+        Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(3)) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckQuery(3, (0, Id::from(0)), '\u{0}')) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Record(3, (1, Id::from(1)), 'B')) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckRecord(3)) },
+        Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
+        Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Query(6)) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckQuery(6, (1, Id::from(1)), 'B')) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(6, (1, Id::from(1)), 'B')) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(6)) },
     ]);
-    assert_eq!(checker.generated_count(), 15_869);
+    assert_eq!(checker.generated_count(), 389);
 }
 
 fn main() {
@@ -226,19 +221,13 @@ fn main() {
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name("check")
             .about("model check")
-            .arg(Arg::with_name("put_count")
-                .help("number of puts")
-                .default_value("2"))
-            .arg(Arg::with_name("get_count")
-                .help("number of gets")
+            .arg(Arg::with_name("client_count")
+                .help("number of clients")
                 .default_value("2")))
         .subcommand(SubCommand::with_name("explore")
             .about("interactively explore state space")
-            .arg(Arg::with_name("put_count")
-                .help("number of puts")
-                .default_value("2"))
-            .arg(Arg::with_name("get_count")
-                .help("number of gets")
+            .arg(Arg::with_name("client_count")
+                .help("number of clients")
                 .default_value("2"))
             .arg(Arg::with_name("address")
                 .help("address Explorer service should listen upon")
@@ -249,42 +238,38 @@ fn main() {
 
     match args.subcommand() {
         ("check", Some(args)) => {
-            let put_count = std::cmp::min(
-                26, value_t!(args, "put_count", u8).expect("put count missing"));
-            let get_count = std::cmp::min(
-                26, value_t!(args, "get_count", u8).expect("get count missing"));
-            println!("Model checking a linearizable register with {} puts and {} gets.",
-                     put_count, get_count);
+            let client_count = std::cmp::min(
+                26, value_t!(args, "client_count", u8).expect("client count missing"));
+            println!("Model checking a linearizable register with {} clients.",
+                     client_count);
             RegisterTestSystem {
                 servers: vec![
                     AbdActor { peers: model_peers(0, 2) },
                     AbdActor { peers: model_peers(1, 2) },
                 ],
-                put_count,
-                get_count,
+                client_count,
                 within_boundary,
+                duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
             }.into_model()
                 .checker_with_threads(num_cpus::get())
                 .check_and_report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
-            let put_count = std::cmp::min(
-                26, value_t!(args, "put_count", u8).expect("put count missing"));
-            let get_count = std::cmp::min(
-                26, value_t!(args, "get_count", u8).expect("get count missing"));
+            let client_count = std::cmp::min(
+                26, value_t!(args, "client_count", u8).expect("client count missing"));
             let address = value_t!(args, "address", String).expect("address");
             println!(
-                "Exploring state space for linearizable register with {} puts and {} gets on {}.",
-                put_count, get_count, address);
+                "Exploring state space for linearizable register with {} clients on {}.",
+                 client_count, address);
             RegisterTestSystem {
                 servers: vec![
                     AbdActor { peers: model_peers(0, 2) },
                     AbdActor { peers: model_peers(1, 2) },
                 ],
-                put_count,
-                get_count,
+                client_count,
                 within_boundary,
+                duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
             }.into_model().checker().serve(address).unwrap();
         }

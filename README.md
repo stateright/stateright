@@ -87,12 +87,12 @@ To model check, run:
 ```sh
 # Two phase commit with 3 resource managers.
 cargo run --release --example 2pc check 3
-# Paxos cluster (fixed size of 3) with 4 puts and 2 gets, all concurrent.
-cargo run --release --example paxos check 4 2
-# Single-copy register with 3 puts and 2 gets, all concurrent.
-cargo run --release --example single-copy-register check 3 2
-# Linearizable distributed register with 2 puts and 1 get, all concurrent.
-cargo run --release --example linearizable-register check 2 2
+# Paxos cluster with 3 clients.
+cargo run --release --example paxos check 3
+# Single-copy register with 3 clients.
+cargo run --release --example single-copy-register check 3
+# Linearizable distributed register with 3 clients.
+cargo run --release --example linearizable-register check 3
 ```
 
 To interactively explore a model's state space in a web browser UI, run:
@@ -117,14 +117,7 @@ cargo run --release --example linearizable-register spawn
 
 Model checking is computationally expensive, so Stateright features a
 variety of optimizations to help minimize model checking time. To
-benchmark model checking performance, run with larger state spaces:
-
-```sh
-cargo run --release --example 2pc check 9
-cargo run --release --example paxos check 6 2
-cargo run --release --example single-copy-register check 3 3
-cargo run --release --example linearizable-register check 3 2
-```
+benchmark model checking performance, run with larger state spaces.
 
 The repository includes a script that runs all the examples multiple times,
 which is particularly useful for validating that changes do not introduce
