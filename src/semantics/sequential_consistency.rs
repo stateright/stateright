@@ -72,8 +72,8 @@ where
         if let btree_map::Entry::Occupied(occupied_op_entry) = in_flight_elem {
             self.is_valid_history = false;
             return Err(format!(
-                    "Thread already has an operation in flight. thread_id={:?}, op={:?}",
-                    thread_id, occupied_op_entry.get()));
+                    "Thread already has an operation in flight. thread_id={:?}, op={:?}, history_by_thread={:?}",
+                    thread_id, occupied_op_entry.get(), self.history_by_thread));
         };
         in_flight_elem.or_insert(op);
         self.history_by_thread.entry(thread_id).or_insert(VecDeque::new()); // `serialize` requires entry
@@ -201,7 +201,7 @@ mod test {
             SequentialConsistencyTester::new(Register('A'))
                 .on_invoke(99, RegisterOp::Write('B'))?
                 .on_invoke(99, RegisterOp::Write('C')),
-            Err("Thread already has an operation in flight. thread_id=99, op=Write('B')".to_string()));
+            Err("Thread already has an operation in flight. thread_id=99, op=Write('B'), history_by_thread={99: []}".to_string()));
         assert_eq!(
             SequentialConsistencyTester::new(Register('A'))
                 .on_invret(99, RegisterOp::Write('B'), RegisterRet::WriteOk)?
