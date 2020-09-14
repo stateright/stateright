@@ -1,6 +1,6 @@
 [package]
 name = "stateright"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["Jonathan Nadal <jon.nadal@gmail.com>"]
 license = "MIT"
 edition = "2018"
