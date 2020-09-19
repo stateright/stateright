@@ -193,7 +193,7 @@ fn can_model_paxos() {
         Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
         Deliver { src: Id::from(4), dst: Id::from(2), msg: Get(8) },
      ]);
-    assert_eq!(checker.generated_count(), 1328);
+    assert_eq!(checker.generated_count(), 1_747);
 }
 
 fn main() {

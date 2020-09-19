@@ -9,7 +9,7 @@ description = "A model checker for implementing distributed systems."
 repository = "https://github.com/stateright/stateright"
 readme = "README.md"
 categories = ["algorithms", "concurrency", "development-tools", "network-programming", "simulation"]
-keywords = ["actor", "distributed-systems", "model-checking", "paxos"]
+keywords = ["actor", "distributed-systems", "linearizability", "model-checking", "paxos"]
 
 [dependencies]
 ahash = "0.3"

@@ -32,8 +32,11 @@ use std::fmt::Debug;
 /// then the responsibility of the checker to establish whether a valid
 /// total ordering of events exists under these constraints.
 ///
+/// See also: [`LinearizabilityTester`].
+///
 /// [linearizability]: https://en.wikipedia.org/wiki/Linearizability
 /// [sequential consistency]: https://en.wikipedia.org/wiki/Sequential_consistency
+/// [`LinearizabilityTester`]: crate::semantics::LinearizabilityTester
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SequentialConsistencyTester<ThreadId, RefObj: SequentialSpec> {
     init_ref_obj: RefObj,

@@ -5,7 +5,7 @@ use crate::Property;
 use crate::actor::{Actor, Id, Out};
 use crate::actor::system::{DuplicatingNetwork, LossyNetwork, System, SystemModel, SystemState};
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
-use crate::semantics::SequentialConsistencyTester;
+use crate::semantics::LinearizabilityTester;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -65,7 +65,7 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
         InternalMsg: Clone + Debug + Eq + Hash,
 {
     type Actor = RegisterActor<ServerActor>;
-    type History = SequentialConsistencyTester<Id, Register<TestValue>>;
+    type History = LinearizabilityTester<Id, Register<TestValue>>;
 
     fn actors(&self) -> Vec<Self::Actor> {
         let mut actors: Vec<Self::Actor> = self.servers.iter().map(|s| {
@@ -123,7 +123,7 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
 
     fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
         vec![
-            Property::<SystemModel<Self>>::always("sequentially consistent", |_, state| {
+            Property::<SystemModel<Self>>::always("linearizable", |_, state| {
                 state.history.serialized_history().is_some()
             }),
             Property::<SystemModel<Self>>::sometimes("value chosen",  |_, state| {

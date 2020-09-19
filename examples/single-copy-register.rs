@@ -52,7 +52,7 @@ fn can_model_single_copy_register() {
             Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
 		    Deliver { src: Id::from(2), dst: Id::from(0), msg: Get(4) },
         ]);
-    assert_eq!(checker.generated_count(), 31);
+    assert_eq!(checker.generated_count(), 33);
 
     let mut checker = RegisterTestSystem {
         servers: vec![SingleCopyActor, SingleCopyActor],
@@ -62,7 +62,7 @@ fn can_model_single_copy_register() {
     }.into_model().checker();
     checker.check(1_000);
     assert_eq!(
-        checker.assert_counterexample("sequentially consistent").into_actions(),
+        checker.assert_counterexample("linearizable").into_actions(),
         vec![
             Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
             Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
@@ -76,7 +76,7 @@ fn can_model_single_copy_register() {
             Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'A') },
             Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
         ]);
-    assert_eq!(checker.generated_count(), 22); // fewer states b/c invariant violation found
+    assert_eq!(checker.generated_count(), 33);
 }
 
 fn main() {

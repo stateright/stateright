@@ -12,7 +12,7 @@
 //! # Verifying Concurrent System Implementations
 //!
 //! A concurrent system can be verified against an implementation of the
-//! [`SequentialSpec`] trait by using a tester such as [`SequentialConsistencyTester`]
+//! [`SequentialSpec`] trait by using a tester such as [`LinearizabilityTester`]
 //! for an expected [consistency model]. In that case, operations are sequential
 //! (think blocking I/O) with respect to an abstract thread-like caller, which
 //! is identified by a distinct "thread ID" (sometimes called a "process ID"
@@ -43,9 +43,11 @@
 //! [consistency model]: https://en.wikipedia.org/wiki/Consistency_model
 //! [`vec`]: self::vec
 
+mod linearizability;
 mod sequential_consistency;
 
 pub mod register;
+pub use linearizability::LinearizabilityTester;
 pub use sequential_consistency::SequentialConsistencyTester;
 pub mod vec;
 
@@ -57,8 +59,8 @@ pub mod vec;
 /// Stateright includes the following checkers for verifying that a concurrent
 /// system adheres to an expected [consistency model]:
 ///
+/// - [`LinearizabilityTester`]
 /// - [`SequentialConsistencyTester`]
-/// - Implementation pending: `LinearizabilityTester` (ETA mid Sep 2020)
 ///
 /// [consistency model]: https://en.wikipedia.org/wiki/Consistency_model
 /// [operational semantics]: https://en.wikipedia.org/wiki/Operational_semantics

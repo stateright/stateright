@@ -22,8 +22,9 @@ Stateright's model checking features include:
 - Liveness checks via "eventually" properties (with some limitations at this
   time).
 - A web browser UI for interactively exploring state space.
-- A [sequential consistency](https://en.wikipedia.org/wiki/Sequential_consistency)
-  tester for concurrent systems (such as actors operating on an asynchronous
+- [Linearizability](https://en.wikipedia.org/wiki/Linearizability)
+  and [sequential consistency](https://en.wikipedia.org/wiki/Sequential_consistency)
+  testers for concurrent systems (such as actors operating on an asynchronous
   network).
 
 Stateright's actor system features include:
