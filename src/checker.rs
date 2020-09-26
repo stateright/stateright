@@ -97,7 +97,6 @@ use nohash_hasher::NoHashHasher;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::hash::{BuildHasher, BuildHasherDefault};
-use std::sync::Arc;
 
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
 /// You can convert to a `Vec<_>` with [`path.into_vec()`]. If you only need the actions, then use
@@ -182,8 +181,8 @@ where
                 }
             }
         }
-        let sources = Arc::new(sources);
-        let discoveries = Arc::new(discoveries);
+        let sources = &sources;
+        let discoveries = &discoveries;
         if pending.len() < 10_000 {
             Self::check_block(max_count, model, pending, sources, discoveries);
             return self;
@@ -194,8 +193,6 @@ where
             let count = std::cmp::min(max_count, (pending.len() + thread_count - 1) / thread_count);
             for _thread_id in 0..thread_count {
                 let model = &model; // mut ref -> shared ref
-                let sources = Arc::clone(&sources);
-                let discoveries = Arc::clone(&discoveries);
                 let count = std::cmp::min(pending.len(), count);
                 let mut pending = pending.split_off(pending.len() - count);
                 threads.push(scope.spawn(move |_| {
@@ -267,8 +264,8 @@ where
         max_count: usize,
         model: &M,
         pending: &mut VecDeque<(Fingerprint, EventuallyBits, M::State)>,
-        sources: Arc<&mut DashMap<Fingerprint, Option<Fingerprint>, S>>,
-        discoveries: Arc<&mut DashMap<&'static str, Fingerprint>>) {
+        sources: &DashMap<Fingerprint, Option<Fingerprint>, S>,
+        discoveries: &DashMap<&'static str, Fingerprint>) {
 
         let mut remaining = max_count;
         let mut next_actions = Vec::new(); // reused between iterations for efficiency
