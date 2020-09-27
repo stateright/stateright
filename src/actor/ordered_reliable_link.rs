@@ -7,8 +7,6 @@
 
 use crate::actor::*;
 use crate::util::HashableHashMap;
-use serde::Deserialize;
-use serde::Serialize;
 use std::fmt::Debug;
 use std::time::Duration;
 use std::ops::Range;
@@ -26,7 +24,7 @@ pub struct ActorWrapper<A: Actor> {
 
 /// An envelope for ORL messages.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum MsgWrapper<Msg> {
     Deliver(Sequencer, Msg),
     Ack(Sequencer),
@@ -136,7 +134,7 @@ where A::Msg: Hash
 
 #[cfg(test)]
 mod test {
-    use crate::{Property, Model};
+    use crate::{Property, Model, ModelChecker};
     use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
     use crate::actor::system::{SystemModel, System, LossyNetwork, DuplicatingNetwork, SystemState};

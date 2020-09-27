@@ -1,7 +1,7 @@
 //! An actor system where each server exposes a rewritable single-copy register. Servers do not
 //! provide consensus.
 
-use stateright::Model;
+use stateright::{Model, ModelChecker};
 use stateright::actor::{Actor, Id, Out};
 use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 use stateright::actor::system::{DuplicatingNetwork, System, LossyNetwork};
@@ -82,7 +82,7 @@ fn can_model_single_copy_register() {
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
     use stateright::actor::spawn::spawn;
-    use stateright::explorer::Explorer;
+    use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));

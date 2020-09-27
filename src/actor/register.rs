@@ -6,13 +6,12 @@ use crate::actor::{Actor, Id, Out};
 use crate::actor::system::{DuplicatingNetwork, LossyNetwork, System, SystemModel, SystemState};
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
 use crate::semantics::LinearizabilityTester;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Defines an interface for a register-like actor.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum RegisterMsg<RequestId, Value, InternalMsg> {
     /// A message specific to the register system's internal protocol.
     Internal(InternalMsg),

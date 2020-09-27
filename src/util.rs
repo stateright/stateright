@@ -6,7 +6,6 @@
 //!
 //! ```rust compile_fail
 //! # use stateright::*;
-//! # use stateright::checker::*;
 //! # use std::collections::HashSet;
 //! #
 //! # struct MyModel;
@@ -26,7 +25,7 @@
 //! ```
 //!
 //! ```text
-//! error[E0599]: no method named `check` found for struct `stateright::checker::Checker<main::MyModel>` in the current scope
+//! error[E0599]: no method named `check` found for struct `stateright::BfsChecker<main::MyModel>` in the current scope
 //! ...
 //!     = note: the method `check` exists but the following trait bounds were not satisfied:
 //!             `std::collections::HashSet<u64>: std::hash::Hash`
@@ -36,7 +35,6 @@
 //!
 //! ```rust
 //! # use stateright::*;
-//! # use stateright::checker::*;
 //! # use std::collections::HashSet;
 //! # use stateright::util::HashableHashSet;
 //! #

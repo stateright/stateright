@@ -1,7 +1,7 @@
 //! A cluster that implements Single Decree Paxos.
 
 use serde_derive::{Deserialize, Serialize};
-use stateright::Model;
+use stateright::{Model, ModelChecker};
 use stateright::actor::{Actor, Id, Out};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 use stateright::actor::system::{DuplicatingNetwork, model_peers, System, SystemState};
@@ -199,7 +199,7 @@ fn can_model_paxos() {
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
     use stateright::actor::spawn::spawn;
-    use stateright::explorer::Explorer;
+    use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));

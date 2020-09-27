@@ -1,26 +1,148 @@
 //! A library for model checking systems, with an emphasis on distributed systems.
 //!
-//! Please see the
-//! [examples](https://github.com/stateright/stateright/tree/master/examples),
-//! [README](https://github.com/stateright/stateright/blob/master/README.md), and
-//! submodules for additional details.
+//! # Introduction to Model Checking
 //!
-//! The [`actor`] and [`semantics`] submodules will be of particular interest
-//! to most individuals.
+//! [`Model`] implementations indicate how a system evolves, such as a set of actors
+//! executing a distributed protocol on an IP network. Incidentally, that scenario
+//! is so common for model checking that Stateright includes an actor [`system`]
+//! model, and unlike many model checkers, Stateright is also able to [spawn] these
+//! actors on a real network.
+//!
+//! Models of a system are supplemented with [`always`] and [`sometimes`] properties.
+//! An `always` [`Property`] (also known as a [safety property] or [invariant]) indicates that a
+//! specific problematic outcome is not possible, such as data inconsistency. A
+//! `sometimes` property on the other hand is used to ensure a particular outcome
+//! is reachable, such as the ability for a distributed system to process a write
+//! request.
+//!
+//! A [`ModelChecker`] (such as [`BfsChecker`]) will attempt to [discover] a counterexample
+//! for every `always` property and an example for every `sometimes` property,
+//! and these examples/counterexamples are indicated by sequences of system steps
+//! known as [`Path`]s (also known as traces or behaviors). The presence of an
+//! `always` discovery or the absence of a `sometimes` discovery indicate that
+//! the model checker identified a problem with the code under test.
+//!
+//! # Example
+//!
+//! A toy example that solves a [sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle)
+//! follows. Caveat: this simple example leverages only a `sometimes` property,
+//! but in most cases for a real scenario you would have an `always` property at
+//! a minimum.
+//!
+//! **TIP**: More sophisticated examples
+//! are available in the [`examples/` directory of the repository](https://github.com/stateright/stateright/tree/master/examples)
+//!
+//! ```rust
+//! use stateright::*;
+//!
+//! #[derive(Clone, Debug, Eq, PartialEq)]
+//! enum Slide { Down, Up, Right, Left }
+//!
+//! struct Puzzle(Vec<u8>);
+//! impl Model for Puzzle {
+//!     type State = Vec<u8>;
+//!     type Action = Slide;
+//!
+//!     fn init_states(&self) -> Vec<Self::State> {
+//!         vec![self.0.clone()]
+//!     }
+//!
+//!     fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
+//!         actions.append(&mut vec![
+//!             Slide::Down, Slide::Up, Slide::Right, Slide::Left
+//!         ]);
+//!     }
+//!
+//!     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
+//!         let empty = last_state.iter().position(|x| *x == 0).unwrap();
+//!         let empty_y = empty / 3;
+//!         let empty_x = empty % 3;
+//!         let maybe_from = match action {
+//!             Slide::Down  if empty_y > 0 => Some(empty - 3), // above
+//!             Slide::Up    if empty_y < 2 => Some(empty + 3), // below
+//!             Slide::Right if empty_x > 0 => Some(empty - 1), // left
+//!             Slide::Left  if empty_x < 2 => Some(empty + 1), // right
+//!             _ => None
+//!         };
+//!         maybe_from.map(|from| {
+//!             let mut next_state = last_state.clone();
+//!             next_state[empty] = last_state[from];
+//!             next_state[from] = 0;
+//!             next_state
+//!         })
+//!     }
+//!
+//!     fn properties(&self) -> Vec<Property<Self>> {
+//!         vec![Property::sometimes("solved", |_, state: &Vec<u8>| {
+//!             let solved = vec![0, 1, 2,
+//!                               3, 4, 5,
+//!                               6, 7, 8];
+//!             state == &solved
+//!         })]
+//!     }
+//! }
+//! let example = Puzzle(vec![1, 4, 2,
+//!                           3, 5, 8,
+//!                           6, 7, 0])
+//!     .checker().check(100).assert_example("solved");
+//! assert_eq!(
+//!     example,
+//!     Path(vec![
+//!         (vec![1, 4, 2,
+//!               3, 5, 8,
+//!               6, 7, 0], Some(Slide::Down)),
+//!         (vec![1, 4, 2,
+//!               3, 5, 0,
+//!               6, 7, 8], Some(Slide::Right)),
+//!         (vec![1, 4, 2,
+//!               3, 0, 5,
+//!               6, 7, 8], Some(Slide::Down)),
+//!         (vec![1, 0, 2,
+//!               3, 4, 5,
+//!               6, 7, 8], Some(Slide::Right)),
+//!         (vec![0, 1, 2,
+//!               3, 4, 5,
+//!               6, 7, 8], None)]));
+//! ```
+//!
+//! # What to Read Next
+//!
+//! The [`actor`] and [`semantics`] submodules will be of particular interest to
+//! most individuals.
+//!
+//! Also, as mentioned earlier, you can find [more examples](https://github.com/stateright/stateright/tree/master/examples)
+//! in the Stateright repository.
+//!
+//! [`always`]: Property::always
+//! [discover]: ModelChecker::discoveries
+//! [invariant]: https://en.wikipedia.org/wiki/Invariant_(computer_science)
+//! [`Model`]: Model
+//! [safety property]: https://en.wikipedia.org/wiki/Safety_property
+//! [`sometimes`]: Property::sometimes
+//! [spawn]: actor::system::spawn
+//! [`system`]: actor::system
 
+mod checker;
+mod explorer;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-use crate::checker::Checker;
-
-pub mod actor;
-pub mod checker;
-pub mod explorer;
-pub mod semantics;
 #[cfg(test)]
 mod test_util;
+
+pub mod actor;
+pub use checker::*;
+pub use explorer::Explorer;
+pub mod semantics;
 pub mod util;
 
-/// Models a possibly nondeterministic system's evolution. See [`Checker`].
+/// This is the primary abstraction for Stateright. Implementations model a possibly
+/// nondeterministic system's evolution. If you are using Stateright's actor framework,
+/// then you do not need to implement this interface and can instead implement
+/// [`actor::Actor`] and [`actor::system::System`].
+///
+/// See the [`ModelChecker`] trait and the [`BfsChecker`] implementation for validating
+/// model [`Property`]s. You can instantiate a checker by calling [`Model::checker`]
+/// or [`Model::checker_with_threads`].
 pub trait Model: Sized {
     /// The type of state upon which this model operates.
     type State;
@@ -47,9 +169,7 @@ pub trait Model: Sized {
     }
 
     /// Indicates the steps (action-state pairs) that follow a particular state.
-    fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)>
-    where Self::State: Hash
-    {
+    fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)> {
         // Must generate the actions twice because they are consumed by `next_state`.
         let mut actions1 = Vec::new();
         let mut actions2 = Vec::new();
@@ -100,22 +220,14 @@ pub trait Model: Sized {
     fn within_boundary(&self, _state: &Self::State) -> bool { true }
 
     /// Initializes a single threaded model checker.
-    fn checker(self) -> Checker<Self> {
+    fn checker(self) -> BfsChecker<Self> {
         self.checker_with_threads(1)
     }
 
     /// Initializes a model checker. The visitation order will be nondeterministic if
     /// `thread_count > 1`.
-    fn checker_with_threads(self, thread_count: usize) -> Checker<Self> {
-        use std::collections::VecDeque;
-        use dashmap::DashMap;
-        Checker {
-            thread_count,
-            model: self,
-            pending: VecDeque::with_capacity(50_000),
-            sources: DashMap::with_capacity_and_hasher(1_000_000, Default::default()),
-            discoveries: DashMap::with_capacity(10),
-        }
+    fn checker_with_threads(self, thread_count: usize) -> BfsChecker<Self> {
+        BfsChecker::new(self).with_threads(thread_count)
     }
 }
 

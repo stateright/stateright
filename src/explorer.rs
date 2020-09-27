@@ -1,59 +1,4 @@
-//! A web service for interactively exploring a model. Remember to import the [`Explorer`] trait to
-//! enable `model.serve()`.
-//!
-//! ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
-//!
-//! # Example
-//!
-//! ```no_run
-//! use stateright::Model;
-//! use stateright::explorer::Explorer; // IMPORTANT
-//!
-//! #[derive(Clone, Debug, Hash)]
-//! enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
-//! #[derive(Clone)]
-//! struct FizzBuzzModel { max: usize }
-//!
-//! impl Model for FizzBuzzModel {
-//!     type State = Vec<(usize, Option<FizzBuzzAction>)>;
-//!     type Action = Option<FizzBuzzAction>;
-//!     fn init_states(&self) -> Vec<Self::State> {
-//!         vec![Vec::new()]
-//!     }
-//!     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-//!         actions.push(
-//!             if state.len() % 15 == 0 {
-//!                 Some(FizzBuzzAction::FizzBuzz)
-//!             } else if state.len() % 5 == 0 {
-//!                 Some(FizzBuzzAction::Buzz)
-//!             } else if state.len() % 3 == 0 {
-//!                 Some(FizzBuzzAction::Fizz)
-//!             } else {
-//!                 None
-//!             });
-//!     }
-//!     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
-//!         let mut state = state.clone();
-//!         state.push((state.len(), action));
-//!         Some(state)
-//!     }
-//!     fn within_boundary(&self, state: &Self::State) -> bool {
-//!         state.len() <= self.max
-//!     }
-//! }
-//!
-//! let _ = FizzBuzzModel { max: 30 }.checker().serve("localhost:3000");
-//! ```
-//!
-//! # API
-//!
-//! - `GET /` returns a web browser UI as HTML.
-//! - `GET /.status` returns information about the model checker status.
-//! - `GET /.states` returns available initial states and fingerprints.
-//! - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
-//!    path of fingerprints and returns available actions with resulting
-//!    states and fingerprints.
-//! - `GET /.states/.../{invalid-fingerprint}` returns 404.
+//! Private module for selective re-export.
 
 use actix_web::{*, web::Json};
 use crate::*;
@@ -98,12 +43,11 @@ where
     }
 }
 
-pub type StateViewsJson<State, Action> = Json<Vec<StateView<State, Action>>>;
+type StateViewsJson<State, Action> = Json<Vec<StateView<State, Action>>>;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct StatusView {
     model: String,
-    threads: usize,
     pending: usize,
     generated: usize,
     discoveries: HashMap<&'static str, PathName>,
@@ -114,8 +58,9 @@ pub struct Context<M> {
     status: Mutex<StatusView>,
 }
 
-impl<M: Model> Explorer<M> for Checker<M>
-where M: 'static + Clone + Model + Send + Sync,
+impl<C, M> Explorer<M> for C
+where C: 'static + ModelChecker<M> + Send,
+      M: 'static + Clone + Model + Send + Sync,
       M::Action: Debug + Send + Sync,
       M::State: Clone + Debug + Hash + Send + Sync,
 {
@@ -125,7 +70,7 @@ where M: 'static + Clone + Model + Send + Sync,
     {
         self.check(1_000); // small number just to expedite startup
         let data = Arc::new(Context {
-            model: self.model.clone(),
+            model: self.model().clone(),
             status: Mutex::new(self.status_view()),
         });
 
@@ -172,18 +117,71 @@ where M: 'static + Clone + Model + Send + Sync,
     fn status_view(&self) -> StatusView {
         StatusView {
             model: std::any::type_name::<M>().to_string(),
-            threads: self.thread_count,
-            pending: self.pending.len(),
+            pending: self.pending_count(),
             generated: self.generated_count(),
-            discoveries: self.discoveries.iter()
-                .map(|e| (
-                    *e.key(),
-                    self.path(*e.value()).name(),
-                )).collect(),
+            discoveries: self.discoveries().into_iter()
+                .map(|(name, path)| (name, path.name()))
+                .collect(),
         }
     }
 }
 
+/// A web service for interactively exploring a model. Remember to import the [`Explorer`] trait to
+/// enable `model.serve()`.
+///
+/// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
+///
+/// # Example
+///
+/// ```no_run
+/// use stateright::Model;
+/// use stateright::Explorer; // IMPORTANT
+///
+/// #[derive(Clone, Debug, Hash)]
+/// enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
+/// #[derive(Clone)]
+/// struct FizzBuzzModel { max: usize }
+///
+/// impl Model for FizzBuzzModel {
+///     type State = Vec<(usize, Option<FizzBuzzAction>)>;
+///     type Action = Option<FizzBuzzAction>;
+///     fn init_states(&self) -> Vec<Self::State> {
+///         vec![Vec::new()]
+///     }
+///     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+///         actions.push(
+///             if state.len() % 15 == 0 {
+///                 Some(FizzBuzzAction::FizzBuzz)
+///             } else if state.len() % 5 == 0 {
+///                 Some(FizzBuzzAction::Buzz)
+///             } else if state.len() % 3 == 0 {
+///                 Some(FizzBuzzAction::Fizz)
+///             } else {
+///                 None
+///             });
+///     }
+///     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
+///         let mut state = state.clone();
+///         state.push((state.len(), action));
+///         Some(state)
+///     }
+///     fn within_boundary(&self, state: &Self::State) -> bool {
+///         state.len() <= self.max
+///     }
+/// }
+///
+/// let _ = FizzBuzzModel { max: 30 }.checker().serve("localhost:3000");
+/// ```
+///
+/// # API
+///
+/// - `GET /` returns a web browser UI as HTML.
+/// - `GET /.status` returns information about the model checker status.
+/// - `GET /.states` returns available initial states and fingerprints.
+/// - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
+///    path of fingerprints and returns available actions with resulting
+///    states and fingerprints.
+/// - `GET /.states/.../{invalid-fingerprint}` returns 404.
 pub trait Explorer<M>: Sized + Send + 'static
 where
     M: 'static + Model + Send + Sync,
@@ -296,7 +294,7 @@ mod test {
             model: BinaryClock,
             status: Mutex::new(Default::default())
         }));
-        match Checker::states(req, data) {
+        match BfsChecker::states(req, data) {
             Ok(Json(view)) => Ok(view),
             Err(err) => Err(err),
         }

@@ -13,7 +13,6 @@
 //! use stateright::*;
 //! use stateright::actor::*;
 //! use stateright::actor::system::*;
-//! use stateright::checker::*;
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
@@ -103,7 +102,6 @@ pub mod register;
 pub mod spawn;
 pub mod system;
 
-use serde::{Serialize,Deserialize};
 use std::hash::Hash;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
@@ -112,7 +110,8 @@ use std::ops::Range;
 
 /// Uniquely identifies an [`Actor`]. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
-#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Id(u64);
 
 impl Debug for Id {
