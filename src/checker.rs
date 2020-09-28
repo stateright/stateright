@@ -74,7 +74,7 @@ impl<State, Action> Path<State, Action> {
         self.into()
     }
 
-    /// Encodes the path as a sequence of decimal [`Fingerprints`] delimited by forward
+    /// Encodes the path as a sequence of decimal [`Fingerprint`]s delimited by forward
     /// slash (`/`) characters.
     pub fn name(&self) -> PathName where State: Hash {
         self.0.iter()
