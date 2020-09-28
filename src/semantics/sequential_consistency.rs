@@ -38,6 +38,7 @@ use std::fmt::Debug;
 /// [sequential consistency]: https://en.wikipedia.org/wiki/Sequential_consistency
 /// [`LinearizabilityTester`]: crate::semantics::LinearizabilityTester
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[allow(clippy::type_complexity)]
 pub struct SequentialConsistencyTester<ThreadId, RefObj: SequentialSpec> {
     init_ref_obj: RefObj,
     history_by_thread: BTreeMap<ThreadId, VecDeque<(RefObj::Op, RefObj::Ret)>>,
@@ -71,7 +72,7 @@ where
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
-        let in_flight_elem = self.in_flight_by_thread.entry(thread_id.into());
+        let in_flight_elem = self.in_flight_by_thread.entry(thread_id);
         if let btree_map::Entry::Occupied(occupied_op_entry) = in_flight_elem {
             self.is_valid_history = false;
             return Err(format!(
@@ -79,7 +80,7 @@ where
                     thread_id, occupied_op_entry.get(), self.history_by_thread));
         };
         in_flight_elem.or_insert(op);
-        self.history_by_thread.entry(thread_id).or_insert(VecDeque::new()); // `serialize` requires entry
+        self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new); // `serialize` requires entry
         Ok(self)
     }
 
@@ -92,18 +93,17 @@ where
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
-        let thread_id = thread_id.into();
         let op = match self.in_flight_by_thread.remove(&thread_id) {
             None => {
                 self.is_valid_history = false;
                 return Err(format!(
                     "There is no in-flight invocation for this thread ID. \
                      thread_id={:?}, unexpected_return={:?}, history={:?}",
-                    thread_id, ret, self.history_by_thread.entry(thread_id).or_insert(VecDeque::new())));
+                    thread_id, ret, self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new)));
             }
             Some(op) => op,
         };
-        self.history_by_thread.entry(thread_id).or_insert(VecDeque::new()).push_back((op, ret));
+        self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new).push_back((op, ret));
         Ok(self)
     }
 
@@ -134,6 +134,7 @@ where
             &self.in_flight_by_thread)
     }
 
+    #[allow(clippy::type_complexity)]
     fn serialize(
          valid_history: Vec<(RefObj::Op, RefObj::Ret)>, // total order
          ref_obj: &RefObj,

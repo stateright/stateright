@@ -108,7 +108,7 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
         match msg {
             GetOk(_, v) => {
                 let mut history = history.clone();
-                history.on_return(dst, RegisterRet::ReadOk(v.clone())).unwrap();
+                history.on_return(dst, RegisterRet::ReadOk(*v)).unwrap();
                 Some(history)
             }
             PutOk(_) => {
@@ -174,6 +174,7 @@ where
     type Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>;
     type State = RegisterActorState<ServerActor::State>;
 
+    #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) {
         match self {
             RegisterActor::Client { server_count } => {

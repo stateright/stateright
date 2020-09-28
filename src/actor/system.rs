@@ -201,7 +201,7 @@ impl<S: System> Model for SystemModel<S> {
                 let last_actor_state = &last_sys_state.actor_states[index];
                 let out = self.actors[index].on_timeout_out(id, last_actor_state);
                 let keep_timer = out.commands.iter()
-                    .any(|c| if let Command::SetTimer(_) = c { true } else { false });
+                    .any(|c| matches!(c, Command::SetTimer(_)));
                 if out.is_no_op() && keep_timer { return None; }
                 let mut next_sys_state = last_sys_state.clone();
 

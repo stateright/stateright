@@ -43,8 +43,8 @@ use std::fmt::Debug;
 /// [sequential consistency]: https://en.wikipedia.org/wiki/Sequential_consistency
 /// [`SequentialConsistencyTester`]: crate::semantics::SequentialConsistencyTester
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[allow(clippy::type_complexity)]
 pub struct LinearizabilityTester<ThreadId, RefObj: SequentialSpec> {
-
     init_ref_obj: RefObj,
     history_by_thread: BTreeMap<ThreadId, VecDeque<Complete<ThreadId, RefObj::Op, RefObj::Ret>>>,
     in_flight_by_thread: BTreeMap<ThreadId, InFlight<ThreadId, RefObj::Op>>,
@@ -81,7 +81,7 @@ where
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
-        let in_flight_elem = self.in_flight_by_thread.entry(thread_id.into());
+        let in_flight_elem = self.in_flight_by_thread.entry(thread_id);
         if let btree_map::Entry::Occupied(occupied_op_entry) = in_flight_elem {
             self.is_valid_history = false;
             let (_, op) = occupied_op_entry.get();
@@ -98,7 +98,7 @@ where
             }
         }).collect::<BTreeMap<_, _>>();
         in_flight_elem.or_insert((last_completed, op));
-        self.history_by_thread.entry(thread_id).or_insert(VecDeque::new()); // `serialize` requires entry
+        self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new); // `serialize` requires entry
         Ok(self)
     }
 
@@ -110,18 +110,17 @@ where
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
-        let thread_id = thread_id.into();
         let (completed, op) = match self.in_flight_by_thread.remove(&thread_id) {
             None => {
                 self.is_valid_history = false;
                 return Err(format!(
                     "There is no in-flight invocation for this thread ID. \
                      thread_id={:?}, unexpected_return={:?}, history={:?}",
-                    thread_id, ret, self.history_by_thread.entry(thread_id).or_insert(VecDeque::new())));
+                    thread_id, ret, self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new)));
             }
             Some(x) => x,
         };
-        self.history_by_thread.entry(thread_id).or_insert(VecDeque::new()).push_back((completed, op, ret));
+        self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new).push_back((completed, op, ret));
         Ok(self)
     }
 
@@ -155,11 +154,12 @@ where
             &self.in_flight_by_thread)
     }
 
+    #[allow(clippy::type_complexity)]
     fn serialize(
-         valid_history: Vec<(RefObj::Op, RefObj::Ret)>, // total order
-         ref_obj: &RefObj,
-         remaining_history_by_thread: &BTreeMap<T, VecDeque<(usize, Complete<T, RefObj::Op, RefObj::Ret>)>>, // partial order
-         in_flight_by_thread: &BTreeMap<T, InFlight<T, RefObj::Op>>) // potential extension of partial order
+        valid_history: Vec<(RefObj::Op, RefObj::Ret)>, // total order
+        ref_obj: &RefObj,
+        remaining_history_by_thread: &BTreeMap<T, VecDeque<(usize, Complete<T, RefObj::Op, RefObj::Ret>)>>, // partial order
+        in_flight_by_thread: &BTreeMap<T, InFlight<T, RefObj::Op>>) // potential extension of partial order
         -> Option<Vec<(RefObj::Op, RefObj::Ret)>>
     where
         RefObj: Clone,
@@ -183,7 +183,7 @@ where
                     // Ensure all pre-req operations were completed by peers
                     if let Some(ops) = remaining_history_by_thread.get(&peer_id) {
                         if let Some((next_peer_time, _)) = ops.iter().next() {
-                            if next_peer_time <= &min_peer_time { return true }
+                            if next_peer_time <= min_peer_time { return true }
                         }
                     }
                     false
@@ -203,7 +203,7 @@ where
                     // Ensure all pre-req operations were completed by peers
                     if let Some(ops) = remaining_history_by_thread.get(&peer_id) {
                         if let Some((next_peer_time, _)) = ops.iter().next() {
-                            if next_peer_time <= &min_peer_time { return true }
+                            if next_peer_time <= min_peer_time { return true }
                         }
                     }
                     false
