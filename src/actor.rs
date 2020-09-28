@@ -1,8 +1,8 @@
-//! This module provides an actor abstraction. See the [`system`] submodule for model checking.
-//! See the [`spawn`] submodule for a runtime that can run your actor over a real network. See the
-//! [`register`] submodule for an example wrapper.
+//! This module provides an [Actor] trait, which can be model checked by implementing
+//! [System] and calling [System::into_model()]. You can also [`spawn()`] the actor
+//! in which case it will communicate over a UDP socket.
 //!
-//! ## Example
+//! ## Model Checking Example
 //!
 //! In the following example two actors track events with logical clocks. A false claim is made
 //! that a clock will never reach 3, which the checker disproves by demonstrating that the actors
@@ -12,7 +12,6 @@
 //! ```
 //! use stateright::*;
 //! use stateright::actor::*;
-//! use stateright::actor::system::*;
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
@@ -97,16 +96,18 @@
 
 #[cfg(test)]
 mod actor_test_util;
-pub mod ordered_reliable_link;
-pub mod register;
-pub mod spawn;
-pub mod system;
-
+mod system;
+mod spawn;
 use std::hash::Hash;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 use std::net::SocketAddrV4;
 use std::ops::Range;
+
+pub mod ordered_reliable_link;
+pub mod register;
+pub use spawn::*;
+pub use system::*;
 
 /// Uniquely identifies an [`Actor`]. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.

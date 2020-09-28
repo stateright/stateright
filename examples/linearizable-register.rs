@@ -9,9 +9,8 @@
 
 use serde_derive::{Deserialize, Serialize};
 use stateright::{Model, ModelChecker};
-use stateright::actor::{Actor, Id, majority, Out};
+use stateright::actor::{Actor, DuplicatingNetwork, Id, majority, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
-use stateright::actor::system::{DuplicatingNetwork, model_peers, System, SystemState};
 use stateright::util::{HashableHashMap, HashableHashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -180,7 +179,7 @@ fn within_boundary(state: &SystemState<RegisterTestSystem<AbdActor, AbdMsg>>) ->
 #[cfg(test)]
 #[test]
 fn can_model_linearizable_register() {
-    use stateright::actor::system::SystemAction::Deliver;
+    use stateright::actor::SystemAction::Deliver;
     let mut checker = RegisterTestSystem {
         servers: vec![
             AbdActor { peers: model_peers(0, 2) },
@@ -210,7 +209,7 @@ fn can_model_linearizable_register() {
 
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
-    use stateright::actor::spawn::spawn;
+    use stateright::actor::spawn;
     use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 

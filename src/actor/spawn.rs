@@ -1,4 +1,4 @@
-//! A simple runtime for executing an actor mapping messages to JSON over UDP.
+//! Private module for selective re-export.
 
 use crate::actor::*;
 use std::fmt::Debug;
@@ -37,7 +37,7 @@ fn practically_never() -> Instant {
     Instant::now() + Duration::from_secs(3600 * 24 * 365 * 500)
 }
 
-/// Runs an actor by mapping messages to JSON over UDP.
+/// Runs an actor, sending messages over UDP.
 pub fn spawn<A, E: Debug + 'static>(
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     deserialize: fn(&[u8]) -> Result<A::Msg, E>,

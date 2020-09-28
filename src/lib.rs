@@ -4,7 +4,7 @@
 //!
 //! [`Model`] implementations indicate how a system evolves, such as a set of actors
 //! executing a distributed protocol on an IP network. Incidentally, that scenario
-//! is so common for model checking that Stateright includes an actor [`system`]
+//! is so common for model checking that Stateright includes an actor [`System`]
 //! model, and unlike many model checkers, Stateright is also able to [spawn] these
 //! actors on a real network.
 //!
@@ -119,8 +119,8 @@
 //! [`Model`]: Model
 //! [safety property]: https://en.wikipedia.org/wiki/Safety_property
 //! [`sometimes`]: Property::sometimes
-//! [spawn]: actor::spawn
-//! [`system`]: actor::system
+//! [spawn]: actor::spawn()
+//! [`System`]: actor::System
 
 #[warn(anonymous_parameters)]
 #[warn(missing_docs)]

@@ -2,9 +2,8 @@
 //! provide consensus.
 
 use stateright::{Model, ModelChecker};
-use stateright::actor::{Actor, Id, Out};
+use stateright::actor::{Actor, DuplicatingNetwork, Id, LossyNetwork, Out, System};
 use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
-use stateright::actor::system::{DuplicatingNetwork, System, LossyNetwork};
 
 #[derive(Clone)]
 struct SingleCopyActor;
@@ -34,8 +33,8 @@ impl Actor for SingleCopyActor {
 #[cfg(test)]
 #[test]
 fn can_model_single_copy_register() {
-    use stateright::actor::system::DuplicatingNetwork;
-    use stateright::actor::system::SystemAction::Deliver;
+    use stateright::actor::DuplicatingNetwork;
+    use stateright::actor::SystemAction::Deliver;
 
     // Consistent if only one server.
     let mut checker = RegisterTestSystem {
@@ -81,7 +80,7 @@ fn can_model_single_copy_register() {
 
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
-    use stateright::actor::spawn::spawn;
+    use stateright::actor::spawn;
     use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 

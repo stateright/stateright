@@ -1,4 +1,4 @@
-//! Models semantics for an actor system on a lossy network that can redeliver messages.
+//! Private module for selective re-export.
 
 use crate::*;
 use crate::actor::*;
