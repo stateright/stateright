@@ -119,7 +119,7 @@
 //! [`Model`]: Model
 //! [safety property]: https://en.wikipedia.org/wiki/Safety_property
 //! [`sometimes`]: Property::sometimes
-//! [spawn]: actor::system::spawn
+//! [spawn]: actor::spawn
 //! [`system`]: actor::system
 
 mod checker;
