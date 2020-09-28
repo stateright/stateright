@@ -1,10 +1,14 @@
 //! Private module for selective re-export.
 
 mod bfs;
-use crate::*;
+use crate::{fingerprint, Fingerprint, Expectation, Model};
+mod dfs;
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::hash::Hash;
 
 pub use bfs::*;
+pub use dfs::*;
 
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
 /// You can convert to a `Vec<_>` with [`path.into_vec()`]. If you only need the actions, then use
@@ -15,6 +19,46 @@ pub use bfs::*;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
+    /// Constructs a path from a model and a sequence of fingerprints.
+    fn from_model_and_fingerprints<M>(model: &M, mut fingerprints: Vec<Fingerprint>) -> Path<M::State, M::Action>
+    where M: Model<State = State, Action = Action>,
+          M::State: Hash,
+    {
+        // Begin unwinding by determining the init step.
+        fingerprints.reverse();
+        let init_states = model.init_states();
+        let mut last_state = init_states.into_iter()
+            .find(|s| {
+                let fp = fingerprints.pop().expect("empty path is invalid");
+                fingerprint(&s) == fp
+            })
+            .expect("no state matches fingerprint");
+
+        // Then continue with the remaining steps.
+        let mut output = Vec::new();
+        while let Some(next_fp) = fingerprints.pop() {
+            let mut actions = Vec::new();
+            model.actions(
+                &last_state,
+                &mut actions);
+
+            let (action, next_state) = model
+                .next_steps(&last_state).into_iter()
+                .find_map(|(a,s)| {
+                    if fingerprint(&s) == next_fp {
+                        Some((a, s))
+                    } else {
+                        None
+                    }
+                }).expect("no state matches fingerprint");
+            output.push((last_state, Some(action)));
+
+            last_state = next_state;
+        }
+        output.push((last_state, None));
+        Path(output)
+    }
+
     /// Extracts the last state.
     pub fn last_state(&self) -> &State {
         &self.0.last().unwrap().0
@@ -44,8 +88,8 @@ impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
 /// An identifier that fully qualifies a [`Path`].
 pub type PathName = String;
 
-/// A trait providing convenience methods for [`Model`] checkers.
-/// Implementations include [`BfsChecker`].
+/// A trait providing convenience methods for [`Model`] checkers. Implemented by
+/// [`BfsChecker`] and [`DfsChecker`].
 pub trait ModelChecker<M: Model> {
     /// Returns a reference to this checker's [`Model`].
     fn model(&self) -> &M;

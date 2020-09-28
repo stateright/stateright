@@ -11,7 +11,12 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasher, BuildHasherDefault};
 
 /// Generates every state reachable by a model, and verifies that all properties hold.
+/// In contrast with [`DfsChecker`], this checker performs a depth first search.
 /// Can be instantiated with [`Model::checker`] or [`Model::checker_with_threads`].
+///
+/// See the implemented [`ModelChecker`] trait for helper methods.
+///
+/// [`DfsChecker`]: crate::DfsChecker
 pub struct BfsChecker<M: Model> {
     thread_count: usize,
     model: M,
@@ -265,54 +270,23 @@ where M: Model,
         // uses a similar technique, which is documented in the paper "Model Checking TLA+
         // Specifications" by Yu, Manolios, and Lamport.
 
-        let model = &self.model;
         let sources = &self.sources;
-
-        // 1. Build a stack of digests.
-        let mut digests = Vec::new();
-        let mut next_digest = fp;
-        while let Some(source) = sources.get(&next_digest) {
+        let mut fingerprints = Vec::new();
+        let mut next_fp = fp;
+        while let Some(source) = sources.get(&next_fp) {
             match *source {
-                Some(prev_digest) => {
-                    digests.push(next_digest);
-                    next_digest = prev_digest;
+                Some(prev_fingerprint) => {
+                    fingerprints.push(next_fp);
+                    next_fp = prev_fingerprint;
                 },
                 None => {
-                    digests.push(next_digest);
+                    fingerprints.push(next_fp);
                     break;
                 },
             }
         }
-
-        // 2. Begin unwinding by determining the init step.
-        let init_states = model.init_states();
-        let mut last_state = init_states.into_iter()
-            .find(|s| fingerprint(&s) == digests.pop().unwrap())
-            .unwrap();
-
-        // 3. Then continue with the remaining steps.
-        let mut output = Vec::new();
-        while let Some(next_digest) = digests.pop() {
-            let mut actions = Vec::new();
-            model.actions(
-                &last_state,
-                &mut actions);
-
-            let (action, next_state) = model
-                .next_steps(&last_state).into_iter()
-                .find_map(|(a,s)| {
-                    if fingerprint(&s) == next_digest {
-                        Some((a, s))
-                    } else {
-                        None
-                    }
-                }).expect("state matching recorded digest");
-            output.push((last_state, Some(action)));
-
-            last_state = next_state;
-        }
-        output.push((last_state, None));
-        Path(output)
+        fingerprints.reverse();
+        Path::from_model_and_fingerprints(&self.model, fingerprints)
     }
 }
 

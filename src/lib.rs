@@ -15,7 +15,7 @@
 //! is reachable, such as the ability for a distributed system to process a write
 //! request.
 //!
-//! A [`ModelChecker`] (such as [`BfsChecker`]) will attempt to [discover] a counterexample
+//! A [`ModelChecker`] (such as [`BfsChecker`] or [`DfsChecker`]) will attempt to [discover] a counterexample
 //! for every `always` property and an example for every `sometimes` property,
 //! and these examples/counterexamples are indicated by sequences of system steps
 //! known as [`Path`]s (also known as traces or behaviors). The presence of an
