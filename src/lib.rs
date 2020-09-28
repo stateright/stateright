@@ -122,6 +122,9 @@
 //! [spawn]: actor::spawn
 //! [`system`]: actor::system
 
+#[warn(anonymous_parameters)]
+#[warn(missing_docs)]
+
 mod checker;
 mod explorer;
 use std::fmt::Debug;
