@@ -102,8 +102,7 @@ where M: Model,
 
                 // Skip if already generated.
                 let next_fingerprint = fingerprint(&next_state);
-                if generated.contains(&next_fingerprint) { continue }
-                generated.insert(next_fingerprint);
+                if !generated.insert(next_fingerprint) { continue }
 
                 // Otherwise checking is applicable.
                 let mut next_fingerprints = Vec::with_capacity(1 + fingerprints.len());
