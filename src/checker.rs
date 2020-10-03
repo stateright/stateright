@@ -43,12 +43,9 @@ impl<State, Action> Path<State, Action> {
             let (action, next_state) = model
                 .next_steps(&last_state).into_iter()
                 .find_map(|(a,s)| {
-                    println!("{} == {}", fingerprint(&s), next_fp);
                     if fingerprint(&s) == next_fp {
-                        println!("match");
                         Some((a, s))
                     } else {
-                        println!("no match");
                         None
                     }
                 }).expect("no next state matches fingerprint");
