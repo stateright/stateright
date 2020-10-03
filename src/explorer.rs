@@ -2,7 +2,6 @@
 
 use actix_web::{*, web::Json};
 use crate::*;
-use crate::checker::PathName;
 use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
 use std::net::ToSocketAddrs;
@@ -50,7 +49,7 @@ pub struct StatusView {
     model: String,
     pending: usize,
     generated: usize,
-    discoveries: HashMap<&'static str, PathName>,
+    discoveries: HashMap<&'static str, String>, // property name -> encoded path
 }
 
 pub struct Context<M> {
@@ -120,7 +119,7 @@ where C: 'static + ModelChecker<M> + Send,
             pending: self.pending_count(),
             generated: self.generated_count(),
             discoveries: self.discoveries().into_iter()
-                .map(|(name, path)| (name, path.name()))
+                .map(|(name, path)| (name, path.encode()))
                 .collect(),
         }
     }

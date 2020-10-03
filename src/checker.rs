@@ -101,7 +101,7 @@ impl<State, Action> Path<State, Action> {
 
     /// Encodes the path as a sequence of opaque "fingerprints" delimited by forward
     /// slash (`/`) characters.
-    pub fn name(&self) -> PathName where State: Hash {
+    pub fn encode(&self) -> String where State: Hash {
         self.0.iter()
             .map(|(s, _a)| format!("{}", fingerprint(s)))
             .collect::<Vec<String>>()
@@ -111,9 +111,6 @@ impl<State, Action> Path<State, Action> {
 impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
     fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
 }
-
-/// An identifier that fully qualifies a [`Path`].
-pub type PathName = String;
 
 /// A trait providing convenience methods for [`Model`] checkers. Implemented by
 /// [`BfsChecker`] and [`DfsChecker`].
