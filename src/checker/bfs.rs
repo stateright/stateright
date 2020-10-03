@@ -11,7 +11,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasher, BuildHasherDefault};
 
 /// Generates every state reachable by a model, and verifies that all properties hold.
-/// In contrast with [`DfsChecker`], this checker performs a depth first search.
+/// In contrast with [`DfsChecker`], this checker performs a breadth first search.
 /// Can be instantiated with [`Model::checker`] or [`Model::checker_with_threads`].
 ///
 /// See the implemented [`ModelChecker`] trait for helper methods.
