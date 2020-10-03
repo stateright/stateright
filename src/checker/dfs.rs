@@ -4,7 +4,7 @@ use crate::{Fingerprint, fingerprint, Model, Property};
 use crate::checker::{Expectation, ModelChecker, Path};
 use dashmap::DashSet;
 use nohash_hasher::NoHashHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
 
 /// Generates every state reachable by a model, and verifies that all properties hold.
@@ -43,7 +43,9 @@ where M: Model,
                 path.as_ref().map(|path| {
                     (
                         property.name,
-                        Path::from_model_and_fingerprints(self.model(), path.clone())
+                        Path::from_model_and_fingerprints(
+                            self.model(),
+                            VecDeque::from(path.clone()))
                     )
                 })
             })

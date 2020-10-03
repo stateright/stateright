@@ -271,21 +271,20 @@ where M: Model,
         // Specifications" by Yu, Manolios, and Lamport.
 
         let sources = &self.sources;
-        let mut fingerprints = Vec::new();
+        let mut fingerprints = VecDeque::new();
         let mut next_fp = fp;
         while let Some(source) = sources.get(&next_fp) {
             match *source {
                 Some(prev_fingerprint) => {
-                    fingerprints.push(next_fp);
+                    fingerprints.push_front(next_fp);
                     next_fp = prev_fingerprint;
                 },
                 None => {
-                    fingerprints.push(next_fp);
+                    fingerprints.push_front(next_fp);
                     break;
                 },
             }
         }
-        fingerprints.reverse();
         Path::from_model_and_fingerprints(&self.model, fingerprints)
     }
 }

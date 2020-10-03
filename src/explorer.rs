@@ -7,7 +7,7 @@ use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
 use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct StateView<State, Action> {
@@ -205,7 +205,7 @@ where
             let relevant_len = fingerprints_str.len() - 1;
             fingerprints_str.truncate(relevant_len);
         }
-        let fingerprints: Vec<_> = fingerprints_str.split('/').filter_map(|fp| fp.parse::<Fingerprint>().ok()).collect();
+        let fingerprints: VecDeque<_> = fingerprints_str.split('/').filter_map(|fp| fp.parse::<Fingerprint>().ok()).collect();
 
         // ensure all but the first string (which is empty) were parsed
         if fingerprints.len() + 1 != fingerprints_str.split('/').count() {
@@ -220,7 +220,7 @@ where
             for state in model.init_states() {
                 results.push(StateView { action: None, outcome: None, state });
             }
-        } else if let Some(last_state) = model.follow_fingerprints(model.init_states(), fingerprints) {
+        } else if let Some(last_state) = Path::final_state::<M>(model, fingerprints) {
             // Must generate the actions three times because they are consumed by `next_state`
             // and `display_outcome`.
             let mut actions1 = Vec::new();

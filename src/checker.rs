@@ -3,7 +3,7 @@
 mod bfs;
 use crate::{fingerprint, Fingerprint, Expectation, Model};
 mod dfs;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -20,23 +20,21 @@ pub use dfs::*;
 pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
     /// Constructs a path from a model and a sequence of fingerprints.
-    fn from_model_and_fingerprints<M>(model: &M, mut fingerprints: Vec<Fingerprint>) -> Path<M::State, M::Action>
+    fn from_model_and_fingerprints<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Path<M::State, M::Action>
     where M: Model<State = State, Action = Action>,
           M::State: Hash,
     {
-        // Begin unwinding by determining the init step.
-        fingerprints.reverse();
-        let init_states = model.init_states();
-        let mut last_state = init_states.into_iter()
+        let init_print = match fingerprints.pop_front() {
+            Some(init_print) => init_print,
+            None => panic!("empty path is invalid"),
+        };
+        let mut last_state = model.init_states().into_iter()
             .find(|s| {
-                let fp = fingerprints.pop().expect("empty path is invalid");
-                fingerprint(&s) == fp
+                fingerprint(&s) == init_print
             })
-            .expect("no state matches fingerprint");
-
-        // Then continue with the remaining steps.
+            .expect("no init state matches fingerprint");
         let mut output = Vec::new();
-        while let Some(next_fp) = fingerprints.pop() {
+        while let Some(next_fp) = fingerprints.pop_front() {
             let mut actions = Vec::new();
             model.actions(
                 &last_state,
@@ -45,18 +43,45 @@ impl<State, Action> Path<State, Action> {
             let (action, next_state) = model
                 .next_steps(&last_state).into_iter()
                 .find_map(|(a,s)| {
+                    println!("{} == {}", fingerprint(&s), next_fp);
                     if fingerprint(&s) == next_fp {
+                        println!("match");
                         Some((a, s))
                     } else {
+                        println!("no match");
                         None
                     }
-                }).expect("no state matches fingerprint");
+                }).expect("no next state matches fingerprint");
             output.push((last_state, Some(action)));
 
             last_state = next_state;
         }
         output.push((last_state, None));
         Path(output)
+    }
+
+    /// Determines the final state associated with a particular fingerprint path.
+    pub(crate) fn final_state<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Option<M::State>
+    where M: Model<State = State, Action = Action>,
+          M::State: Hash,
+    {
+        let init_print = match fingerprints.pop_front() {
+            Some(init_print) => init_print,
+            None => return None,
+        };
+        let mut matching_state =
+            match model.init_states().into_iter().find(|s| fingerprint(&s) == init_print) {
+                Some(matching_state) => matching_state,
+                None => return None,
+            };
+        while let Some(next_print) = fingerprints.pop_front() {
+            matching_state =
+                match model.next_states(&matching_state).into_iter().find(|s| fingerprint(&s) == next_print) {
+                    Some(matching_state) => matching_state,
+                    None => return None,
+                };
+        }
+        Some(matching_state)
     }
 
     /// Extracts the last state.
@@ -74,7 +99,7 @@ impl<State, Action> Path<State, Action> {
         self.into()
     }
 
-    /// Encodes the path as a sequence of decimal [`Fingerprint`]s delimited by forward
+    /// Encodes the path as a sequence of opaque "fingerprints" delimited by forward
     /// slash (`/`) characters.
     pub fn name(&self) -> PathName where State: Hash {
         self.0.iter()
@@ -263,5 +288,30 @@ pub trait ModelChecker<M: Model> {
         assert!(self.is_done(),
                 "Counterexample for '{}' not found, but model checking is incomplete.",
                 name);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_util::linear_equation_solver::LinearEquation;
+
+    #[test]
+    fn can_build_path_from_fingerprints() {
+        let fp = |a: u8, b: u8| fingerprint(&(a, b));
+        let model = LinearEquation { a: 2, b: 10, c: 14 };
+        let fingerprints = VecDeque::from(vec![
+            fp(0, 0),
+            fp(0, 1),
+            fp(1, 1),
+            fp(2, 1), // final state
+        ]);
+        let path = Path::from_model_and_fingerprints(&model, fingerprints.clone());
+        assert_eq!(
+            path.last_state(),
+            &(2,1));
+        assert_eq!(
+            path.last_state(),
+            &Path::final_state(&model, fingerprints).unwrap());
     }
 }

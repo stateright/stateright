@@ -194,28 +194,6 @@ pub trait Model: Sized {
             .collect()
     }
 
-    /// Determines the final state associated with a particular fingerprint path.
-    fn follow_fingerprints(&self, init_states: Vec<Self::State>, fingerprints: Vec<Fingerprint>) -> Option<Self::State>
-    where Self::State: Hash
-    {
-        // Split the fingerprints into a head and tail. There are more efficient ways to do this,
-        // but since this function is not performance sensitive, the implementation favors clarity.
-        let mut remaining_fps = fingerprints;
-        let expected_fp = remaining_fps.remove(0);
-
-        for init_state in init_states {
-            if fingerprint(&init_state) == expected_fp {
-                let next_states = self.next_states(&init_state);
-                return if remaining_fps.is_empty() {
-                    Some(init_state)
-                } else {
-                    self.follow_fingerprints(next_states, remaining_fps)
-                }
-            }
-        }
-        None
-    }
-
     /// Generates the expected properties for this model.
     fn properties(&self) -> Vec<Property<Self>> { Vec::new() }
 
@@ -288,11 +266,11 @@ pub enum Expectation {
 }
 
 /// A state identifier. See [`fingerprint`].
-pub type Fingerprint = std::num::NonZeroU64;
+type Fingerprint = std::num::NonZeroU64;
 
 /// Converts a state to a [`Fingerprint`].
 #[inline]
-pub fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
+fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
     let mut hasher = stable::hasher();
     value.hash(&mut hasher);
     Fingerprint::new(hasher.finish()).expect("hasher returned zero, an invalid fingerprint")
