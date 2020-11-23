@@ -15,7 +15,7 @@
 //! is reachable, such as the ability for a distributed system to process a write
 //! request.
 //!
-//! A [`ModelChecker`] (such as [`BfsChecker`] or [`DfsChecker`]) will attempt to [discover] a counterexample
+//! A [`Checker`] will attempt to [discover] a counterexample
 //! for every `always` property and an example for every `sometimes` property,
 //! and these examples/counterexamples are indicated by sequences of system steps
 //! known as [`Path`]s (also known as traces or behaviors). The presence of an
@@ -29,7 +29,8 @@
 //! but in most cases for a real scenario you would have an `always` property at
 //! a minimum.
 //!
-//! **TIP**: More sophisticated examples
+//! **TIP**: see the [`actor`] module documentation for an actor system example.
+//! More sophisticated examples
 //! are available in the [`examples/` directory of the repository](https://github.com/stateright/stateright/tree/master/examples)
 //!
 //! ```rust
@@ -81,28 +82,31 @@
 //!         })]
 //!     }
 //! }
-//! let example = Puzzle(vec![1, 4, 2,
-//!                           3, 5, 8,
-//!                           6, 7, 0])
-//!     .checker().check(100).assert_example("solved");
-//! assert_eq!(
-//!     example,
-//!     Path(vec![
-//!         (vec![1, 4, 2,
-//!               3, 5, 8,
-//!               6, 7, 0], Some(Slide::Down)),
-//!         (vec![1, 4, 2,
-//!               3, 5, 0,
-//!               6, 7, 8], Some(Slide::Right)),
-//!         (vec![1, 4, 2,
-//!               3, 0, 5,
-//!               6, 7, 8], Some(Slide::Down)),
-//!         (vec![1, 0, 2,
-//!               3, 4, 5,
-//!               6, 7, 8], Some(Slide::Right)),
-//!         (vec![0, 1, 2,
-//!               3, 4, 5,
-//!               6, 7, 8], None)]));
+//! Puzzle(vec![1, 4, 2,
+//!             3, 5, 8,
+//!             6, 7, 0])
+//!     .checker().spawn_bfs().join().assert_discovery("solved", vec![
+//!         Slide::Down,
+//!         // ... results in:
+//!         //       [1, 4, 2,
+//!         //        3, 5, 0,
+//!         //        6, 7, 8]
+//!         Slide::Right,
+//!         // ... results in:
+//!         //       [1, 4, 2,
+//!         //        3, 0, 5,
+//!         //        6, 7, 8]
+//!         Slide::Down,
+//!         // ... results in:
+//!         //       [1, 0, 2,
+//!         //        3, 4, 5,
+//!         //        6, 7, 8]
+//!         Slide::Right,
+//!         // ... results in:
+//!         //       [0, 1, 2,
+//!         //        3, 4, 5,
+//!         //        6, 7, 8]
+//!     ]);
 //! ```
 //!
 //! # What to Read Next
@@ -114,7 +118,7 @@
 //! in the Stateright repository.
 //!
 //! [`always`]: Property::always
-//! [discover]: ModelChecker::discoveries
+//! [discover]: Checker::discoveries
 //! [invariant]: https://en.wikipedia.org/wiki/Invariant_(computer_science)
 //! [`Model`]: Model
 //! [safety property]: https://en.wikipedia.org/wiki/Safety_property
@@ -126,7 +130,6 @@
 #[warn(missing_docs)]
 
 mod checker;
-mod explorer;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 #[cfg(test)]
@@ -134,18 +137,15 @@ mod test_util;
 
 pub mod actor;
 pub use checker::*;
-pub use explorer::Explorer;
 pub mod semantics;
 pub mod util;
 
-/// This is the primary abstraction for Stateright. Implementations model a possibly
+/// This is the primary abstraction for Stateright. Implementations model a
 /// nondeterministic system's evolution. If you are using Stateright's actor framework,
 /// then you do not need to implement this interface and can instead implement
-/// [`actor::Actor`] and [`actor::system::System`].
+/// [`actor::Actor`] and [`actor::System`].
 ///
-/// See the [`ModelChecker`] trait and the [`BfsChecker`] implementation for validating
-/// model [`Property`]s. You can instantiate a checker by calling [`Model::checker`]
-/// or [`Model::checker_with_threads`].
+/// You can instantiate a model [`CheckerBuilder`] by calling [`Model::checker`].
 pub trait Model: Sized {
     /// The type of state upon which this model operates.
     type State;
@@ -197,18 +197,25 @@ pub trait Model: Sized {
     /// Generates the expected properties for this model.
     fn properties(&self) -> Vec<Property<Self>> { Vec::new() }
 
+    /// Looks up a property by name. Panics if the property does not exist.
+    fn property(&self, name: &'static str) -> Property<Self> {
+        if let Some(p) = self.properties().into_iter().find(|p| p.name == name) {
+            p
+        } else {
+            let available: Vec<_> = self.properties().iter().map(|p| p.name).collect();
+            panic!("Unknown property. requested={}, available={:?}", name, available);
+        }
+    }
+
     /// Indicates whether a state is within the state space that should be model checked.
     fn within_boundary(&self, _state: &Self::State) -> bool { true }
 
-    /// Initializes a single threaded model checker.
-    fn checker(self) -> BfsChecker<Self> {
-        self.checker_with_threads(1)
-    }
-
-    /// Initializes a model checker. The visitation order will be nondeterministic if
-    /// `thread_count > 1`.
-    fn checker_with_threads(self, thread_count: usize) -> BfsChecker<Self> {
-        BfsChecker::new(self).with_threads(thread_count)
+    /// Instantiates a [`CheckerBuilder`] for this model.
+    fn checker(self) -> CheckerBuilder<Self>
+    where Self: Send + Sync + 'static,
+          Self::State: Hash + Send + Sync,
+    {
+        CheckerBuilder::new(self)
     }
 }
 
@@ -274,6 +281,22 @@ fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
     let mut hasher = stable::hasher();
     value.hash(&mut hasher);
     Fingerprint::new(hasher.finish()).expect("hasher returned zero, an invalid fingerprint")
+}
+
+/// Implemented only for rustdoc. Do not take a dependency on this. It will likely be removed in a
+/// future version of this library.
+impl Model for () {
+    type State = ();
+    type Action = ();
+    fn init_states(&self) -> Vec<Self::State> {
+        vec![()]
+    }
+    fn actions(&self, _: &Self::State, actions: &mut Vec<Self::Action>) {
+        actions.push(())
+    }
+    fn next_state(&self, _: &Self::State, _: Self::Action) -> Option<Self::State> {
+        Some(())
+    }
 }
 
 // Helpers for stable hashing, wherein hashes should not vary across builds.

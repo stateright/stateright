@@ -8,7 +8,7 @@
 //! http://muratbuffalo.blogspot.com/2012/05/replicatedfault-tolerant-atomic-storage.html
 
 use serde_derive::{Deserialize, Serialize};
-use stateright::{Model, ModelChecker};
+use stateright::{Checker, Model};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, majority, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 use stateright::util::{HashableHashMap, HashableHashSet};
@@ -180,7 +180,9 @@ fn within_boundary(state: &SystemState<RegisterTestSystem<AbdActor, AbdMsg>>) ->
 #[test]
 fn can_model_linearizable_register() {
     use stateright::actor::SystemAction::Deliver;
-    let mut checker = RegisterTestSystem {
+
+    // BFS
+    let checker = RegisterTestSystem {
         servers: vec![
             AbdActor { peers: model_peers(0, 2) },
             AbdActor { peers: model_peers(1, 2) },
@@ -189,9 +191,36 @@ fn can_model_linearizable_register() {
         within_boundary,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker();
-    checker.check(1_000).assert_properties();
-    assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
+    }.into_model().checker().spawn_bfs().join();
+    checker.assert_properties();
+    checker.assert_discovery("value chosen", vec![
+        Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(3)) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckQuery(3, (0, Id::from(0)), '\u{0}')) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Record(3, (1, Id::from(1)), 'B')) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckRecord(3)) },
+        Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
+        Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Query(6)) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckQuery(6, (1, Id::from(1)), 'B')) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(6, (1, Id::from(1)), 'B')) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(6)) },
+    ]);
+    assert_eq!(checker.generated_count(), 575);
+
+    // DFS
+    let checker = RegisterTestSystem {
+        servers: vec![
+            AbdActor { peers: model_peers(0, 2) },
+            AbdActor { peers: model_peers(1, 2) },
+        ],
+        client_count: 2,
+        within_boundary,
+        duplicating_network: DuplicatingNetwork::No,
+        .. Default::default()
+    }.into_model().checker().spawn_dfs().join();
+    checker.assert_properties();
+    checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(3)) },
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(AckQuery(3, (0, Id::from(0)), '\u{0}')) },
@@ -210,10 +239,10 @@ fn can_model_linearizable_register() {
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
     use stateright::actor::spawn;
-    use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+    env_logger::init_from_env(env_logger::Env::default()
+        .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
     let mut app = App::new("wor")
         .about("linearizable register")
@@ -250,9 +279,9 @@ fn main() {
                 within_boundary,
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
-            }.into_model()
-                .checker_with_threads(num_cpus::get())
-                .check_and_report(&mut std::io::stdout());
+            }.into_model().checker()
+                .threads(num_cpus::get()).spawn_dfs()
+                .report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let client_count = std::cmp::min(
@@ -270,7 +299,9 @@ fn main() {
                 within_boundary,
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
-            }.into_model().checker().serve(address).unwrap();
+            }.into_model().checker()
+                .threads(num_cpus::get()).spawn_bfs()
+                .serve(address);
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

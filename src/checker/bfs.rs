@@ -1,376 +1,319 @@
 //! Private module for selective re-export.
 
-use core::hash::Hash;
-use crate::{fingerprint, Fingerprint, Model, Property};
-use crate::checker::{Expectation, ModelChecker, Path};
+use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property};
+use crate::checker::{Checker, Expectation, Path};
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use id_set::IdSet;
 use nohash_hasher::NoHashHasher;
+use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
-use std::hash::{BuildHasher, BuildHasherDefault};
+use std::hash::{BuildHasherDefault, Hash};
+use std::sync::Arc;
 
-/// Generates every state reachable by a model, and verifies that all properties hold.
-/// In contrast with [`DfsChecker`], this checker performs a breadth first search.
-/// Can be instantiated with [`Model::checker`] or [`Model::checker_with_threads`].
-///
-/// See the implemented [`ModelChecker`] trait for helper methods.
-///
-/// [`DfsChecker`]: crate::DfsChecker
-pub struct BfsChecker<M: Model> {
+pub(crate) struct BfsChecker<M: Model> {
+    model: Arc<M>,
     thread_count: usize,
-    model: M,
-    pending: VecDeque<(Fingerprint, EventuallyBits, M::State)>,
-    sources: DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
-    discoveries: DashMap<&'static str, Fingerprint>,
+    handles: Vec<std::thread::JoinHandle<()>>,
+    job_market: Arc<Mutex<JobMarket<M::State>>>,
+    generated: Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
+    discoveries: Arc<DashMap<&'static str, Fingerprint>>,
+}
+struct JobMarket<State> { wait_count: usize, jobs: Vec<Job<State>> }
+type Job<State> = VecDeque<(State, Fingerprint)>;
+
+impl<M> BfsChecker<M>
+where M: Model + Send + Sync + 'static,
+      M::State: Hash + Send + 'static,
+{
+    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
+        let model = Arc::new(options.model);
+        let target_generated_count = options.target_generated_count;
+        let thread_count = options.thread_count;
+        let visitor = Arc::new(options.visitor);
+        let property_count = model.properties().len();
+
+        let generated = Arc::new(DashMap::default());
+        for s in model.init_states() { generated.insert(fingerprint(&s), None); }
+        let pending: VecDeque<_> = model.init_states().into_iter()
+            .map(|s| {
+                let fp = fingerprint(&s);
+                (s, fp)
+            })
+            .collect();
+        let discoveries = Arc::new(DashMap::default());
+        let mut handles = Vec::new();
+
+        let has_new_job = Arc::new(Condvar::new());
+        let job_market = Arc::new(Mutex::new(JobMarket {
+            wait_count: thread_count,
+            jobs: vec![pending],
+        }));
+        for t in 0..thread_count {
+            let model = Arc::clone(&model);
+            let visitor = Arc::clone(&visitor);
+            let has_new_job = Arc::clone(&has_new_job);
+            let job_market = Arc::clone(&job_market);
+            let generated = Arc::clone(&generated);
+            let discoveries = Arc::clone(&discoveries);
+            handles.push(std::thread::spawn(move || {
+                log::debug!("{}: Thread started.", t);
+                let mut pending = VecDeque::new();
+                loop {
+                    // Step 1: Do work.
+                    if pending.is_empty() {
+                        pending = {
+                            let mut job_market = job_market.lock();
+                            match job_market.jobs.pop() {
+                                None => {
+                                    // Done if all are waiting.
+                                    if job_market.wait_count == thread_count {
+                                        log::debug!("{}: No more work. Shutting down... gen={}", t, generated.len());
+                                        has_new_job.notify_all();
+                                        return
+                                    }
+
+                                    // Otherwise more work may become available.
+                                    log::trace!("{}: No jobs. Awaiting. blocked={}", t, job_market.wait_count);
+                                    has_new_job.wait(&mut job_market);
+                                    continue
+                                }
+                                Some(job) => {
+                                    job_market.wait_count -= 1;
+                                    log::trace!("{}: Job found. size={}, blocked={}", t, job.len(), job_market.wait_count);
+                                    job
+                                }
+                            }
+                        };
+                    }
+                    Self::check_block(&*model, &*generated, &mut pending, &*discoveries, &*visitor, 1500);
+                    if discoveries.len() == property_count {
+                        log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
+                        let mut job_market = job_market.lock();
+                        job_market.wait_count += 1;
+                        drop(job_market);
+                        has_new_job.notify_all();
+                        return
+                    }
+                    if let Some(target_generated_count) = target_generated_count {
+                        if target_generated_count.get() <= generated.len() {
+                            log::debug!("{}: Reached target generated count. Shutting down... gen={}", t, generated.len());
+                            return;
+                        }
+                    }
+
+                    // Step 2: Share work.
+                    if pending.len() > 1 && thread_count > 1 {
+                        let mut job_market = job_market.lock();
+                        let pieces = 1 + std::cmp::min(job_market.wait_count as usize, pending.len());
+                        let size = pending.len() / pieces;
+                        for _ in 1..pieces {
+                            log::trace!("{}: Sharing work. blocked={}, size={}", t, job_market.wait_count, size);
+                            job_market.jobs.push(pending.split_off(pending.len() - size));
+                            has_new_job.notify_one();
+                        }
+                    } else if pending.is_empty() {
+                        let mut job_market = job_market.lock();
+                        job_market.wait_count += 1;
+                    }
+                }
+            }));
+        }
+        BfsChecker {
+            model,
+            thread_count,
+            handles,
+            job_market,
+            generated,
+            discoveries,
+        }
+    }
+
+    fn check_block(
+        model: &M,
+        generated: &DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
+        pending: &mut Job<M::State>,
+        discoveries: &DashMap<&'static str, Fingerprint>,
+        visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
+        mut max_count: usize)
+    {
+        let properties = model.properties();
+
+        let mut actions = Vec::new();
+        loop {
+            // Done if reached max count.
+            if max_count == 0 { return }
+            max_count -= 1;
+
+            // Done if none pending.
+            let (state, state_fp) = match pending.pop_back() {
+                None => return,
+                Some(pair) => pair,
+            };
+            if let Some(visitor) = visitor {
+                visitor.visit(reconstruct_path(model, generated, state_fp));
+            }
+
+            // Done if discoveries found for all properties.
+            let mut is_awaiting_discoveries = false;
+            for property in &properties {
+                if discoveries.contains_key(property.name) { continue }
+                match property {
+                    Property { expectation: Expectation::Always, condition: always, .. } => {
+                        if !always(model, &state) {
+                            // Races other threads, but that's fine.
+                            discoveries.insert(property.name, state_fp);
+                        } else {
+                            is_awaiting_discoveries = true;
+                        }
+                    },
+                    Property { expectation: Expectation::Sometimes, condition: sometimes, .. } => {
+                        if sometimes(model, &state) {
+                            // Races other threads, but that's fine.
+                            discoveries.insert(property.name, state_fp);
+                        } else {
+                            is_awaiting_discoveries = true;
+                        }
+                    },
+                    Property { expectation: Expectation::Eventually, condition: _eventually, .. } => {
+                        // FIXME: port over Graydon's implementation
+                    }
+                }
+
+            }
+            if !is_awaiting_discoveries { return }
+
+            // Otherwise enqueue newly generated states and fingerprint traces.
+            model.actions(&state, &mut actions);
+            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
+            for next_state in next_states {
+                // Skip if outside boundary.
+                if !model.within_boundary(&next_state) { continue }
+
+                // Skip if already generated.
+                let next_fingerprint = fingerprint(&next_state);
+                if let Entry::Vacant(next_entry) = generated.entry(next_fingerprint) {
+                    next_entry.insert(Some(state_fp));
+                } else { continue }
+
+                // Otherwise checking is applicable.
+                pending.push_front((next_state, next_fingerprint));
+            }
+        }
+    }
 }
 
-/// EventuallyBits tracks one bit per 'eventually' property being checked. Properties are assigned
-/// bit-numbers just by counting the 'eventually' properties up from 0 in the properties list. If a
-/// bit is present in a bitset, the property has _not_ been found on this path yet. Bits are removed
-/// from the propagating bitset when we find a state satisfying an `eventually` property; these
-/// states are not considered discoveries. Only if we hit the "end" of a path (i.e. return to a known
-/// state / no further state) with any of these bits still 1, the path is considered a discovery,
-/// a counterexample to the property.
-type EventuallyBits = IdSet;
-
-impl<M> ModelChecker<M> for BfsChecker<M>
-where M: Model + Sync,
-      M::State: Hash + Send + Sync,
+impl<M> Checker<M> for BfsChecker<M>
+where M: Model,
+      M::State: Hash,
 {
     fn model(&self) -> &M { &self.model }
 
-    fn generated_count(&self) -> usize { self.sources.len() }
-
-    fn pending_count(&self) -> usize { self.pending.len() }
+    fn generated_count(&self) -> usize { self.generated.len() }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
-        self.model().properties().into_iter()
-            .filter_map(|p| {
-                self.discoveries.get(p.name)
-                    .map(|d| (p.name, self.path(*d)))
+        self.discoveries.iter()
+            .map(|mapref| {
+                (
+                    <&'static str>::clone(mapref.key()),
+                    reconstruct_path(self.model(), &*self.generated, *mapref.value()),
+                )
             })
             .collect()
     }
 
-    fn check(&mut self, max_count: usize) -> &mut Self {
-        let Self { thread_count, model, pending, sources, discoveries } = self;
-        let thread_count = *thread_count; // mut ref -> owned copy
-        if sources.is_empty() {
-            let mut init_ebits = IdSet::new();
-            for (i, p) in model.properties().iter().enumerate() {
-                if let Property { expectation: Expectation::Eventually, .. } = p {
-                    init_ebits.insert(i);
-                }
-            }
-            for init_state in model.init_states() {
-                let init_digest = fingerprint(&init_state);
-                if let Entry::Vacant(init_source) = sources.entry(init_digest) {
-                    init_source.insert(None);
-                    pending.push_front((init_digest, init_ebits.clone(), init_state));
-                }
-            }
+    fn join(mut self) -> Self {
+        for h in self.handles.drain(0..) {
+            h.join().unwrap();
         }
-        let sources = &sources;
-        let discoveries = &discoveries;
-        if pending.len() < 10_000 {
-            Self::check_block(max_count, model, pending, sources, discoveries);
-            return self;
-        }
-        let results = crossbeam_utils::thread::scope(|scope| {
-            // 1. Kick off every thread.
-            let mut threads = Vec::new();
-            let count = std::cmp::min(max_count, (pending.len() + thread_count - 1) / thread_count);
-            for _thread_id in 0..thread_count {
-                let model = &model; // mut ref -> shared ref
-                let count = std::cmp::min(pending.len(), count);
-                let mut pending = pending.split_off(pending.len() - count);
-                threads.push(scope.spawn(move |_| {
-                    Self::check_block(max_count/thread_count, model, &mut pending, sources, discoveries);
-                    pending
-                }));
-            }
-
-            // 2. Join.
-            let mut results = Vec::new();
-            for thread in threads { results.push(thread.join().unwrap()); }
-            results
-        }).unwrap();
-
-        // 3. Consolidate results.
-        for mut sub_pending in results { pending.append(&mut sub_pending); }
         self
     }
-}
 
-impl<M> BfsChecker<M>
-where M: Model,
-{
-    /// Instantiate a [`BfsChecker`].
-    /// 
-    /// Tip: use [`BfsChecker::with_threads`] for faster checking on multicore
-    /// machines.
-    pub fn new(model: M) -> Self {
-        Self {
-            thread_count: 1,
-            model,
-            pending: VecDeque::with_capacity(50_000),
-            sources: DashMap::with_capacity_and_hasher(1_000_000, Default::default()),
-            discoveries: DashMap::with_capacity(10),
-        }
-    }
-
-    /// Sets the number of threads to use for model checking. The visitation order
-    /// will be nondeterministic if `thread_count > 1`.
-    pub fn with_threads(self, thread_count: usize) -> Self {
-        Self { thread_count, .. self }
-    }
-
-    /// Extracts the fingerprints generated during model checking.
-    #[cfg(test)]
-    pub(crate) fn generated_fingerprints(&self) -> std::collections::HashSet<Fingerprint> {
-        self.sources.iter().map(|rm| *rm.key()).collect()
+    fn is_done(&self) -> bool {
+        let job_market = self.job_market.lock();
+        job_market.jobs.is_empty() && job_market.wait_count == self.thread_count
+            || self.discoveries.len() == self.model.properties().len()
     }
 }
 
-impl<M> BfsChecker<M>
-where M: Model,
-      M::State: Hash,
+fn reconstruct_path<M>(
+    model: &M,
+    generated: &DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
+    fp: Fingerprint)
+    -> Path<M::State, M::Action>
+    where M: Model,
+          M::State: Hash,
 {
-    fn check_block<S: Clone + BuildHasher>(
-        max_count: usize,
-        model: &M,
-        pending: &mut VecDeque<(Fingerprint, EventuallyBits, M::State)>,
-        sources: &DashMap<Fingerprint, Option<Fingerprint>, S>,
-        discoveries: &DashMap<&'static str, Fingerprint>) {
+    // First build a stack of digests representing the path (with the init digest at top of
+    // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
+    // uses a similar technique, which is documented in the paper "Model Checking TLA+
+    // Specifications" by Yu, Manolios, and Lamport.
 
-        let mut remaining = max_count;
-        let mut next_actions = Vec::new(); // reused between iterations for efficiency
-        let mut properties: Vec<_> = Self::remaining_properties(
-            model.properties(), &discoveries);
-
-        if properties.is_empty() { return }
-
-        while let Some((digest, mut ebits, state)) = pending.pop_back() {
-            let mut update_props = false;
-            Self::check_properties(model, &state, digest, &properties,
-                                   &mut ebits, &discoveries, &mut update_props);
-
-            // collect the next actions, and record the corresponding states that have not been
-            // seen before if they are within the boundary
-            model.actions(&state, &mut next_actions);
-            if next_actions.is_empty() {
-                // No actions implies "terminal state".
-                Self::note_terminal_state(digest, &properties, &ebits,
-                                          &discoveries, &mut update_props);
-            }
-            for next_action in next_actions.drain(0..) {
-                if let Some(next_state) = model.next_state(&state, next_action) {
-                    if !model.within_boundary(&next_state) {
-                        // Boundary implies "terminal state".
-                        Self::note_terminal_state(digest, &properties, &ebits,
-                                                  &discoveries, &mut update_props);
-                        continue
-                    }
-
-                    // FIXME: we should really include ebits in the fingerprint here --
-                    // it is possible to arrive at a DAG join with two different ebits
-                    // values, and subsequently treat the fact that some eventually
-                    // property held on the path leading to the first visit as meaning
-                    // that it holds in the path leading to the second visit -- another
-                    // possible false-negative.
-                    let next_digest = fingerprint(&next_state);
-                    if let Entry::Vacant(next_entry) = sources.entry(next_digest) {
-                        next_entry.insert(Some(digest));
-                        pending.push_front((next_digest, ebits.clone(), next_state));
-                    } else {
-                        // FIXME: arriving at an already-known state may be a loop (in which case it
-                        // could, in a fancier implementation, be considered a terminal state for
-                        // purposes of eventually-property checking) but it might also be a join in
-                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                        // some cost), but for now we just _don't_ treat them as terminal, and tell
-                        // users they need to explicitly ensure model path-acyclicality when they're
-                        // using eventually properties (using a boundary or empty actions or
-                        // whatever).
-                    }
-                } else {
-                    // No next-state implies "terminal state".
-                    Self::note_terminal_state(digest, &properties, &ebits,
-                                              &discoveries, &mut update_props);
-                }
-            }
-
-            if update_props {
-                properties = properties.into_iter().filter(|p| !discoveries.contains_key(p.name)).collect();
-            }
-
-            remaining -= 1;
-            if remaining == 0 { return }
+    let mut fingerprints = VecDeque::new();
+    let mut next_fp = fp;
+    while let Some(source) = generated.get(&next_fp) {
+        match *source {
+            Some(prev_fingerprint) => {
+                fingerprints.push_front(next_fp);
+                next_fp = prev_fingerprint;
+            },
+            None => {
+                fingerprints.push_front(next_fp);
+                break;
+            },
         }
     }
-
-    fn remaining_properties(
-        properties: Vec<Property<M>>,
-        discoveries: &DashMap<&str, Fingerprint>
-    ) -> Vec<Property<M>> {
-        properties.into_iter().filter(|p| !discoveries.contains_key(p.name)).collect()
-    }
-
-    // Removes from ebits the bit-number of any 'eventually' property that
-    // holds in state, leaving only bits that (still) _don't_ hold.
-    fn check_properties(model: &M,
-                        state: &M::State,
-                        digest: Fingerprint,
-                        props: &[Property<M>],
-                        ebits: &mut EventuallyBits,
-                        discoveries: &DashMap<&'static str, Fingerprint>,
-                        update_props: &mut bool)
-    {
-        for (i, property) in props.iter().enumerate() {
-            match property {
-                Property { expectation: Expectation::Always, name, condition: always } => {
-                    if !always(model, &state) {
-                        discoveries.insert(name, digest);
-                        *update_props = true;
-                    }
-                },
-                Property { expectation: Expectation::Sometimes, name, condition: sometimes } => {
-                    if sometimes(model, &state) {
-                        discoveries.insert(name, digest);
-                        *update_props = true;
-                    }
-                },
-                Property { expectation: Expectation::Eventually, condition, .. } => {
-                    if ebits.contains(i) && condition(model, &state) {
-                        ebits.remove(i);
-                        *update_props = true;
-                    }
-                }
-            }
-        }
-    }
-
-    fn note_terminal_state(digest: Fingerprint,
-                           props: &[Property<M>],
-                           ebits: &EventuallyBits,
-                           discoveries: &DashMap<&'static str, Fingerprint>,
-                           update_props: &mut bool)
-    {
-        for (i, property) in props.iter().enumerate() {
-            if ebits.contains(i) {
-                discoveries.insert(property.name, digest);
-                *update_props = true;
-            }
-        }
-    }
-
-    fn path(&self, fp: Fingerprint) -> Path<M::State, M::Action> {
-        // First build a stack of digests representing the path (with the init digest at top of
-        // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
-        // uses a similar technique, which is documented in the paper "Model Checking TLA+
-        // Specifications" by Yu, Manolios, and Lamport.
-
-        let sources = &self.sources;
-        let mut fingerprints = VecDeque::new();
-        let mut next_fp = fp;
-        while let Some(source) = sources.get(&next_fp) {
-            match *source {
-                Some(prev_fingerprint) => {
-                    fingerprints.push_front(next_fp);
-                    next_fp = prev_fingerprint;
-                },
-                None => {
-                    fingerprints.push_front(next_fp);
-                    break;
-                },
-            }
-        }
-        Path::from_model_and_fingerprints(&self.model, fingerprints)
-    }
+    Path::from_fingerprints(model, fingerprints)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::*;
     use crate::test_util::linear_equation_solver::*;
 
     #[test]
-    fn records_states() {
-        let h = |a: u8, b: u8| fingerprint(&(a, b));
-        let state_space = LinearEquation { a: 2, b: 10, c: 14 }.checker()
-            .check(100).generated_fingerprints();
-
-        // Contains a variety of states.
-        assert!(state_space.contains(&h(0, 0)));
-        assert!(state_space.contains(&h(1, 0)));
-        assert!(state_space.contains(&h(0, 1)));
-        assert!(state_space.contains(&h(2, 0)));
-        assert!(state_space.contains(&h(1, 1)));
-        assert!(state_space.contains(&h(0, 2)));
-        assert!(state_space.contains(&h(3, 0)));
-        assert!(state_space.contains(&h(2, 1)));
-
-        // And more generally, enumerates the entire block before returning.
-        // Earlier versions of Stateright would return immediately after making a discovery.
-        assert_eq!(state_space.len(), 115);
+    fn visits_states_in_bfs_order() {
+        let (recorder, accessor) = StateRecorder::new_with_accessor();
+        LinearEquation { a: 2, b: 10, c: 14 }.checker()
+            .visitor(recorder)
+            .spawn_bfs().join();
+        assert_eq!(
+            accessor(),
+            vec![
+                (0, 0),                 // distance == 0
+                (1, 0), (0, 1),         // distance == 1
+                (2, 0), (1, 1), (0, 2), // distance == 2
+                (3, 0), (2, 1),         // distance == 3
+            ]);
     }
 
     #[test]
     fn can_complete_by_enumerating_all_states() {
-        let mut checker = LinearEquation { a: 2, b: 4, c: 7 }.checker();
-
-        // Not solved, but not done.
-        assert_eq!(checker.check(10).example("solvable"), None);
-        assert_eq!(checker.is_done(), false);
-
-        // Sources is larger than the check size because it includes pending.
-        assert_eq!(checker.pending_count(), 5); 
-        assert_eq!(checker.generated_count(), 15); 
-
-        // Not solved, and done checking, so no solution in the domain.
-        assert_eq!(checker.check(100_000).is_done(), true);
-        checker.assert_no_example("solvable");
-
-        // Now sources is less than the check size (256^2 = 65,536).
+        let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_bfs().join();
+        assert_eq!(checker.is_done(), true);
+        checker.assert_no_discovery("solvable");
         assert_eq!(checker.generated_count(), 256 * 256);
     }
 
     #[test]
     fn can_complete_by_eliminating_properties() {
-        let mut checker = LinearEquation { a: 1, b: 2, c: 3 }.checker();
+        let checker = LinearEquation { a: 2, b: 10, c: 14 }.checker().spawn_bfs().join();
+        checker.assert_properties();
+        assert_eq!(checker.generated_count(), 12);
 
-        // Solved and done (with example identified) ...
+        // bfs found this example...
         assert_eq!(
-            checker.check(100).assert_example("solvable"),
-            Path(vec![
-                ((0, 0), Some(Guess::IncreaseX)),
-                ((1, 0), Some(Guess::IncreaseY)),
-                ((1, 1), None),
-            ]));
-
-        // but didn't need to enumerate all of state space...
-        assert_eq!(checker.pending_count(), 15); 
-        assert_eq!(checker.generated_count(), 115); 
-
-        // and won't check any more states since it's done.
-        checker.check(100);
-        assert_eq!(checker.pending_count(), 15); 
-        assert_eq!(checker.generated_count(), 115);
-    }
-
-    #[test]
-    fn report_includes_property_names_and_paths() {
-        let mut written: Vec<u8> = Vec::new();
-        LinearEquation { a: 2, b: 10, c: 14 }.checker().check_and_report(&mut written);
-        let output = String::from_utf8(written).unwrap();
-        // `starts_with` to omit timing since it varies
-        assert!(
-            output.starts_with("\
-                == solvable ==\n\
-                ACTION: IncreaseX\n\
-                ACTION: IncreaseX\n\
-                ACTION: IncreaseY\n\
-                Complete. generated=33024, pending=256, sec="),
-            "Output did not start as expected (see test). output={:?}`", output);
+            checker.discovery("solvable").unwrap().into_actions(),
+            // (2*2 + 10*1) % 256 == 14
+            vec![
+                Guess::IncreaseX,
+                Guess::IncreaseX,
+                Guess::IncreaseY,
+            ]);
+        // ... but there are of course other solutions, such as the following.
+        checker.assert_discovery(
+            "solvable",
+            // (2*0 + 10*27) % 256 == 14
+            vec![Guess::IncreaseY; 27]);
     }
 }

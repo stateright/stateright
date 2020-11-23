@@ -89,14 +89,13 @@ pub mod ping_pong {
                     let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
                     max - min <= 1
                 }),
-                Property::<SystemModel<Self>>::always("less than max", |model, state| {
-                    // this one is falsifiable at the boundary
-                    state.actor_states.iter().any(|s| s.0 < model.system.max_nat)
-                }),
-                Property::<SystemModel<Self>>::eventually("reaches max", move |model, state| {
+                Property::<SystemModel<Self>>::sometimes("can reach max", |model, state| {
                     state.actor_states.iter().any(|s| s.0 == model.system.max_nat)
                 }),
-                Property::<SystemModel<Self>>::eventually("reaches beyond max", move |model, state| {
+                Property::<SystemModel<Self>>::eventually("must reach max", move |model, state| {
+                    state.actor_states.iter().any(|s| s.0 == model.system.max_nat)
+                }),
+                Property::<SystemModel<Self>>::eventually("must exceed max", move |model, state| {
                     // this one is falsifiable due to the boundary
                     state.actor_states.iter().any(|s| s.0 == model.system.max_nat + 1)
                 }),

@@ -1,7 +1,7 @@
 //! An actor system where each server exposes a rewritable single-copy register. Servers do not
 //! provide consensus.
 
-use stateright::{Model, ModelChecker};
+use stateright::{Checker, Model};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, LossyNetwork, Out, System};
 use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 
@@ -36,55 +36,49 @@ fn can_model_single_copy_register() {
     use stateright::actor::DuplicatingNetwork;
     use stateright::actor::SystemAction::Deliver;
 
-    // Consistent if only one server.
-    let mut checker = RegisterTestSystem {
+    // Linearizable if only one server. BFS for this one.
+    let checker = RegisterTestSystem {
         servers: vec![SingleCopyActor],
         client_count: 2,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker();
-    checker.check(1_000).assert_properties();
-    assert_eq!(
-        checker.assert_example("value chosen").into_actions(),
-        vec![
-            Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'B') },
-            Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
-		    Deliver { src: Id::from(2), dst: Id::from(0), msg: Get(4) },
-        ]);
+    }.into_model().checker().spawn_bfs().join();
+    checker.assert_properties();
+    checker.assert_discovery("value chosen", vec![
+        Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'B') },
+        Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
+        Deliver { src: Id::from(2), dst: Id::from(0), msg: Get(4) },
+    ]);
     assert_eq!(checker.generated_count(), 33);
 
-    let mut checker = RegisterTestSystem {
+    // Otherwise not. DFS for this one.
+    let checker = RegisterTestSystem {
         servers: vec![SingleCopyActor, SingleCopyActor],
         client_count: 2,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker();
-    checker.check(1_000);
-    assert_eq!(
-        checker.assert_counterexample("linearizable").into_actions(),
-        vec![
-            Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
-            Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
-            Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
-        ]);
-    assert_eq!(
-        checker.assert_example("value chosen").into_actions(),
-        vec![
-            Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
-            Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
-            Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'A') },
-            Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
-        ]);
-    assert_eq!(checker.generated_count(), 33);
+    }.into_model().checker().spawn_dfs().join();
+    checker.assert_discovery("linearizable", vec![
+        Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
+        Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
+        Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
+    ]);
+    checker.assert_discovery("value chosen", vec![
+        Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
+        Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
+        Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'A') },
+        Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
+    ]);
+    assert_eq!(checker.generated_count(), 9);
 }
 
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
     use stateright::actor::spawn;
-    use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+    env_logger::init_from_env(env_logger::Env::default()
+        .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
     let mut app = App::new("wor")
         .about("single-copy register")
@@ -118,9 +112,9 @@ fn main() {
                 lossy_network: LossyNetwork::Yes, // for extra states
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
-            }.into_model()
-                .checker_with_threads(num_cpus::get())
-                .check_and_report(&mut std::io::stdout());
+            }.into_model().checker()
+                .threads(num_cpus::get()).spawn_dfs()
+                .report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let client_count = std::cmp::min(
@@ -135,7 +129,9 @@ fn main() {
                 lossy_network: LossyNetwork::Yes, // for extra states
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
-            }.into_model().checker().serve(address).unwrap();
+            }.into_model().checker()
+                .threads(num_cpus::get()).spawn_bfs()
+                .serve(address);
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

@@ -3,24 +3,94 @@
 mod bfs;
 use crate::{fingerprint, Fingerprint, Expectation, Model};
 mod dfs;
+mod explorer;
+mod visitor;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
+use std::time::Instant;
 
-pub use bfs::*;
-pub use dfs::*;
+pub use visitor::*;
+
+/// A [`Model`] [`Checker`] builder. Instantiable via the [`Model::checker`] method.
+///
+/// # Example
+///
+/// ```
+/// # use stateright::*; let model = ();
+/// model.checker().threads(4).spawn_dfs().join().assert_properties();
+/// ```
+#[must_use = "This code constructs a builder, not a checker. \
+              Consider calling spawn_bfs() or spawn_dfs()."]
+pub struct CheckerBuilder<M: Model> {
+    model: M,
+    target_generated_count: Option<NonZeroUsize>,
+    thread_count: usize,
+    visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
+}
+impl<M: Model> CheckerBuilder<M> {
+    pub(crate) fn new(model: M) -> Self {
+        Self {
+            model,
+            target_generated_count: None,
+            thread_count: 1,
+            visitor: None,
+        }
+    }
+
+    /// Spawns a breadth-first search model checker. This call does not block the current thread. You
+    /// can call [`Checker::join`] to block a thread until checking completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join(), report(...), or serve(...), for example."]
+    pub fn spawn_bfs(self) -> impl Checker<M>
+    where M: Model + Send + Sync + 'static,
+          M::State: Hash + Send + Sync + 'static,
+    {
+        bfs::BfsChecker::spawn(self)
+    }
+
+    /// Spawns a depth-first search model checker. This call does not block the current thread. You
+    /// can call [`Checker::join`] to block a thread until checking completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join(), report(...), or serve(...), for example."]
+    pub fn spawn_dfs(self) -> impl Checker<M>
+    where M: Model + Send + Sync + 'static,
+          M::State: Hash + Send + Sync + 'static,
+    {
+        dfs::DfsChecker::spawn(self)
+    }
+
+    /// Sets the number of states that the checker should aim to generate. For performance reasons
+    /// the checker may exceed this number, but it will never generate fewer states if more exist.
+    pub fn target_generated_count(self, target_generated_count: usize) -> Self {
+        Self { target_generated_count: NonZeroUsize::new(target_generated_count), .. self }
+    }
+
+    /// Sets the number of threads available for model checking. For maximum performance this
+    /// should match the number of cores.
+    pub fn threads(self, thread_count: usize) -> Self {
+        Self { thread_count, .. self }
+    }
+
+    /// Indicates a function to be run on each evaluated state.
+    pub fn visitor(self, visitor: impl CheckerVisitor<M> + Send + Sync + 'static) -> Self {
+        Self { visitor: Some(Box::new(visitor)), .. self }
+    }
+}
 
 /// A path of states including actions. i.e. `state --action--> state ... --action--> state`.
+///
 /// You can convert to a `Vec<_>` with [`path.into_vec()`]. If you only need the actions, then use
 /// [`path.into_actions()`].
 ///
 /// [`path.into_vec()`]: Path::into_vec
 /// [`path.into_actions()`]: Path::into_actions
 #[derive(Clone, Debug, PartialEq)]
-pub struct Path<State, Action>(pub Vec<(State, Option<Action>)>);
+pub struct Path<State, Action>(Vec<(State, Option<Action>)>);
 impl<State, Action> Path<State, Action> {
     /// Constructs a path from a model and a sequence of fingerprints.
-    fn from_model_and_fingerprints<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Path<M::State, M::Action>
+    fn from_fingerprints<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Self
     where M: Model<State = State, Action = Action>,
           M::State: Hash,
     {
@@ -57,8 +127,34 @@ impl<State, Action> Path<State, Action> {
         Path(output)
     }
 
+    /// Constructs a path from a model, initial state, and a sequence of actions. Panics for inputs
+    /// unreachable via the model.
+    pub fn from_actions<'a, M>(
+        model: &M, init_state: State, actions: impl IntoIterator<Item = &'a Action>) -> Option<Self>
+    where M: Model<State = State, Action = Action>,
+          State: PartialEq,
+          Action: PartialEq + 'a,
+    {
+        let mut output = Vec::new();
+        if !model.init_states().contains(&init_state) { return None }
+        let mut prev_state = init_state;
+        for action in actions {
+            let (action, next_state) = match model.next_steps(&prev_state)
+                .into_iter().find(|(a, _)| a == action)
+            {
+                None => return None,
+                Some(found) => found,
+            };
+            output.push((prev_state, Some(action)));
+            prev_state = next_state;
+        }
+        output.push((prev_state, None));
+
+        Some(Path(output))
+    }
+
     /// Determines the final state associated with a particular fingerprint path.
-    pub(crate) fn final_state<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Option<M::State>
+    fn final_state<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Option<M::State>
     where M: Model<State = State, Action = Action>,
           M::State: Hash,
     {
@@ -109,179 +205,186 @@ impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
     fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
 }
 
-/// A trait providing convenience methods for [`Model`] checkers. Implemented by
-/// [`BfsChecker`] and [`DfsChecker`].
-pub trait ModelChecker<M: Model> {
+/// Implementations perform [`Model`] checking.
+///
+/// Call [`Model::checker`] to instantiate a [`CheckerBuilder`]. Then call
+/// [`CheckerBuilder::spawn_dfs`] or [`CheckerBuilder::spawn_bfs`].
+pub trait Checker<M: Model> {
     /// Returns a reference to this checker's [`Model`].
     fn model(&self) -> &M;
 
     /// Indicates how many states have been generated.
     fn generated_count(&self) -> usize;
 
-    /// Indicates how many generated states are pending verification.
-    fn pending_count(&self) -> usize;
-
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>;
 
-    /// Visits up to a specified number of states checking the model's properties. May return
-    /// earlier when all states have been checked or all the properties are resolved.
-    fn check(&mut self, max_count: usize) -> &mut Self;
+    /// Blocks the current thread until checking [`is_done`] or each thread evaluates
+    /// a specified maximum number of states.
+    ///
+    /// [`is_done`]: Self::is_done
+    fn join(self) -> Self;
 
     /// Indicates that either all properties have associated discoveries or all reachable states
     /// have been visited.
-    fn is_done(&self) -> bool {
-        self.discoveries().len() == self.model().properties().len()
-            || self.pending_count() == 0
-    }
+    fn is_done(&self) -> bool;
 
-    /// An example of a "sometimes" property. `None` indicates that the property exists but no
-    /// example has been found. Will panic if a corresponding "sometimes" property does not
-    /// exist.
-    fn example(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
-        if let Some(p) = self.model().properties().into_iter().find(|p| p.name == name) {
-            if p.expectation != Expectation::Sometimes {
-                panic!("Please use `counterexample(\"{}\")` for this `always` or `eventually` property.", name);
-            }
-            self.discoveries().remove(name)
-        } else {
-            let available: Vec<_> = self.model().properties().iter().map(|p| p.name).collect();
-            panic!("Unknown property. requested={:?}, available={:?}", name, available);
-        }
-    }
-
-    /// A counterexample of an "always" or "eventually" property. `None` indicates that the property exists but no
-    /// counterexample has been found. Will panic if a corresponding "always" or "eventually" property does not
-    /// exist.
-    fn counterexample(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
-        if let Some(p) = self.model().properties().iter().find(|p| p.name == name) {
-            if p.expectation == Expectation::Sometimes {
-                panic!("Please use `example(\"{}\")` for this `sometimes` property.", name);
-            }
-            self.discoveries().remove(name)
-        } else {
-            let available: Vec<_> = self.model().properties().iter().map(|p| p.name).collect();
-            panic!("Unknown property. requested={}, available={:?}", name, available);
-        }
-    }
-
-    /// Blocks the thread until model checking is complete. Periodically emits a status while
-    /// checking, tailoring the block size to the checking speed. Emits a report when complete.
-    fn check_and_report(&mut self, w: &mut impl std::io::Write)
-    where M::Action: Debug,
-          M::State: Debug,
+    /// Starts a web service for interactively exploring a model.
+    ///
+    /// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use stateright::{Checker, Model};
+    ///
+    /// #[derive(Clone, Debug, Hash)]
+    /// enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
+    /// #[derive(Clone)]
+    /// struct FizzBuzzModel { max: usize }
+    ///
+    /// impl Model for FizzBuzzModel {
+    ///     type State = Vec<(usize, Option<FizzBuzzAction>)>;
+    ///     type Action = Option<FizzBuzzAction>;
+    ///     fn init_states(&self) -> Vec<Self::State> {
+    ///         vec![Vec::new()]
+    ///     }
+    ///     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+    ///         actions.push(
+    ///             if state.len() % 15 == 0 {
+    ///                 Some(FizzBuzzAction::FizzBuzz)
+    ///             } else if state.len() % 5 == 0 {
+    ///                 Some(FizzBuzzAction::Buzz)
+    ///             } else if state.len() % 3 == 0 {
+    ///                 Some(FizzBuzzAction::Fizz)
+    ///             } else {
+    ///                 None
+    ///             });
+    ///     }
+    ///     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
+    ///         let mut state = state.clone();
+    ///         state.push((state.len(), action));
+    ///         Some(state)
+    ///     }
+    ///     fn within_boundary(&self, state: &Self::State) -> bool {
+    ///         state.len() <= self.max
+    ///     }
+    /// }
+    ///
+    /// let _ = FizzBuzzModel { max: 30 }.checker().spawn_dfs().serve("localhost:3000");
+    /// ```
+    ///
+    /// # API
+    ///
+    /// - `GET /` returns a web browser UI as HTML.
+    /// - `GET /.status` returns information about the model checker status.
+    /// - `GET /.states` returns available initial states and fingerprints.
+    /// - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
+    ///    path of fingerprints and returns available actions with resulting
+    ///    states and fingerprints.
+    /// - `GET /.states/.../{invalid-fingerprint}` returns 404.
+    fn serve(self, addresses: impl std::net::ToSocketAddrs) -> std::sync::Arc<Self>
+    where M: 'static + Model,
+          M::Action: Debug,
+          M::State: Debug + Hash,
+          Self: 'static + Send + Sized + Sync,
     {
-        use std::cmp::max;
-        use std::time::Instant;
+        explorer::serve(self, addresses)
+    }
 
+    /// Looks up a discovery by property name. Panics if the property does not exist.
+    fn discovery(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
+        self.discoveries().remove(name)
+    }
+
+    /// Periodically emits a status message.
+    fn report(self, w: &mut impl std::io::Write) -> Self where Self: Sized {
         let method_start = Instant::now();
-        let mut block_size = 32_768;
-        loop {
-            let block_start = Instant::now();
-            if self.check(block_size).is_done() {
-                let elapsed = method_start.elapsed().as_secs();
-                for (name, path) in self.discoveries() {
-                    writeln!(w, "== {} ==", name).unwrap();
-                    for action in path.into_actions() {
-                        writeln!(w, "ACTION: {:?}", action).unwrap();
-                    }
-                }
-                writeln!(w, "Complete. generated={}, pending={}, sec={}",
-                    self.generated_count(),
-                    self.pending_count(),
-                    elapsed
-                ).unwrap();
-                return;
-            }
-
-            let block_elapsed = block_start.elapsed().as_secs();
-            if block_elapsed > 0 {
-                println!("{} states pending after {} sec. Continuing.",
-                         self.pending_count(),
-                         method_start.elapsed().as_secs());
-            }
-
-            // Shrink or grow block if necessary.
-            if block_elapsed < 2 { block_size = 3 * block_size / 2; }
-            else if block_elapsed > 10 { block_size = max(1, block_size / 2); }
+        while !self.is_done() {
+            let _ = writeln!(w, "Checking. generated={}", self.generated_count());
+            std::thread::sleep(std::time::Duration::from_millis(1_000));
         }
+        let _ = writeln!(w, "Done. generated={}, sec={}",
+                 self.generated_count(),
+                 method_start.elapsed().as_secs());
+        self
     }
 
     /// A helper that verifies examples exist for all `sometimes` properties and no counterexamples
     /// exist for any `always`/`eventually` properties.
-    fn assert_properties(&self) -> &Self
+    fn assert_properties(&self)
     where M::Action: Debug,
           M::State: Debug,
     {
         for p in self.model().properties() {
             match p.expectation {
-                Expectation::Always => self.assert_no_counterexample(p.name),
-                Expectation::Eventually => self.assert_no_counterexample(p.name),
-                Expectation::Sometimes => { self.assert_example(p.name); },
+                Expectation::Always => self.assert_no_discovery(p.name),
+                Expectation::Eventually => self.assert_no_discovery(p.name),
+                Expectation::Sometimes => { self.assert_any_discovery(p.name); },
             }
         }
-        self
     }
 
-    /// Panics if an example is not found. Otherwise returns a path to the example.
-    fn assert_example(&self, name: &'static str) -> Path<M::State, M::Action> {
-        if let Some(path) = self.example(name) {
-            return path;
-        }
+    /// Panics if a particular discovery is not found.
+    fn assert_any_discovery(&self, name: &'static str) -> Path<M::State, M::Action> {
+        if let Some(found) = self.discovery(name) { return found }
         assert!(self.is_done(),
-                "Example for '{}' not found, but model checking is incomplete.", name);
-        panic!("Example for '{}' not found. `stateright::explorer` may be useful for debugging.", name);
+                "Discovery for '{}' not found, but model checking is incomplete.", name);
+        panic!("Discovery for '{}' not found.", name);
     }
 
-    /// Panics if a counterexample is not found. Otherwise returns a path to the counterexample.
-    fn assert_counterexample(&self, name: &'static str) -> Path<M::State, M::Action> {
-        if let Some(path) = self.counterexample(name) {
-            return path;
-        }
-        assert!(self.is_done(),
-                "Counterexample for '{}' not found, but model checking is incomplete.", name);
-        panic!("Counterexample for '{}' not found. `stateright::explorer` may be useful for debugging.", name);
-    }
-
-    /// Panics if an example is found.
-    fn assert_no_example(&self, name: &'static str)
+    /// Panics if a particular discovery is found.
+    fn assert_no_discovery(&self, name: &'static str)
     where M::Action: Debug,
           M::State: Debug,
     {
-        if let Some(example) = self.example(name) {
-            let last_state = format!("{:#?}", example.last_state());
-            let actions = example.into_actions()
+        if let Some(found) = self.discovery(name) {
+            let last_state = format!("{:#?}", found.last_state());
+            let actions = found.into_actions()
                 .iter()
                 .map(|a| format!("{:?}", a))
                 .collect::<Vec<_>>()
                 .join("\n");
-            panic!("Example for '{}' found.\n\n== ACTIONS ==\n{}\n\n== LAST STATE ==\n{}",
+            panic!("Discovery for '{}' found.\n\n== ACTIONS ==\n{}\n\n== LAST STATE ==\n{}",
                    name, actions, last_state);
         }
         assert!(self.is_done(),
-                "Example for '{}' not found, but model checking is incomplete.",
+                "Discovery for '{}' not found, but model checking is incomplete.",
                 name);
     }
 
-    /// Panics if a counterexample is found.
-    fn assert_no_counterexample(&self, name: &'static str)
-    where M::Action: Debug,
-          M::State: Debug,
+    /// Panics if the specified actions do not result in a discovery for the specified property
+    /// name.
+    fn assert_discovery(&self, name: &'static str, actions: Vec<M::Action>)
+    where M::State: Debug + PartialEq,
+          M::Action: Debug + PartialEq,
     {
-        if let Some(counterexample) = self.counterexample(name) {
-            let last_state = format!("{:#?}", counterexample.last_state());
-            let actions = counterexample.into_actions()
-                .iter()
-                .map(|a| format!("{:?}", a))
-                .collect::<Vec<_>>()
-                .join("\n");
-            panic!("Counterexample for '{}' found.\n\n== ACTIONS ==\n{}\n\n== LAST STATE ==\n{}",
-                   name, actions, last_state);
+        let found = self.assert_any_discovery(name);
+        for init_state in self.model().init_states() {
+            if let Some(path) = Path::from_actions(self.model(), init_state, &actions) {
+                let property = self.model().property(name);
+                match property.expectation {
+                    Expectation::Always => {
+                        if !(property.condition)(self.model(), path.last_state()) { return }
+                    }
+                    Expectation::Eventually => {
+                        if actions != self.assert_any_discovery(name).into_actions() {
+                            todo!("Not yet able to validate eventually properties \
+                                   unless they are discovered by the model checker,
+                                   as this implementation does not check that the
+                                   path is terminal.");
+                        }
+                        if !(property.condition)(self.model(), path.last_state()) { return }
+                    }
+                    Expectation::Sometimes => {
+                        if (property.condition)(self.model(), path.last_state()) { return }
+                    }
+                }
+            }
         }
-        assert!(self.is_done(),
-                "Counterexample for '{}' not found, but model checking is incomplete.",
-                name);
+        panic!("Invalid discovery for '{}', but a valid one was found. found={:?}",
+               name, found.into_actions());
     }
 }
 
@@ -300,12 +403,39 @@ mod test {
             fp(1, 1),
             fp(2, 1), // final state
         ]);
-        let path = Path::from_model_and_fingerprints(&model, fingerprints.clone());
+        let path = Path::from_fingerprints(&model, fingerprints.clone());
         assert_eq!(
             path.last_state(),
             &(2,1));
         assert_eq!(
             path.last_state(),
             &Path::final_state(&model, fingerprints).unwrap());
+    }
+
+    #[test]
+    fn report_includes_property_names_and_paths() {
+        // The assertions use `starts_with` to omit timing since it varies.
+
+        // BFS
+        let mut written: Vec<u8> = Vec::new();
+        LinearEquation { a: 2, b: 10, c: 14 }.checker()
+            .spawn_bfs().report(&mut written);
+        let output = String::from_utf8(written).unwrap();
+        assert!(
+            output.starts_with("\
+                Checking. generated=1\n\
+                Done. generated=12, sec="),
+            "Output did not start as expected (see test). output={:?}`", output);
+
+        // DFS
+        let mut written: Vec<u8> = Vec::new();
+        LinearEquation { a: 2, b: 10, c: 14 }.checker()
+            .spawn_dfs().report(&mut written);
+        let output = String::from_utf8(written).unwrap();
+        assert!(
+            output.starts_with("\
+                Checking. generated=1\n\
+                Done. generated=55, sec="),
+            "Output did not start as expected (see test). output={:?}`", output);
     }
 }

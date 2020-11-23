@@ -134,7 +134,7 @@ where A::Msg: Hash
 
 #[cfg(test)]
 mod test {
-    use crate::{Property, Model, ModelChecker};
+    use crate::{Checker, Property, Model};
     use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
     use crate::actor::system::{SystemModel, System, LossyNetwork, DuplicatingNetwork, SystemState};
@@ -221,24 +221,22 @@ mod test {
 
     #[test]
     fn messages_are_not_delivered_twice() {
-        let mut checker = TestSystem.into_model().checker();
-        checker.check(10_000).assert_no_counterexample("no redelivery");
+        TestSystem.into_model().checker().spawn_bfs().join()
+            .assert_no_discovery("no redelivery");
     }
 
     #[test]
     fn messages_are_delivered_in_order() {
-        let mut checker = TestSystem.into_model().checker();
-        checker.check(10_000).assert_no_counterexample("ordered");
+        TestSystem.into_model().checker().spawn_bfs().join()
+            .assert_no_discovery("ordered");
     }
 
     #[test]
     fn messages_are_eventually_delivered() {
-        let mut checker = TestSystem.into_model().checker();
-        assert_eq!(
-            checker.check(10_000).assert_example("delivered").into_actions(),
-            vec![
-                SystemAction::Deliver { src: Id(0), dst: Id(1), msg: MsgWrapper::Deliver(1, TestMsg(42)) },
-                SystemAction::Deliver { src: Id(0), dst: Id(1), msg: MsgWrapper::Deliver(2, TestMsg(43)) },
-            ]);
+        let checker = TestSystem.into_model().checker().spawn_bfs().join();
+        checker.assert_discovery("delivered", vec![
+            SystemAction::Deliver { src: Id(0), dst: Id(1), msg: MsgWrapper::Deliver(1, TestMsg(42)) },
+            SystemAction::Deliver { src: Id(0), dst: Id(1), msg: MsgWrapper::Deliver(2, TestMsg(43)) },
+        ]);
     }
 }

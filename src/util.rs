@@ -21,14 +21,11 @@
 //!     }
 //! }
 //!
-//! let checker = MyModel.checker().check(1_000);
+//! let checker = MyModel.checker().spawn_bfs().join();
 //! ```
 //!
 //! ```text
-//! error[E0599]: no method named `check` found for struct `stateright::BfsChecker<main::MyModel>` in the current scope
-//! ...
-//!     = note: the method `check` exists but the following trait bounds were not satisfied:
-//!             `std::collections::HashSet<u64>: std::hash::Hash`
+//! error[E0277]: the trait bound `HashSet<u64>: Hash` is not satisfied
 //! ```
 //!
 //! The error can be resolved by swapping [`HashSet`] with [`HashableHashSet`]:
@@ -51,7 +48,7 @@
 //! #     }
 //! # }
 //! #
-//! # let checker = MyModel.checker().check(1_000);
+//! # let checker = MyModel.checker().spawn_bfs().join();
 //! ```
 
 use std::cell::RefCell;
@@ -128,7 +125,7 @@ impl<V: Hash, S> Hash for HashableHashSet<V, S> {
                 v.hash(&mut inner_hasher);
                 inner_hasher.finish()
             }));
-            buffer.sort();
+            buffer.sort_unstable();
             for v in &*buffer {
                 hasher.write_u64(*v);
             }
@@ -258,7 +255,7 @@ impl<K: Hash, V: Hash, S> Hash for HashableHashMap<K, V, S> {
                 v.hash(&mut inner_hasher);
                 inner_hasher.finish()
             }));
-            buffer.sort();
+            buffer.sort_unstable();
             for hash in &*buffer {
                 state.write_u64(*hash);
             }

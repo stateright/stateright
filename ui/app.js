@@ -1,23 +1,23 @@
 /// Represents the checker status. Reloads periodically until checking completes.
-function Status({discoveries, generated, model, pending, threads}) {
+function Status({discoveries, done, generated, model, threads}) {
     let status = this;
 
     status.discoveries = discoveries;
+    status.done = done;
     status.generated = generated;
     status.model = model
         .replaceAll('stateright::actor::register::', '')
         .replaceAll('stateright::actor::system::', '')
         .replaceAll('stateright::actor::', '')
         .replaceAll('stateright::', '');
-    status.pending = pending;
     status.threads = threads;
 }
 /// Placeholder status.
 Status.LOADING = new Status({
     discoveries: 'loading...',
+    done: 'loading...',
     generated: 'loading...',
     model: 'loading...',
-    pending: 'loading...',
     threads: 'loading...',
 });
 
@@ -92,7 +92,7 @@ function App() {
         let json = await response.json();
         console.log(json);
         app.status(new Status(json));
-        if (json.pending !== 0) {
+        if (!json.done) {
             setTimeout(refreshStatus, 5000);
         }
     }

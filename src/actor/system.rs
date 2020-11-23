@@ -280,8 +280,8 @@ impl<S: System> SystemModel<S> {
                 },
                 Command::SetTimer(_) => {
                     // must use the index to infer how large as actor state may not be initialized yet
-                    for _ in state.is_timer_set.len()..index + 1 {
-                        state.is_timer_set.push(false);
+                    if state.is_timer_set.len() <= index {
+                        state.is_timer_set.resize(index + 1, false);
                     }
                     state.is_timer_set[index] = true;
                 },
@@ -323,13 +323,18 @@ impl<S: System> Clone for SystemState<S> {
 impl<S: System> Debug for SystemState<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut builder = f.debug_struct("SystemState");
-        builder.field("actor_state", &self.actor_states);
+        builder.field("actor_states", &self.actor_states);
         builder.field("history", &self.history);
         builder.field("is_timer_set", &self.is_timer_set);
         builder.field("network", &self.network);
         builder.finish()
     }
 }
+
+// Manual implementation to avoid `S: Eq` constraint that `#derive(Eq)` would introduce on
+// `SystemState<S>`.
+impl<S: System> Eq for SystemState<S>
+where <S::Actor as Actor>::State: Eq, S::History: Eq {}
 
 // Manual implementation to avoid `S: Hash` constraint that `#derive(Hash)` would introduce on
 // `SystemState<S>`.
@@ -345,7 +350,7 @@ impl<S: System> Hash for SystemState<S> {
 // Manual implementation to avoid `S: PartialEq` constraint that `#derive(PartialEq)` would introduce on
 // `SystemState<S>`.
 impl<S: System> PartialEq for SystemState<S>
-where S::Actor: PartialEq, S::History: PartialEq {
+where <S::Actor as Actor>::State: PartialEq, S::History: PartialEq {
     fn eq(&self, other: &Self) -> bool {
         self.actor_states.eq(&other.actor_states)
             && self.history.eq(&other.history)
@@ -407,38 +412,38 @@ mod test {
         use std::iter::FromIterator;
 
         // helper to make the test more concise
-        let fingerprint = |states: Vec<PingPongCount>, envelopes: Vec<Envelope<_>>| {
-            fingerprint(&SystemState::<PingPongSystem> {
+        let states_and_network = |states: Vec<PingPongCount>, envelopes: Vec<Envelope<_>>| {
+            SystemState::<PingPongSystem> {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
                 is_timer_set: Vec::new(),
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
-            })
+            }
         };
 
-        let mut checker = PingPongSystem {
+        let (recorder, accessor) = StateRecorder::new_with_accessor();
+        let checker = PingPongSystem {
             max_nat: 1,
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
             maintains_history: false,
-        }.into_model().checker();
-        assert!(checker.check(1_000).is_done());
+        }.into_model().checker().visitor(recorder).spawn_bfs().join();
         assert_eq!(checker.generated_count(), 14);
 
-        let state_space = checker.generated_fingerprints();
+        let state_space = accessor();
         assert_eq!(state_space.len(), 14); // same as the generated count
-        assert_eq!(state_space, HashSet::from_iter(vec![
+        assert_eq!(HashSet::<_>::from_iter(state_space), HashSet::from_iter(vec![
             // When the network loses no messages...
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(0), PingPongCount(0)],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(0), PingPongCount(1)],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                 ]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
@@ -447,50 +452,50 @@ mod test {
                 ]),
 
             // When the network loses the message for pinger-ponger state (0, 0)...
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(0), PingPongCount(0)],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (0, 1)
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(0), PingPongCount(1)],
                 vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(0), PingPongCount(1)],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(0), PingPongCount(1)],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (1, 1)
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                 ]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) }]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
-            fingerprint(
+            states_and_network(
                 vec![PingPongCount(1), PingPongCount(1)],
                 Vec::new()),
         ]));
@@ -498,91 +503,90 @@ mod test {
 
     #[test]
     fn maintains_fixed_delta_despite_lossy_duplicating_network() {
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
             maintains_history: false,
-        }.into_model().checker();
-        assert_eq!(checker.check(10_000).generated_count(), 4_094);
-        checker.assert_no_counterexample("delta within 1");
+        }.into_model().checker().spawn_bfs().join();
+        assert_eq!(checker.generated_count(), 4_094);
+        checker.assert_no_discovery("delta within 1");
     }
 
     #[test]
+    #[ignore = "Needs eventually property support."]
     fn may_never_reach_max_on_lossy_network() {
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::Yes,
             maintains_history: false,
-        }.into_model().checker();
-        assert_eq!(checker.check(10_000).generated_count(), 4_094);
+        }.into_model().checker().spawn_bfs().join();
+        assert_eq!(checker.generated_count(), 4_094);
 
         // can lose the first message and get stuck, for example
-        let counterexample = checker.assert_counterexample("reaches max");
-        assert_eq!(counterexample.last_state().network, Default::default());
-        assert_eq!(counterexample.into_actions(), vec![
-            Drop(Envelope { src: Id(0), dst: Id(1), msg: Ping(0) })
+        checker.assert_discovery("must reach max", vec![
+            Drop(Envelope { src: Id(0), dst: Id(1), msg: Ping(0) }),
         ]);
     }
 
     #[test]
     fn eventually_reaches_max_on_perfect_delivery_network() {
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
             maintains_history: false,
-        }.into_model().checker();
-        assert_eq!(checker.check(10_000).generated_count(), 11);
-        checker.assert_no_counterexample("reaches max");
+        }.into_model().checker().spawn_bfs().join();
+        assert_eq!(checker.generated_count(), 11);
+        checker.assert_no_discovery("must reach max");
     }
 
     #[test]
     fn can_reach_max() {
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes,
             maintains_history: false,
-        }.into_model().checker();
-        assert_eq!(checker.check(10_000).generated_count(), 11);
-
-        // this is an example of a safety property that fails to hold as we can reach the max (but not exceed it)
+        }.into_model().checker().spawn_bfs().join();
+        assert_eq!(checker.generated_count(), 11);
         assert_eq!(
-            checker.assert_counterexample("less than max").last_state().actor_states,
-            vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
+            checker.discovery("can reach max").unwrap().last_state().actor_states,
+            vec![Arc::new(PingPongCount(4)), Arc::new(PingPongCount(5))]);
     }
 
     #[test]
+    #[ignore = "Needs eventually property support."]
     fn may_never_reach_beyond_max() { // and in fact "will never" (but we're focusing on liveness here)
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
             maintains_history: false,
-        }.into_model().checker();
-        assert_eq!(checker.check(10_000).generated_count(), 11);
+        }.into_model().checker().spawn_bfs().join();
+        assert_eq!(checker.generated_count(), 11);
 
         // this is an example of a liveness property that fails to hold (due to the boundary)
         assert_eq!(
-            checker.assert_counterexample("reaches beyond max").last_state().actor_states,
+            checker.discovery("must exceed max").unwrap().last_state().actor_states,
             vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
     }
 
     #[test]
+    #[ignore = "Needs eventually property support."]
     fn checker_subject_to_false_negatives_for_liveness_properties() {
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes, // this triggers the bug
             maintains_history: false,
-        }.into_model().checker();
-        assert_eq!(checker.check(10_000).generated_count(), 11);
+        }.into_model().checker().spawn_bfs().join();
+        assert_eq!(checker.generated_count(), 11);
 
         // revisits state where liveness property was not yet satisfied and falsely assumes will never be
         assert_eq!(
-            checker.assert_counterexample("reaches max").last_state().actor_states,
+            checker.discovery("must reach max").unwrap().last_state().actor_states,
             vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(1))]);
     }
 
@@ -590,52 +594,36 @@ mod test {
     fn maintains_history() {
         // When network duplicates messages, can have more messages in than out, and model checking
         // will not complete, but messages out will never exceed one more than the messages in.
-        let mut checker = PingPongSystem {
+        let checker = PingPongSystem {
             max_nat: 1,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::Yes,
             maintains_history: true,
-        }.into_model().checker();
-        checker.check(10_000);
-        let counterexample = checker.assert_counterexample("#in <= #out");
-        assert_eq!(counterexample.into_actions(), vec![
+        }.into_model().checker().target_generated_count(4242).spawn_bfs().join();
+        checker.assert_discovery("#in <= #out", vec![
             Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
             Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
             Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
         ]);
         assert!(!checker.is_done());
-        assert_eq!(checker.counterexample("#out <= #in + 1"), None);
+        assert_eq!(checker.discovery("#out <= #in + 1"), None);
 
-        // When network loses messages, (1) can have more messages in than out, and (2) #messages
-        // out can exceed one more than #messages in.
-        let mut checker = PingPongSystem {
-            max_nat: 1,
+        // The remaining properties hold regardless of whether the network is lossy or not.
+        // Note that one will not hold once "eventually" properties are added back.
+        let checker = PingPongSystem {
+            max_nat: 2,
             lossy: LossyNetwork::Yes,
             duplicating: DuplicatingNetwork::No,
             maintains_history: true,
-        }.into_model().checker();
-        checker.check(10_000);
-        let counterexample = checker.assert_counterexample("#in <= #out");
-        assert_eq!(counterexample.into_actions(), vec![
-            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-            Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }),
-        ]);
-        let counterexample = checker.assert_counterexample("#out <= #in + 1");
-        assert_eq!(counterexample.into_actions(), vec![
-            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-            Drop(Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }),
-        ]);
-
-        // Whereas those two properties hold for a non-lossy non-duplicating network.
-        let mut checker = PingPongSystem {
+        }.into_model().checker().spawn_bfs().join();
+        checker.assert_properties();
+        let checker = PingPongSystem {
             max_nat: 1,
             lossy: LossyNetwork::No,
             duplicating: DuplicatingNetwork::No,
             maintains_history: true,
-        }.into_model().checker();
-        checker.check(10_000);
-        checker.assert_no_counterexample("#in <= #out");
-        checker.assert_no_counterexample("#out <= #in + 1");
+        }.into_model().checker().spawn_bfs().join();
+        checker.assert_properties();
     }
 
     #[test]
@@ -660,7 +648,7 @@ mod test {
                 vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }]
             }
         }
-        assert!(TestSystem.into_model().checker().check(1_000).is_done());
+        assert!(TestSystem.into_model().checker().spawn_bfs().join().is_done());
     }
 
     #[test]
@@ -685,6 +673,6 @@ mod test {
             }
         }
         // Init state with timer, followed by next state without timer.
-        assert_eq!(2, TestSystem.into_model().checker().check(1_000).generated_count());
+        assert_eq!(2, TestSystem.into_model().checker().spawn_bfs().join().generated_count());
     }
 }

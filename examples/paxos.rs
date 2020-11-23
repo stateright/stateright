@@ -1,7 +1,7 @@
 //! A cluster that implements Single Decree Paxos.
 
 use serde_derive::{Deserialize, Serialize};
-use stateright::{Model, ModelChecker};
+use stateright::{Model, Checker};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 use stateright::util::{HashableHashMap, HashableHashSet};
@@ -166,7 +166,8 @@ fn within_boundary(state: &SystemState<RegisterTestSystem<PaxosActor, PaxosMsg>>
 fn can_model_paxos() {
     use stateright::actor::SystemAction::Deliver;
 
-    let mut checker = RegisterTestSystem {
+    // BFS
+    let checker = RegisterTestSystem {
         servers: vec![
             PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
             PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
@@ -176,9 +177,38 @@ fn can_model_paxos() {
         within_boundary,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker();
-    checker.check(10_000).assert_properties();
-    assert_eq!(checker.assert_example("value chosen").into_actions(), vec![
+    }.into_model().checker().spawn_bfs().join();
+    checker.assert_properties();
+    checker.assert_discovery("value chosen", vec![
+        Deliver { src: Id::from(4), dst: Id::from(1), msg: Put(4, 'B') },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1) }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(1), dst: Id::from(4), msg: PutOk(4) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(4), dst: Id::from(2), msg: Get(8) },
+     ]);
+    assert_eq!(checker.generated_count(), 1_747);
+
+    // DFS
+    let checker = RegisterTestSystem {
+        servers: vec![
+            PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
+            PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
+            PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+        ],
+        client_count: 2,
+        within_boundary,
+        duplicating_network: DuplicatingNetwork::No,
+        .. Default::default()
+    }.into_model().checker().spawn_dfs().join();
+    checker.assert_properties();
+    checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(4), dst: Id::from(1), msg: Put(4, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
@@ -198,10 +228,10 @@ fn can_model_paxos() {
 fn main() {
     use clap::{App, AppSettings, Arg, SubCommand, value_t};
     use stateright::actor::spawn;
-    use stateright::Explorer;
     use std::net::{SocketAddrV4, Ipv4Addr};
 
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+    env_logger::init_from_env(env_logger::Env::default()
+        .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
     let mut app = App::new("paxos")
         .about("single decree paxos")
@@ -239,9 +269,9 @@ fn main() {
                 within_boundary,
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
-            }.into_model()
-                .checker_with_threads(num_cpus::get())
-                .check_and_report(&mut std::io::stdout());
+            }.into_model().checker()
+                .threads(num_cpus::get()).spawn_dfs()
+                .report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let client_count = std::cmp::min(
@@ -260,7 +290,9 @@ fn main() {
                 within_boundary,
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
-            }.into_model().checker().serve(address).unwrap();
+            }.into_model().checker()
+                .threads(num_cpus::get()).spawn_bfs()
+                .serve(address);
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

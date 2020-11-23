@@ -2,7 +2,7 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use stateright::{Model, ModelChecker, Property};
+use stateright::{Checker, Model, Property};
 use stateright::util::{HashableHashMap, HashableHashSet};
 use std::hash::Hash;
 
@@ -121,27 +121,27 @@ impl<R: Clone + Eq + Hash> Model for TwoPhaseSys<R> {
 #[cfg(test)]
 #[test]
 fn can_model_2pc() {
-    // for very small state space
+    // for very small state space (using BFS this time)
     let mut rms = HashableHashSet::new();
     for rm in 1..(3+1) { rms.insert(rm); }
-    let mut checker = TwoPhaseSys { rms }.checker();
-    assert_eq!(checker.check(300).generated_count(), 288);
+    let checker = TwoPhaseSys { rms }.checker().spawn_bfs().join();
+    assert_eq!(checker.generated_count(), 288);
     checker.assert_properties();
 
-    // for slightly larger state space
+    // for slightly larger state space (using DFS this time)
     let mut rms = HashableHashSet::new();
     for rm in 1..(5+1) { rms.insert(rm); }
-    let mut checker = TwoPhaseSys { rms }.checker();
-    assert_eq!(checker.check(10_000).generated_count(), 8_832);
+    let checker = TwoPhaseSys { rms }.checker().spawn_dfs().join();
+    assert_eq!(checker.generated_count(), 8_832);
     checker.assert_properties();
 }
 
 fn main() {
     use clap::{App, Arg, SubCommand, value_t};
-    use stateright::Explorer;
     use std::iter::FromIterator;
 
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+    env_logger::init_from_env(env_logger::Env::default()
+        .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
     let mut app = App::new("2pc")
         .about("model check abstract two phase commit")
@@ -154,7 +154,7 @@ fn main() {
             .about("interactively explore state space")
             .arg(Arg::with_name("rm_count")
                  .help("number of resource managers")
-                 .default_value("7"))
+                 .default_value("2"))
             .arg(Arg::with_name("address")
                 .help("address Explorer service should listen upon")
                 .default_value("localhost:3000")));
@@ -164,16 +164,17 @@ fn main() {
         ("check", Some(args)) => {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             println!("Checking two phase commit with {} resource managers.", rm_count);
-            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }
-                .checker_with_threads(num_cpus::get())
-                .check_and_report(&mut std::io::stdout());
+            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }.checker()
+                .threads(num_cpus::get()).spawn_dfs()
+                .report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
             let address = value_t!(args, "address", String).expect("address");
             println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
-            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }
-                .checker().serve(address).unwrap();
+            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }.checker()
+                .threads(num_cpus::get()).spawn_bfs()
+                .serve(address);
         }
         _ => app.print_help().unwrap(),
     }

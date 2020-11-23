@@ -2,7 +2,7 @@
 //! [System] and calling [System::into_model()]. You can also [`spawn()`] the actor
 //! in which case it will communicate over a UDP socket.
 //!
-//! ## Model Checking Example
+//! ## Example
 //!
 //! In the following example two actors track events with logical clocks. A false claim is made
 //! that a clock will never reach 3, which the checker disproves by demonstrating that the actors
@@ -78,24 +78,20 @@
 //!
 //! // The model checker should quickly find a counterexample sequence of actions that causes an
 //! // actor timestamp to reach a specified maximum.
-//! let counterexample = LogicalClockSystem { max_expected: 3 }
-//!     .into_model().checker().check(1_000)
-//!     .assert_counterexample("less than max");
+//! let checker = LogicalClockSystem { max_expected: 3 }
+//!     .into_model().checker().spawn_bfs().join();
+//! checker.assert_discovery("less than max", vec![
+//!     SystemAction::Deliver { src: Id::from(1), dst: Id::from(0), msg: MsgWithTimestamp(1) },
+//!     SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: MsgWithTimestamp(2) },
+//! ]);
 //! assert_eq!(
-//!     counterexample.last_state().actor_states,
+//!     checker.discovery("less than max").unwrap().last_state().actor_states,
 //!     vec![Arc::new(Timestamp(2)), Arc::new(Timestamp(3))]);
-//! assert_eq!(
-//!     counterexample.into_actions(),
-//!     vec![
-//!         SystemAction::Deliver { src: Id::from(1), dst: Id::from(0), msg: MsgWithTimestamp(1) },
-//!         SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: MsgWithTimestamp(2) }]);
 //! ```
 //!
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
 //! are available in the repository.
 
-#[cfg(test)]
-mod actor_test_util;
 mod system;
 mod spawn;
 use std::hash::Hash;
@@ -104,6 +100,8 @@ use std::time::Duration;
 use std::net::SocketAddrV4;
 use std::ops::Range;
 
+#[cfg(test)]
+pub mod actor_test_util;
 pub mod ordered_reliable_link;
 pub mod register;
 pub use spawn::*;
