@@ -50,7 +50,9 @@ in a different language, an idea pioneered by model checkers such as
 and [CMC](https://www.microsoft.com/en-us/research/publication/cmc-a-pragmatic-approach-to-model-checking-real-code/).
 Stateright also features a web browser UI that can be
 used to interactively explore how a system behaves, which is useful for both
-learning and debugging.
+learning and debugging. See [demo.stateright.rs](http://demo.stateright.rs:3000/)
+to explore an abstract model for [two phase
+commit](https://en.wikipedia.org/wiki/Two-phase_commit_protocol).
 
 ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
 

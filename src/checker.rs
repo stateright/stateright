@@ -234,6 +234,12 @@ pub trait Checker<M: Model> {
     ///
     /// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
     ///
+    /// # Demo
+    ///
+    /// You can explore an abstract model for [two phase
+    /// commit](https://en.wikipedia.org/wiki/Two-phase_commit_protocol) at
+    /// [demo.stateright.rs](http://demo.stateright.rs:3000/).
+    ///
     /// # Example
     ///
     /// ```no_run
