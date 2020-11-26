@@ -252,6 +252,15 @@ pub trait Actor: Sized {
     }
 }
 
+/// Implemented only for rustdoc. Do not take a dependency on this. It will likely be removed in a
+/// future version of this library.
+impl Actor for () {
+    type State = ();
+    type Msg = ();
+    fn on_start(&self, _: Id, o: &mut Out<Self>) { o.set_state(()); }
+    fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+}
+
 /// Indicates the number of nodes that constitute a majority for a particular cluster size.
 pub fn majority(cluster_size: usize) -> usize {
     cluster_size / 2 + 1

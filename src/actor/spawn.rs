@@ -38,6 +38,28 @@ fn practically_never() -> Instant {
 }
 
 /// Runs an actor, sending messages over UDP.
+///
+/// # Example
+///
+/// ```no_run
+/// use stateright::actor::{Id, spawn};
+/// use std::net::{Ipv4Addr, SocketAddrV4};
+/// # mod serde_json {
+/// #     pub fn to_vec(_: &()) -> Result<Vec<u8>, ()> { Ok(vec![]) }
+/// #     pub fn from_slice(_: &[u8]) -> Result<(), ()> { Ok(()) }
+/// # }
+/// # let actor1 = ();
+/// # let actor2 = ();
+/// let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3001));
+/// let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3002));
+/// spawn(
+///     serde_json::to_vec,
+///     |bytes| serde_json::from_slice(bytes),
+///     vec![
+///         (id1, actor1),
+///         (id2, actor2),
+///     ]);
+/// ```
 pub fn spawn<A, E: Debug + 'static>(
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     deserialize: fn(&[u8]) -> Result<A::Msg, E>,
