@@ -29,8 +29,8 @@ Stateright's model checking features include:
 
 Stateright's actor system features include:
 
-- The ability to execute actors outside the model checker, sending JSON
-  messages over UDP.
+- The ability to execute actors outside the model checker, sending messages over
+  UDP.
 - A model for lossy/lossless duplicating/non-duplicating networks with the
   ability to capture actor message [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
   to check an actor system against an expected consistency model.
@@ -105,8 +105,10 @@ cargo run --release --example single-copy-register explore
 cargo run --release --example linearizable-register explore
 ```
 
-Stateright also includes a simple runtime for executing an actor mapping
-messages to JSON over UDP:
+Stateright also includes a simple runtime for running actors, with messages
+transmitted via UDP. The included examples use JSON for message
+serialization/deserialization, but Stateright can handle messages in any
+format.
 
 ```sh
 cargo run --release --example paxos spawn
