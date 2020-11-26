@@ -1,5 +1,8 @@
 //! A library for model checking systems, with an emphasis on distributed systems.
 //!
+//! Most of the docs are here, but a short book is being written to provide a gentler introduction:
+//! "[Building Distributed Systems With Stateright](https://www.stateright.rs)."
+//!
 //! # Introduction to Model Checking
 //!
 //! [`Model`] implementations indicate how a system evolves, such as a set of actors

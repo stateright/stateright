@@ -73,6 +73,10 @@ nc -u localhost 3000
 {"Get":2}
 ```
 
+## Getting Started
+
+A short book is in the works: "[Building Distributed Systems With
+Stateright](https://www.stateright.rs)."
 
 ## Examples
 
