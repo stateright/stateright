@@ -80,6 +80,10 @@ nc -u localhost 3000
 A short book is in the works: "[Building Distributed Systems With
 Stateright](https://www.stateright.rs)."
 
+## Community
+
+Join the [Stateright Discord server](https://discord.com/channels/781357978652901386).
+
 ## Examples
 
 Stateright includes a variety of
