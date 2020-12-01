@@ -82,7 +82,7 @@ Stateright](https://www.stateright.rs)."
 
 ## Community
 
-Join the [Stateright Discord server](https://discord.com/channels/781357978652901386).
+Join the [Stateright Discord server](https://discord.com/channels/781357978652901386/781357978652901389).
 
 ## Examples
 
