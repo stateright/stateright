@@ -15,7 +15,7 @@ actor runtime. It also features a linearizability tester that can be run within
 the model checker for more exhaustive coverage than solutions such as
 [Jepsen](https://jepsen.io/).
 
-![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.jpg)
+![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
 
 ## Getting Started
 
