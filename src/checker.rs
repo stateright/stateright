@@ -230,15 +230,9 @@ pub trait Checker<M: Model> {
     /// have been visited.
     fn is_done(&self) -> bool;
 
-    /// Starts a web service for interactively exploring a model.
+    /// Starts a web service for interactively exploring a model ([demo](http://demo.stateright.rs:3000/)).
     ///
     /// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
-    ///
-    /// # Demo
-    ///
-    /// You can explore an abstract model for [two phase
-    /// commit](https://en.wikipedia.org/wiki/Two-phase_commit_protocol) at
-    /// [demo.stateright.rs](http://demo.stateright.rs:3000/).
     ///
     /// # Example
     ///
