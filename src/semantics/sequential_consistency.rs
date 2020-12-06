@@ -10,12 +10,16 @@ use std::fmt::Debug;
 /// applied atomically and that operations within a thread are sequential
 /// (they have a total order within the thread).
 ///
+/// If you're not sure whether to pick this or [`LinearizabilityTester`], favor
+/// `LinearizabilityTester`.
+///
 /// # Sequential Consistency
 ///
-/// Unlike with [linearizability], there is no intrinsic order of operations
-/// across threads, even if they are fully sequenced in "real-time". For
-/// example, the later read by Thread 2 in this diagram is allowed to return
-/// the value prior to Thread 1's write:
+/// Unlike with [linearizability], there is no intrinsic order of operations across threads, even
+/// if they are fully sequenced in "real-time" (defined more precisely below). Anomalies are
+/// therefore possible as threads do not necessarily agree on viable orders of operations.  For
+/// example, the later read by Thread 2 in this diagram is allowed to return the value prior to
+/// Thread 1's write even though the operations are seemingly not concurrent:
 ///
 /// ```text
 ///           -----------Time------------------------------>
@@ -23,14 +27,23 @@ use std::fmt::Debug;
 /// Thread 2:                                 [read invoked... and returns]
 /// ```
 ///
-/// That means "back channel" communication between threads can establish a
-/// causal relationship implying an order that sequential consistency does not
-/// respect, something that linearizabity would disallow.
+/// While "real time" is a common way to phrase an implicit total ordering on non-concurrent events
+/// spanning threads, a more precise way to think about this is that prior to Thread 2 starting its
+/// read, Thread 1 is capable of communicating with Thread 2 indicating that the write finished.
+/// This perspective avoids introducing the notion of a shared global time, which is often a
+/// misleading perspective when it comes to distributed systems (or even modern physics in
+/// general).
 ///
-/// The [`SequentialSpec`] will imply additional ordering constraints. For
-/// example, a value cannot be popped off a stack before it is pushed. It is
-/// then the responsibility of the checker to establish whether a valid
-/// total ordering of events exists under these constraints.
+/// If sequential consistency is checked at the edges of the system rather than at the clients,
+/// then more anomalies are possible. For example, if a single thread executes a write then a read
+/// and sequential consistency is checked when messages enter/leave the system, then the client can
+/// observe stale reads of their own writes, something that would be disallowed when checking
+/// sequential consistency when messages leave/enter the client.
+///
+/// The [`SequentialSpec`] will imply additional ordering constraints based on semantics specific
+/// to each operation. For example, a value cannot be popped off a stack before it is pushed. It is
+/// then the responsibility of the checker to establish whether a valid total ordering of events
+/// exists under these constraints.
 ///
 /// See also: [`LinearizabilityTester`].
 ///

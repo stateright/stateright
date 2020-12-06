@@ -17,14 +17,17 @@ use std::fmt::Debug;
 /// applied atomically and that sequenced (non-concurrent) operations are
 /// applied in order.
 ///
+/// If you're not sure whether to pick this or [`SequentialConsistencyTester`], favor
+/// `LinearizabilityTester`.
+///
 /// # Linearizability
 ///
-/// Unlike with [sequential consistency], all sequenced (non-concurrent)
-/// operations must respect a happens-before relationship, even across threads,
-/// which ensures that histories respect "real time" ordering. For example, the
-/// later read by Thread 2 must read the value of Thread 1's write (rather
-/// than a differing earlier value) since those two operations are not
-/// concurrent:
+/// Unlike with [sequential consistency], all sequenced (non-concurrent) operations must respect a
+/// happens-before relationship, even across threads, which ensures that histories respect "real
+/// time" ordering (defined more precisely below).  Anomalies are prevented because threads all
+/// agree on the viable order of operations.  For example, the later read by Thread 2 must read the
+/// value of Thread 1's write (rather than a differing earlier value) since those two operations
+/// are not concurrent:
 ///
 /// ```text
 ///           -----------Time------------------------------>
@@ -32,10 +35,17 @@ use std::fmt::Debug;
 /// Thread 2:                                 [read invoked... and returns]
 /// ```
 ///
-/// The [`SequentialSpec`] will imply additional ordering constraints. For
-/// example, a value cannot be popped off a stack before it is pushed. It is
-/// then the responsibility of the checker to establish whether a valid
-/// total ordering of events exists under these constraints.
+/// While "real time" is a common way to phrase an implicit total ordering on non-concurrent events
+/// spanning threads, a more precise way to think about this is that prior to Thread 2 starting its
+/// read, Thread 1 is capable of communicating with Thread 2 indicating that the write finished.
+/// This perspective avoids introducing the notion of a shared global time, which is often a
+/// misleading perspective when it comes to distributed systems (or even modern physics in
+/// general).
+///
+/// The [`SequentialSpec`] will imply additional ordering constraints based on semantics specific
+/// to each operation. For example, a value cannot be popped off a stack before it is pushed. It is
+/// then the responsibility of this tester to establish whether a valid total ordering of events
+/// exists under these constraints.
 ///
 /// See also: [`SequentialConsistencyTester`].
 ///
