@@ -39,8 +39,13 @@ impl<M: Model> CheckerBuilder<M> {
         }
     }
 
-    /// Spawns a breadth-first search model checker. This call does not block the current thread. You
-    /// can call [`Checker::join`] to block a thread until checking completes.
+    /// Spawns a breadth-first search model checker. This traversal strategy uses more memory than
+    /// [`CheckerBuilder::spawn_dfs`] but will find the shortest [`Path`] to each discovery if
+    /// checking is single threadeded (the default behavior, which [`CheckerBuilder::threads`]
+    /// overrides).
+    ///
+    /// This call does not block the current thread. Call [`Checker::join`] to block until checking
+    /// completes.
     #[must_use = "Checkers run on background threads. \
                   Consider calling join(), report(...), or serve(...), for example."]
     pub fn spawn_bfs(self) -> impl Checker<M>
@@ -50,8 +55,12 @@ impl<M: Model> CheckerBuilder<M> {
         bfs::BfsChecker::spawn(self)
     }
 
-    /// Spawns a depth-first search model checker. This call does not block the current thread. You
-    /// can call [`Checker::join`] to block a thread until checking completes.
+    /// Spawns a depth-first search model checker. This traversal strategy uses dramatically less
+    /// memory than [`CheckerBuilder::spawn_bfs`] at the cost of not finding the shortest [`Path`]
+    /// to each discovery.
+    ///
+    /// This call does not block the current thread. Call [`Checker::join`] to block until
+    /// checking completes.
     #[must_use = "Checkers run on background threads. \
                   Consider calling join(), report(...), or serve(...), for example."]
     pub fn spawn_dfs(self) -> impl Checker<M>
