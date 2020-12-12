@@ -1,9 +1,12 @@
 use actix_web::{*, web::Json};
 use crate::*;
+use parking_lot::RwLock;
 use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
+use std::thread::{sleep, spawn};
+use std::time::Duration;
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -12,6 +15,7 @@ struct StatusView {
     model: String,
     generated: usize,
     discoveries: HashMap<&'static str, String>, // property name -> encoded path
+    recent_path: Option<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -42,15 +46,53 @@ where
     }
 }
 
-pub(crate) fn serve<M, C>(checker: C, addresses: impl ToSocketAddrs) -> Arc<C>
-where M: 'static + Model,
-      M::Action: Debug,
-      M::State: Debug + Hash,
+struct Snapshot<Action>(bool, Option<Vec<Action>>);
+impl<M: Model> CheckerVisitor<M> for Arc<RwLock<Snapshot<M::Action>>> {
+    fn visit(&self, path: Path<M::State, M::Action>) {
+        let guard = self.read();
+        if !guard.0 { return }
+        drop(guard);
+
+        let mut guard = self.write();
+        if !guard.0 { return } // May be racing other threads.
+        guard.0 = false;
+        guard.1 = Some(path.into_actions());
+    }
+}
+
+pub(crate) fn serve<M>(checker_builder: CheckerBuilder<M>, addresses: impl ToSocketAddrs) -> Arc<impl Checker<M>>
+where M: 'static + Model + Send + Sync,
+      M::Action: Debug + Send + Sync,
+      M::State: Debug + Hash + Send + Sync,
+{
+    let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
+    let snapshot_for_visitor = Arc::clone(&snapshot);
+    let snapshot_for_server = Arc::clone(&snapshot);
+    spawn(move || {
+        loop {
+            sleep(Duration::from_secs(4));
+            snapshot.write().0 = true;
+        }
+    });
+    let checker = checker_builder
+        .visitor(snapshot_for_visitor)
+        .spawn_bfs();
+    serve_checker(checker, snapshot_for_server, addresses)
+}
+
+fn serve_checker<M, C>(
+    checker: C,
+    snapshot: Arc<RwLock<Snapshot<M::Action>>>,
+    addresses: impl ToSocketAddrs)
+    -> Arc<impl Checker<M>>
+where M: 'static + Model + Send + Sync,
+      M::Action: Debug + Send + Sync,
+      M::State: Debug + Hash + Send + Sync,
       C: 'static + Checker<M> + Send + Sync,
 {
     let checker = Arc::new(checker);
 
-    let data = Arc::clone(&checker);
+    let data = Arc::new((snapshot, Arc::clone(&checker)));
     HttpServer::new(move || {
         macro_rules! get_ui_file {
             ($filename:literal) => {
@@ -78,11 +120,17 @@ where M: 'static + Model,
     checker
 }
 
-fn status<M, C>(_: HttpRequest, checker: web::Data<Arc<C>>) -> Result<Json<StatusView>>
+type Data<Action, Checker> = web::Data<Arc<(Arc<RwLock<Snapshot<Action>>>, Arc<Checker>)>>;
+
+fn status<M, C>(_: HttpRequest, data: Data<M::Action, C>) -> Result<Json<StatusView>>
 where M: Model,
+      M::Action: Debug,
       M::State: Hash,
       C: Checker<M>,
 {
+    let snapshot = &data.0;
+    let checker = &data.1;
+
     let status = StatusView {
         model: std::any::type_name::<M>().to_string(),
         done: checker.is_done(),
@@ -90,16 +138,18 @@ where M: Model,
         discoveries: checker.discoveries().into_iter()
             .map(|(name, path)| (name, path.encode()))
             .collect(),
+        recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
     Ok(Json(status))
 }
 
-fn states<M, C>(req: HttpRequest, checker: web::Data<Arc<C>>) -> Result<StateViewsJson<M::State, M::Action>>
+fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>)
+    -> Result<StateViewsJson<M::State, M::Action>>
 where M: Model,
       M::State: Debug + Hash,
       C: Checker<M>,
 {
-    let model = &checker.model();
+    let model = &data.1.model();
 
     // extract fingerprints
     let mut fingerprints_str = req.match_info().get("fingerprints").expect("missing 'fingerprints' param").to_string();
@@ -287,8 +337,9 @@ ActorStep {
         let req = actix_web::test::TestRequest::get()
             .param("fingerprints", &path_name)
             .to_http_request();
-        let checker = web::Data::new(checker);
-        match states(req, checker) {
+        let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
+        let data = web::Data::new(Arc::new((snapshot, checker)));
+        match states(req, data) {
             Ok(Json(view)) => Ok(view),
             Err(err) => Err(err),
         }

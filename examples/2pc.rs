@@ -173,7 +173,7 @@ fn main() {
             let address = value_t!(args, "address", String).expect("address");
             println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
             TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }.checker()
-                .threads(num_cpus::get()).spawn_bfs()
+                .threads(num_cpus::get())
                 .serve(address);
         }
         _ => app.print_help().unwrap(),

@@ -300,7 +300,7 @@ fn main() {
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
             }.into_model().checker()
-                .threads(num_cpus::get()).spawn_bfs()
+                .threads(num_cpus::get())
                 .serve(address);
         }
         ("spawn", Some(_args)) => {

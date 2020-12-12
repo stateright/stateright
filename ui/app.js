@@ -1,15 +1,21 @@
 /// Represents the checker status. Reloads periodically until checking completes.
-function Status({discoveries, done, generated, model}) {
+function Status({discoveries, done, generated, model, recent_path}) {
     let status = this;
 
     status.discoveries = discoveries;
-    status.done = done;
     status.generated = generated;
     status.model = model
         .replaceAll('stateright::actor::register::', '')
         .replaceAll('stateright::actor::system::', '')
         .replaceAll('stateright::actor::', '')
         .replaceAll('stateright::', '');
+    status.progress = 'Done';
+    if (!done) {
+        status.progress = recent_path.length < 100
+            ? recent_path
+            : recent_path.substring(0, 99 - 3) + '...';
+    }
+    status.recentPath = recent_path;
 }
 /// Placeholder status.
 Status.LOADING = new Status({
@@ -17,6 +23,7 @@ Status.LOADING = new Status({
     done: 'loading...',
     generated: 'loading...',
     model: 'loading...',
+    recent_path: 'loading...',
 });
 
 /// Represents a model step. Only loads next steps on demand.

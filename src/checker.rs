@@ -39,6 +39,68 @@ impl<M: Model> CheckerBuilder<M> {
         }
     }
 
+    /// Starts a web service for interactively exploring a model ([demo](http://demo.stateright.rs:3000/)).
+    ///
+    /// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use stateright::{Checker, Model};
+    ///
+    /// #[derive(Clone, Debug, Hash)]
+    /// enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
+    /// #[derive(Clone)]
+    /// struct FizzBuzzModel { max: usize }
+    ///
+    /// impl Model for FizzBuzzModel {
+    ///     type State = Vec<(usize, Option<FizzBuzzAction>)>;
+    ///     type Action = Option<FizzBuzzAction>;
+    ///     fn init_states(&self) -> Vec<Self::State> {
+    ///         vec![Vec::new()]
+    ///     }
+    ///     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+    ///         actions.push(
+    ///             if state.len() % 15 == 0 {
+    ///                 Some(FizzBuzzAction::FizzBuzz)
+    ///             } else if state.len() % 5 == 0 {
+    ///                 Some(FizzBuzzAction::Buzz)
+    ///             } else if state.len() % 3 == 0 {
+    ///                 Some(FizzBuzzAction::Fizz)
+    ///             } else {
+    ///                 None
+    ///             });
+    ///     }
+    ///     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
+    ///         let mut state = state.clone();
+    ///         state.push((state.len(), action));
+    ///         Some(state)
+    ///     }
+    ///     fn within_boundary(&self, state: &Self::State) -> bool {
+    ///         state.len() <= self.max
+    ///     }
+    /// }
+    ///
+    /// let _ = FizzBuzzModel { max: 30 }.checker().serve("localhost:3000");
+    /// ```
+    ///
+    /// # API
+    ///
+    /// - `GET /` returns a web browser UI as HTML.
+    /// - `GET /.status` returns information about the model checker status.
+    /// - `GET /.states` returns available initial states and fingerprints.
+    /// - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
+    ///    path of fingerprints and returns available actions with resulting
+    ///    states and fingerprints.
+    /// - `GET /.states/.../{invalid-fingerprint}` returns 404.
+    pub fn serve(self, addresses: impl std::net::ToSocketAddrs) -> std::sync::Arc<impl Checker<M>>
+    where M: 'static + Model + Send + Sync,
+          M::Action: Debug + Send + Sync,
+          M::State: Debug + Hash + Send + Sync,
+    {
+        explorer::serve(self, addresses)
+    }
+
     /// Spawns a breadth-first search model checker. This traversal strategy uses more memory than
     /// [`CheckerBuilder::spawn_dfs`] but will find the shortest [`Path`] to each discovery if
     /// checking is single threadeded (the default behavior, which [`CheckerBuilder::threads`]
@@ -238,69 +300,6 @@ pub trait Checker<M: Model> {
     /// Indicates that either all properties have associated discoveries or all reachable states
     /// have been visited.
     fn is_done(&self) -> bool;
-
-    /// Starts a web service for interactively exploring a model ([demo](http://demo.stateright.rs:3000/)).
-    ///
-    /// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use stateright::{Checker, Model};
-    ///
-    /// #[derive(Clone, Debug, Hash)]
-    /// enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
-    /// #[derive(Clone)]
-    /// struct FizzBuzzModel { max: usize }
-    ///
-    /// impl Model for FizzBuzzModel {
-    ///     type State = Vec<(usize, Option<FizzBuzzAction>)>;
-    ///     type Action = Option<FizzBuzzAction>;
-    ///     fn init_states(&self) -> Vec<Self::State> {
-    ///         vec![Vec::new()]
-    ///     }
-    ///     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-    ///         actions.push(
-    ///             if state.len() % 15 == 0 {
-    ///                 Some(FizzBuzzAction::FizzBuzz)
-    ///             } else if state.len() % 5 == 0 {
-    ///                 Some(FizzBuzzAction::Buzz)
-    ///             } else if state.len() % 3 == 0 {
-    ///                 Some(FizzBuzzAction::Fizz)
-    ///             } else {
-    ///                 None
-    ///             });
-    ///     }
-    ///     fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
-    ///         let mut state = state.clone();
-    ///         state.push((state.len(), action));
-    ///         Some(state)
-    ///     }
-    ///     fn within_boundary(&self, state: &Self::State) -> bool {
-    ///         state.len() <= self.max
-    ///     }
-    /// }
-    ///
-    /// let _ = FizzBuzzModel { max: 30 }.checker().spawn_dfs().serve("localhost:3000");
-    /// ```
-    ///
-    /// # API
-    ///
-    /// - `GET /` returns a web browser UI as HTML.
-    /// - `GET /.status` returns information about the model checker status.
-    /// - `GET /.states` returns available initial states and fingerprints.
-    /// - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
-    ///    path of fingerprints and returns available actions with resulting
-    ///    states and fingerprints.
-    /// - `GET /.states/.../{invalid-fingerprint}` returns 404.
-    fn serve(self, addresses: impl std::net::ToSocketAddrs) -> std::sync::Arc<Self>
-    where M: 'static + Model,
-          M::Action: Debug,
-          M::State: Debug + Hash,
-          Self: 'static + Send + Sized + Sync,
-    {
-        explorer::serve(self, addresses)
-    }
 
     /// Looks up a discovery by property name. Panics if the property does not exist.
     fn discovery(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {

@@ -25,12 +25,13 @@
                     <span data-bind="text: model">MODEL</span>
                 </li>
                 <li>
-                    <label>Done:</label>
-                    <span data-bind="text: done">DONE</span>
-                </li>
-                <li>
                     <label>Generated:</label>
                     <span data-bind="text: generated">GENERATED</span>
+                </li>
+                <li>
+                    <label>Progress:</label>
+                    <span data-bind="text: progress,
+                                     attr: {title: 'Recent path: ' + recentPath}">PROGRESS</span>
                 </li>
             </ul>
 
