@@ -1,5 +1,5 @@
 /// Represents the checker status. Reloads periodically until checking completes.
-function Status({discoveries, done, generated, model, threads}) {
+function Status({discoveries, done, generated, model}) {
     let status = this;
 
     status.discoveries = discoveries;
@@ -10,7 +10,6 @@ function Status({discoveries, done, generated, model, threads}) {
         .replaceAll('stateright::actor::system::', '')
         .replaceAll('stateright::actor::', '')
         .replaceAll('stateright::', '');
-    status.threads = threads;
 }
 /// Placeholder status.
 Status.LOADING = new Status({
@@ -18,7 +17,6 @@ Status.LOADING = new Status({
     done: 'loading...',
     generated: 'loading...',
     model: 'loading...',
-    threads: 'loading...',
 });
 
 /// Represents a model step. Only loads next steps on demand.
