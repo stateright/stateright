@@ -60,6 +60,7 @@ pub struct SequentialConsistencyTester<ThreadId, RefObj: SequentialSpec> {
 }
 
 impl<T: Ord, RefObj: SequentialSpec> SequentialConsistencyTester<T, RefObj> {
+    /// Constructs a [`SequentialConsistencyTester`].
     pub fn new(init_ref_obj: RefObj) -> Self {
         Self {
             init_ref_obj,
@@ -67,6 +68,16 @@ impl<T: Ord, RefObj: SequentialSpec> SequentialConsistencyTester<T, RefObj> {
             in_flight_by_thread: Default::default(),
             is_valid_history: true,
         }
+    }
+
+    /// Indicates the aggregate number of operations completed or in flight
+    /// across all threads.
+    pub fn len(&self) -> usize {
+        let mut len = self.in_flight_by_thread.len();
+        for (_id, history)   in &self.history_by_thread {
+            len += history.len();
+        }
+        len
     }
 }
 
