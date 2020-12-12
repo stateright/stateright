@@ -74,7 +74,7 @@ impl<T: Ord, RefObj: SequentialSpec> SequentialConsistencyTester<T, RefObj> {
     /// across all threads.
     pub fn len(&self) -> usize {
         let mut len = self.in_flight_by_thread.len();
-        for (_id, history)   in &self.history_by_thread {
+        for history in self.history_by_thread.values() {
             len += history.len();
         }
         len
