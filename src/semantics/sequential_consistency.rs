@@ -77,7 +77,7 @@ where
     RefObj::Op: Debug,
     RefObj::Ret: Debug + PartialEq,
 {
-    /// Indicates that a thread invoked an operation. Returns `Ok(())` if the
+    /// Indicates that a thread invoked an operation. Returns `Ok(...)` if the
     /// history is valid, even if it is not sequentially consistent.
     ///
     /// See [`SequentialConsistencyTester::serialized_history`].
@@ -98,7 +98,7 @@ where
     }
 
     /// Indicates that a thread's earlier operation invocation returned. Returns
-    /// `Ok(())` if the history is valid, even if it is not sequentially
+    /// `Ok(...)` if the history is valid, even if it is not sequentially
     /// consistent.
     ///
     /// See [`SequentialConsistencyTester::serialized_history`].
@@ -121,7 +121,7 @@ where
     }
 
     /// A helper that indicates both an operation and corresponding return
-    /// value for a thread. Returns `Ok(())` if the history is valid, even if
+    /// value for a thread. Returns `Ok(...)` if the history is valid, even if
     /// it is not sequentially consistent.
     ///
     /// See [`SequentialConsistencyTester::serialized_history`].

@@ -83,7 +83,7 @@ where
     RefObj::Op: Debug,
     RefObj::Ret: Debug + PartialEq,
 {
-    /// Indicates that a thread invoked an operation. Returns `Ok(())` if the
+    /// Indicates that a thread invoked an operation. Returns `Ok(...)` if the
     /// history is valid, even if it is not lineariable.
     ///
     /// See [`LinearizabilityTester::serialized_history`].
@@ -113,7 +113,7 @@ where
     }
 
     /// Indicates that a thread's earlier operation invocation returned. Returns
-    /// `Ok(())` if the history is valid, even if it is not linearizable.
+    /// `Ok(...)` if the history is valid, even if it is not linearizable.
     ///
     /// See [`LinearizabilityTester::serialized_history`].
     pub fn on_return(&mut self, thread_id: T, ret: RefObj::Ret) -> Result<&mut Self, String> {
@@ -135,7 +135,7 @@ where
     }
 
     /// A helper that indicates both an operation and corresponding return
-    /// value for a thread. Returns `Ok(())` if the history is valid, even if
+    /// value for a thread. Returns `Ok(...)` if the history is valid, even if
     /// it is not lineariable.
     ///
     /// See [`LinearizabilityTester::serialized_history`].
