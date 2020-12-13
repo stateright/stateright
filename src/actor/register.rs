@@ -84,7 +84,7 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
         self.duplicating_network
     }
 
-    fn record_msg_in(&self, history: &Self::History, src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+    fn record_msg_out(&self, history: &Self::History, src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
         // FIXME: Currently throws away useful information about invalid histories. Ideally
         //        checking would continue, but the property would be labeled with an error.
         if let Get(_) = msg {
@@ -100,7 +100,7 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
         }
     }
 
-    fn record_msg_out(&self, history: &Self::History, _src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+    fn record_msg_in(&self, history: &Self::History, _src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
         // FIXME: Currently throws away useful information about invalid histories. Ideally
         //        checking would continue, but the property would be labeled with an error.
         match msg {

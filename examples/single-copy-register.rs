@@ -36,32 +36,33 @@ fn can_model_single_copy_register() {
     use stateright::actor::DuplicatingNetwork;
     use stateright::actor::SystemAction::Deliver;
 
-    // Linearizable if only one server. BFS for this one.
+    // Linearizable if only one server. DFS for this one.
     let checker = RegisterTestSystem {
         servers: vec![SingleCopyActor],
         client_count: 2,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker().spawn_bfs().join();
+    }.into_model().checker().spawn_dfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'B') },
         Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Get(4) },
     ]);
-    assert_eq!(checker.generated_count(), 33);
+    assert_eq!(checker.generated_count(), 93);
 
-    // Otherwise not. DFS for this one.
+    // Otherwise (if more than one server) then not linearizabile. BFS this time.
     let checker = RegisterTestSystem {
         servers: vec![SingleCopyActor, SingleCopyActor],
         client_count: 2,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker().spawn_dfs().join();
+    }.into_model().checker().spawn_bfs().join();
     checker.assert_discovery("linearizable", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
         Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
+        Deliver { src: Id::from(0), dst: Id::from(3), msg: GetOk(6, '\u{0}') },
     ]);
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
@@ -69,7 +70,7 @@ fn can_model_single_copy_register() {
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'A') },
         Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
     ]);
-    assert_eq!(checker.generated_count(), 9);
+    assert_eq!(checker.generated_count(), 20);
 }
 
 fn main() {
