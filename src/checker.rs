@@ -6,7 +6,7 @@ mod dfs;
 mod explorer;
 mod visitor;
 use std::collections::{HashMap, VecDeque};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::time::Instant;
@@ -275,6 +275,20 @@ impl<State, Action> Path<State, Action> {
 impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
     fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
 }
+impl<State, Action> Display for Path<State, Action> 
+where Action: Debug,
+      State: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        writeln!(f, "Path[{}]:", self.0.len() - 1)?;
+        for (_state, action) in &self.0 {
+            if let Some(action) = action {
+                writeln!(f, "- {:?}", action)?;
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Implementations perform [`Model`] checking.
 ///
@@ -307,7 +321,12 @@ pub trait Checker<M: Model> {
     }
 
     /// Periodically emits a status message.
-    fn report(self, w: &mut impl std::io::Write) -> Self where Self: Sized {
+    fn report(self, w: &mut impl std::io::Write) -> Self
+    where M::Action: Debug,
+          M::State: Debug,
+          Self: Sized,
+    {
+        // Start with the checking status.
         let method_start = Instant::now();
         while !self.is_done() {
             let _ = writeln!(w, "Checking. generated={}", self.generated_count());
@@ -316,7 +335,24 @@ pub trait Checker<M: Model> {
         let _ = writeln!(w, "Done. generated={}, sec={}",
                  self.generated_count(),
                  method_start.elapsed().as_secs());
+
+        // Finish with a discovery summary.
+        for (name, path) in self.discoveries() {
+            let _ = write!(w, "Discovered \"{}\" {} {}",
+                           name, self.discovery_classification(name), path);
+        }
+
         self
+    }
+
+    /// Indicates whether a discovery is an `"example"` or `"counterexample"`.
+    fn discovery_classification(&self, name: &str) -> &'static str {
+        let properties = self.model().properties();
+        let property = properties.iter().find(|p| p.name == name).unwrap();
+        match property.expectation {
+            Expectation::Always | Expectation::Eventually => "counterexample",
+            Expectation::Sometimes => "example",
+        }
     }
 
     /// A helper that verifies examples exist for all `sometimes` properties and no counterexamples
@@ -348,14 +384,8 @@ pub trait Checker<M: Model> {
           M::State: Debug,
     {
         if let Some(found) = self.discovery(name) {
-            let last_state = format!("{:#?}", found.last_state());
-            let actions = found.into_actions()
-                .iter()
-                .map(|a| format!("{:?}", a))
-                .collect::<Vec<_>>()
-                .join("\n");
-            panic!("Discovery for '{}' found.\n\n== ACTIONS ==\n{}\n\n== LAST STATE ==\n{}",
-                   name, actions, last_state);
+            panic!("Unexpected \"{}\" {} {}Last state: {:?}\n",
+                   name, self.discovery_classification(name), found, found.last_state());
         }
         assert!(self.is_done(),
                 "Discovery for '{}' not found, but model checking is incomplete.",
@@ -434,6 +464,13 @@ mod test {
                 Checking. generated=1\n\
                 Done. generated=12, sec="),
             "Output did not start as expected (see test). output={:?}`", output);
+        assert!(
+            output.ends_with("\
+                Discovered \"solvable\" example Path[3]:\n\
+                - IncreaseX\n\
+                - IncreaseX\n\
+                - IncreaseY\n"),
+            "Output did not end as expected (see test). output={:?}`", output);
 
         // DFS
         let mut written: Vec<u8> = Vec::new();
@@ -445,5 +482,36 @@ mod test {
                 Checking. generated=1\n\
                 Done. generated=55, sec="),
             "Output did not start as expected (see test). output={:?}`", output);
+        assert!(
+            output.ends_with("\
+                Discovered \"solvable\" example Path[27]:\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n\
+                - IncreaseY\n"),
+            "Output did not end as expected (see test). output={:?}`", output);
     }
 }
