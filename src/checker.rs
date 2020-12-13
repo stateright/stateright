@@ -109,7 +109,7 @@ impl<M: Model> CheckerBuilder<M> {
     /// This call does not block the current thread. Call [`Checker::join`] to block until checking
     /// completes.
     #[must_use = "Checkers run on background threads. \
-                  Consider calling join(), report(...), or serve(...), for example."]
+                  Consider calling join() or report(...), for example."]
     pub fn spawn_bfs(self) -> impl Checker<M>
     where M: Model + Send + Sync + 'static,
           M::State: Hash + Send + Sync + 'static,
@@ -124,7 +124,7 @@ impl<M: Model> CheckerBuilder<M> {
     /// This call does not block the current thread. Call [`Checker::join`] to block until
     /// checking completes.
     #[must_use = "Checkers run on background threads. \
-                  Consider calling join(), report(...), or serve(...), for example."]
+                  Consider calling join() or report(...), for example."]
     pub fn spawn_dfs(self) -> impl Checker<M>
     where M: Model + Send + Sync + 'static,
           M::State: Hash + Send + Sync + 'static,
