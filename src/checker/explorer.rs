@@ -7,14 +7,14 @@ use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 struct StatusView {
     done: bool,
     model: String,
     generated: usize,
-    discoveries: HashMap<&'static str, String>, // property name -> encoded path
+    discoveries: BTreeMap<String, String>, // name+classification -> encoded path
     recent_path: Option<String>,
 }
 
@@ -136,7 +136,11 @@ where M: Model,
         done: checker.is_done(),
         generated: checker.generated_count(),
         discoveries: checker.discoveries().into_iter()
-            .map(|(name, path)| (name, path.encode()))
+            .map(|(name, path)| {
+                let key = format!("\"{}\" {}", name, checker.discovery_classification(name));
+                let value = path.encode();
+                (key, value)
+            })
             .collect(),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
@@ -237,7 +241,7 @@ mod test {
     }
 
     #[test]
-    fn smoke_test() {
+    fn smoke_test_states() {
         use crate::actor::{DuplicatingNetwork, Envelope, Id, LossyNetwork, System, SystemState};
         use crate::actor::actor_test_util::ping_pong::{PingPongCount, PingPongMsg::*, PingPongSystem};
         use crate::actor::SystemAction::*;
@@ -327,19 +331,59 @@ ActorStep {
             ]);
     }
 
+    #[test]
+    fn smoke_test_status() {
+        use crate::actor::{DuplicatingNetwork, LossyNetwork, System};
+        use crate::actor::actor_test_util::ping_pong::PingPongSystem;
+
+        let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
+        let checker = PingPongSystem {
+            max_nat: 2,
+            lossy: LossyNetwork::No,
+            duplicating: DuplicatingNetwork::No,
+            maintains_history: true,
+        }.into_model().checker()
+            .visitor(Arc::clone(&snapshot)).spawn_bfs().join();
+        let status = get_status(Arc::new(checker), snapshot).unwrap();
+        assert_eq!(status.done, true);
+        assert_eq!(
+            status.model,
+           "stateright::actor::system::SystemModel<\
+                stateright::actor::actor_test_util::ping_pong::PingPongSystem\
+            >");
+        assert_eq!(status.generated, 5);
+        assert_eq!(status.discoveries.len(), 1);
+        assert!(status.discoveries.get("\"can reach max\" example").is_some());
+        assert!(status.recent_path.unwrap().starts_with("["));
+    }
+
     fn get_states<M, C>(checker: Arc<C>, path_name: &'static str)
                 -> Result<Vec<StateView<M::State, M::Action>>>
     where M: Model,
           M::State: Debug + Hash,
           C: Checker<M>,
     {
-        //use actix_web::test::*;
         let req = actix_web::test::TestRequest::get()
             .param("fingerprints", &path_name)
             .to_http_request();
         let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
         let data = web::Data::new(Arc::new((snapshot, checker)));
         match states(req, data) {
+            Ok(Json(view)) => Ok(view),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn get_status<M, C>(checker: Arc<C>, snapshot: Arc<RwLock<Snapshot<M::Action>>>)
+    -> Result<StatusView>
+    where M: Model,
+          M::Action: Debug,
+          M::State: Debug + Hash,
+          C: Checker<M>,
+    {
+        let req = actix_web::test::TestRequest::get().to_http_request();
+        let data = web::Data::new(Arc::new((snapshot, checker)));
+        match status(req, data) {
             Ok(Json(view)) => Ok(view),
             Err(err) => Err(err),
         }
