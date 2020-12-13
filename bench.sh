@@ -1,6 +1,13 @@
+#/bin/bash
+
+set -e
+set -u
+
+COUNT=${1:-3}
+
 bench() {
     echo "== $@ =="
-    for i in $(seq 3); do
+    for i in $(seq $COUNT); do
         cargo -q run --release --example "$@" |grep "sec="
     done
 }
