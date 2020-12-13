@@ -152,11 +152,12 @@ pub enum RegisterActor<ServerActor> {
 }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RegisterActorState<ServerState> {
-    /// Indicates that the client sent a [`RegisterMsg::Put`] and will later
-    /// send a [`RegisterMsg::Get`].
-    ClientIncomplete,
-    /// Indicates that the client has no more messages to send.
-    ClientComplete,
+    /// A client that sends a sequence of [`RegisterMsg::Put`] messages before sending a
+    /// [`RegisterMsg::Get`].
+    Client {
+        awaiting: Option<TestRequestId>,
+        op_count: u64,
+    },
     /// Wraps the state of a server actor.
     Server(ServerState),
 }
@@ -178,10 +179,14 @@ where
             RegisterActor::Client { server_count } => {
                 let index = id.0;
                 let unique_request_id = 1 * index as TestRequestId; // next will be 2 * index
-                o.state = Some(RegisterActorState::ClientIncomplete);
+                let value = (b'A' + (index - server_count) as u8) as char;
+                o.state = Some(RegisterActorState::Client {
+                    awaiting: Some(unique_request_id),
+                    op_count: 1,
+                });
                 o.send(
                     Id((index + 0) % server_count),
-                    Put(unique_request_id, (b'A' + (index - server_count) as u8) as char));
+                    Put(unique_request_id, value));
             }
             RegisterActor::Server(server_actor) => {
                 let server_out = server_actor.on_start_out(id);
@@ -192,16 +197,48 @@ where
     }
 
     fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+        use RegisterActor as A;
+        use RegisterActorState as S;
+
         match (self, state) {
-            (RegisterActor::Client { server_count }, RegisterActorState::ClientIncomplete) => {
-                let index = id.0;
-                let unique_request_id = 2 * index as TestRequestId;
-                o.state = Some(RegisterActorState::ClientComplete);
-                o.send(
-                    Id((index + 1) % server_count),
-                    Get(unique_request_id));
+            (A::Client { server_count }, S::Client {
+                                             awaiting: Some(awaiting),
+                                             op_count
+                                         }) => {
+                match msg {
+                    RegisterMsg::PutOk(request_id) if &request_id == awaiting => {
+                        // Clients send a sequence of `Put`s followed by a `Get`. As a simple
+                        // heuristic to cover a wider range of behaviors: the first client's `Put`
+                        // sequence is of length 2, while the others are of length 1.
+                        let op_count = op_count + 1;
+                        let index = id.0;
+                        let unique_request_id = (op_count * index) as TestRequestId;
+                        o.state = Some(RegisterActorState::Client {
+                            awaiting: Some(unique_request_id),
+                            op_count,
+                        });
+                        let max_put_count = if index == 0 { 2 } else { 1 };
+                        if op_count <= max_put_count {
+                            let value = (b'Z' - (index - server_count) as u8) as char;
+                            o.send(
+                                Id((index + 1) % server_count),
+                                Put(unique_request_id, value));
+                        } else {
+                            o.send(
+                                Id((index + 1) % server_count),
+                                Get(unique_request_id));
+                        }
+                    }
+                    RegisterMsg::GetOk(request_id, _value) if &request_id == awaiting => {
+                        o.state = Some(RegisterActorState::Client {
+                            awaiting: None,
+                            op_count: op_count + 1,
+                        });
+                    }
+                    _ => {}
+                }
             }
-            (RegisterActor::Server(server_actor), RegisterActorState::Server(server_state)) => {
+            (A::Server(server_actor), S::Server(server_state)) => {
                 let server_out = server_actor.on_msg_out(id, server_state, src, msg);
                 o.state = server_out.state.map(RegisterActorState::Server);
                 o.commands = server_out.commands;

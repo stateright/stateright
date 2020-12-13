@@ -100,12 +100,10 @@ pub mod ping_pong {
                     state.actor_states.iter().any(|s| s.0 == model.system.max_nat + 1)
                 }),
                 Property::<SystemModel<Self>>::always("#in <= #out", |_model, state| {
-                    // falsifiable if the network redelivers or loses messages
                     let (msg_in_count, msg_out_count) = state.history;
                     msg_in_count <= msg_out_count
                 }),
                 Property::<SystemModel<Self>>::always("#out <= #in + 1", |_model, state| {
-                    // falsifiable if the network is lossy
                     let (msg_in_count, msg_out_count) = state.history;
                     msg_out_count <= msg_in_count + 1
                 }),

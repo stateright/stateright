@@ -168,9 +168,9 @@ impl<S: System> Model for SystemModel<S> {
                 let last_actor_state = last_actor_state.unwrap();
 
                 // Some operations are no-ops, so ignore those as well.
-                let history = self.system.record_msg_in(&last_sys_state.history, src, id, &msg);
                 let out = self.actors[index].on_msg_out(id, last_actor_state, src, msg.clone());
-                if history.is_none() && out.is_no_op() { return None; }
+                if out.is_no_op() { return None; }
+                let history = self.system.record_msg_in(&last_sys_state.history, src, id, &msg);
 
                 // Update the state as necessary:
                 // - Drop delivered message if not a duplicating network.
@@ -588,42 +588,6 @@ mod test {
         assert_eq!(
             checker.discovery("must reach max").unwrap().last_state().actor_states,
             vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(1))]);
-    }
-
-    #[test]
-    fn maintains_history() {
-        // When network duplicates messages, can have more messages in than out, and model checking
-        // will not complete, but messages out will never exceed one more than the messages in.
-        let checker = PingPongSystem {
-            max_nat: 1,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::Yes,
-            maintains_history: true,
-        }.into_model().checker().target_generated_count(4242).spawn_bfs().join();
-        checker.assert_discovery("#in <= #out", vec![
-            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-            Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-        ]);
-        assert!(!checker.is_done());
-        assert_eq!(checker.discovery("#out <= #in + 1"), None);
-
-        // The remaining properties hold regardless of whether the network is lossy or not.
-        // Note that one will not hold once "eventually" properties are added back.
-        let checker = PingPongSystem {
-            max_nat: 2,
-            lossy: LossyNetwork::Yes,
-            duplicating: DuplicatingNetwork::No,
-            maintains_history: true,
-        }.into_model().checker().spawn_bfs().join();
-        checker.assert_properties();
-        let checker = PingPongSystem {
-            max_nat: 1,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::No,
-            maintains_history: true,
-        }.into_model().checker().spawn_bfs().join();
-        checker.assert_properties();
     }
 
     #[test]

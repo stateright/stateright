@@ -2,7 +2,7 @@
 //! provide consensus.
 
 use stateright::{Checker, Model};
-use stateright::actor::{Actor, DuplicatingNetwork, Id, LossyNetwork, Out, System};
+use stateright::actor::{Actor, DuplicatingNetwork, Id, Out, System};
 use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 
 #[derive(Clone)]
@@ -110,7 +110,6 @@ fn main() {
             RegisterTestSystem {
                 servers: vec![SingleCopyActor],
                 client_count,
-                lossy_network: LossyNetwork::Yes, // for extra states
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
             }.into_model().checker()
@@ -127,7 +126,6 @@ fn main() {
             RegisterTestSystem {
                 servers: vec![SingleCopyActor],
                 client_count,
-                lossy_network: LossyNetwork::Yes, // for extra states
                 duplicating_network: DuplicatingNetwork::No,
                 .. Default::default()
             }.into_model().checker()
