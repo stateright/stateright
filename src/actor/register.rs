@@ -85,16 +85,15 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
     }
 
     fn record_msg_in(&self, history: &Self::History, src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        // FIXME: Currently panics for invalid histories. Ideally checking
-        //        would continue, but the property would be labeled with an
-        //        error.
+        // FIXME: Currently throws away useful information about invalid histories. Ideally
+        //        checking would continue, but the property would be labeled with an error.
         if let Get(_) = msg {
             let mut history = history.clone();
-            history.on_invoke(src, RegisterOp::Read).unwrap();
+            let _ = history.on_invoke(src, RegisterOp::Read);
             Some(history)
         } else if let Put(_req_id, value) = msg {
             let mut history = history.clone();
-            history.on_invoke(src, RegisterOp::Write(*value)).unwrap();
+            let _ = history.on_invoke(src, RegisterOp::Write(*value));
             Some(history)
         } else {
             None
@@ -102,18 +101,17 @@ impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, Intern
     }
 
     fn record_msg_out(&self, history: &Self::History, _src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        // FIXME: Currently panics for invalid histories. Ideally checking
-        //        would continue, but the property would be labeled with an
-        //        error.
+        // FIXME: Currently throws away useful information about invalid histories. Ideally
+        //        checking would continue, but the property would be labeled with an error.
         match msg {
             GetOk(_, v) => {
                 let mut history = history.clone();
-                history.on_return(dst, RegisterRet::ReadOk(*v)).unwrap();
+                let _ = history.on_return(dst, RegisterRet::ReadOk(*v));
                 Some(history)
             }
             PutOk(_) => {
                 let mut history = history.clone();
-                history.on_return(dst, RegisterRet::WriteOk).unwrap();
+                let _ = history.on_return(dst, RegisterRet::WriteOk);
                 Some(history)
             }
             _ => None
