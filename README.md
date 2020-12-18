@@ -1,3 +1,4 @@
+[![chat](https://img.shields.io/discord/781357978652901386)](https://discord.gg/JbxGSVP4A6)
 [![crates.io](https://img.shields.io/crates/v/stateright.svg)](https://crates.io/crates/stateright)
 [![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
 [![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
