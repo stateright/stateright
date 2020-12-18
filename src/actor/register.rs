@@ -210,22 +210,21 @@ where
                         // Clients send a sequence of `Put`s followed by a `Get`. As a simple
                         // heuristic to cover a wider range of behaviors: the first client's `Put`
                         // sequence is of length 2, while the others are of length 1.
-                        let op_count = op_count + 1;
                         let index = id.0;
-                        let unique_request_id = (op_count * index) as TestRequestId;
+                        let unique_request_id = ((op_count + 1) * index) as TestRequestId;
                         o.state = Some(RegisterActorState::Client {
                             awaiting: Some(unique_request_id),
-                            op_count,
+                            op_count: op_count + 1,
                         });
-                        let max_put_count = if index == 0 { 2 } else { 1 };
-                        if op_count <= max_put_count {
+                        let max_put_count = if index == *server_count { 2 } else { 1 };
+                        if *op_count < max_put_count {
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
-                                Id((index + 1) % server_count),
+                                Id((index + op_count) % server_count),
                                 Put(unique_request_id, value));
                         } else {
                             o.send(
-                                Id((index + 1) % server_count),
+                                Id((index + op_count) % server_count),
                                 Get(unique_request_id));
                         }
                     }

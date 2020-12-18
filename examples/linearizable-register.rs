@@ -206,7 +206,7 @@ fn can_model_linearizable_register() {
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(6, (1, Id::from(1)), 'B')) },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(6)) },
     ]);
-    assert_eq!(checker.generated_count(), 604);
+    assert_eq!(checker.generated_count(), 1321);
 
     // DFS
     let checker = RegisterTestSystem {
@@ -233,7 +233,7 @@ fn can_model_linearizable_register() {
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(6, (1, Id::from(1)), 'B')) },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(6)) },
     ]);
-    assert_eq!(checker.generated_count(), 604);
+    assert_eq!(checker.generated_count(), 1321);
 }
 
 fn main() {
