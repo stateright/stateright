@@ -263,9 +263,18 @@ impl<M: Model> Property<M> {
         Property { expectation: Expectation::Sometimes, name, condition }
     }
 }
+impl<M: Model> Clone for Property<M> {
+    fn clone(&self) -> Self {
+        Property {
+            expectation: self.expectation.clone(),
+            name: self.name,
+            condition: self.condition,
+        }
+    }
+}
 
 /// Indicates whether a property is always, eventually, or sometimes true.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expectation {
     /// The property is true for all reachable states.
     Always,

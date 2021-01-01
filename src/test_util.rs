@@ -1,8 +1,10 @@
 //! Utilities for tests.
 
+use crate::{Model, Property};
+
 /// A machine that cycles between two states.
 pub mod binary_clock {
-    use crate::*;
+    use super::*;
 
     #[derive(Clone)]
     pub struct BinaryClock;
@@ -41,6 +43,77 @@ pub mod binary_clock {
                     0 <= *state && *state <= 1
                 }),
             ]
+        }
+    }
+}
+
+/// A directed graph, specified via paths from initial states.
+pub mod dgraph {
+    use crate::Checker;
+    use std::collections::{BTreeMap, BTreeSet};
+    use super::*;
+
+    #[derive(Clone)]
+    pub struct DGraph {
+        inits: BTreeSet<u8>,
+        edges: BTreeMap<u8, BTreeSet<u8>>,
+        property: Property<DGraph>,
+    }
+
+    impl DGraph {
+        pub fn with_property(property: Property<DGraph>) -> Self {
+            DGraph {
+                inits: Default::default(),
+                edges: Default::default(),
+                property,
+            }
+        }
+
+        pub fn with_path(&self, path: Vec<u8>) -> Self {
+            let mut src = *path.first().unwrap();
+            DGraph {
+                inits: {
+                    let mut inits = self.inits.clone();
+                    inits.insert(src);
+                    inits
+                },
+                edges: {
+                    let mut edges = self.edges.clone();
+                    for &dst in path.iter().skip(1) {
+                        edges.entry(src).or_default().insert(dst);
+                        src = dst;
+                    }
+                    edges
+                },
+                property: self.property.clone(),
+            }
+        }
+
+        pub fn check(&self) -> impl Checker<Self> {
+            self.clone().checker().spawn_bfs().join()
+        }
+    }
+
+    impl Model for DGraph {
+        type State = u8;
+        type Action = u8;
+
+        fn init_states(&self) -> Vec<Self::State> {
+            self.inits.clone().into_iter().collect()
+        }
+
+        fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+            if let Some(dsts) = self.edges.get(state) {
+                actions.extend(dsts);
+            }
+        }
+
+        fn next_state(&self, _: &Self::State, action: Self::Action) -> Option<Self::State> {
+            Some(action)
+        }
+
+        fn properties(&self) -> Vec<Property<Self>> {
+            vec![self.property.clone()]
         }
     }
 }
