@@ -352,8 +352,9 @@ ActorStep {
                 stateright::actor::actor_test_util::ping_pong::PingPongSystem\
             >");
         assert_eq!(status.generated, 5);
-        assert_eq!(status.discoveries.len(), 1);
+        assert_eq!(status.discoveries.len(), 2);
         assert!(status.discoveries.get("\"can reach max\" example").is_some());
+        assert!(status.discoveries.get("\"must exceed max\" counterexample").is_some());
         assert!(status.recent_path.unwrap().starts_with("["));
     }
 

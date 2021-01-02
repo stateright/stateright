@@ -75,7 +75,7 @@ Stateright contains a general purpose model checker offering:
 
 - Invariant checks via "always" properties.
 - Nontriviality checks via "sometimes" properties.
-- Liveness checks via "eventually" properties (temporarily removed).
+- Liveness checks via "eventually" properties.
 - A web browser UI for interactively exploring state space.
 - [Linearizability](https://en.wikipedia.org/wiki/Linearizability)
   and [sequential consistency](https://en.wikipedia.org/wiki/Sequential_consistency)

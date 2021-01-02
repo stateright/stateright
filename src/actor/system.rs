@@ -514,7 +514,6 @@ mod test {
     }
 
     #[test]
-    #[ignore = "Needs eventually property support."]
     fn may_never_reach_max_on_lossy_network() {
         let checker = PingPongSystem {
             max_nat: 5,
@@ -535,7 +534,7 @@ mod test {
         let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
+            duplicating: DuplicatingNetwork::No,
             maintains_history: false,
         }.into_model().checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 11);
@@ -557,12 +556,15 @@ mod test {
     }
 
     #[test]
-    #[ignore = "Needs eventually property support."]
-    fn may_never_reach_beyond_max() { // and in fact "will never" (but we're focusing on liveness here)
+    fn might_never_reach_beyond_max() {
+        // ^ and in fact will never. This is a subtle distinction: we're exercising a
+        //   falsifiable liveness property here (eventually must exceed max), whereas "will never"
+        //   refers to a verifiable safety property (always will not exceed).
+
         let checker = PingPongSystem {
             max_nat: 5,
             lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::No, // important to avoid false negative (liveness checking bug)
+            duplicating: DuplicatingNetwork::No,
             maintains_history: false,
         }.into_model().checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 11);
@@ -571,23 +573,6 @@ mod test {
         assert_eq!(
             checker.discovery("must exceed max").unwrap().last_state().actor_states,
             vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
-    }
-
-    #[test]
-    #[ignore = "Needs eventually property support."]
-    fn checker_subject_to_false_negatives_for_liveness_properties() {
-        let checker = PingPongSystem {
-            max_nat: 5,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::Yes, // this triggers the bug
-            maintains_history: false,
-        }.into_model().checker().spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 11);
-
-        // revisits state where liveness property was not yet satisfied and falsely assumes will never be
-        assert_eq!(
-            checker.discovery("must reach max").unwrap().last_state().actor_states,
-            vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(1))]);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Private module for selective re-export.
 
 use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property};
-use crate::checker::{Checker, Expectation, Path};
+use crate::checker::{Checker, EventuallyBits, Expectation, Path};
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use nohash_hasher::NoHashHasher;
@@ -19,7 +19,7 @@ pub(crate) struct BfsChecker<M: Model> {
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
 }
 struct JobMarket<State> { wait_count: usize, jobs: Vec<Job<State>> }
-type Job<State> = VecDeque<(State, Fingerprint)>;
+type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits)>;
 
 impl<M> BfsChecker<M>
 where M: Model + Send + Sync + 'static,
@@ -34,10 +34,19 @@ where M: Model + Send + Sync + 'static,
 
         let generated = Arc::new(DashMap::default());
         for s in model.init_states() { generated.insert(fingerprint(&s), None); }
+        let ebits = {
+            let mut ebits = EventuallyBits::new();
+            for (i, p) in model.properties().iter().enumerate() {
+                if let Property { expectation: Expectation::Eventually, .. } = p {
+                    ebits.insert(i);
+                }
+            }
+            ebits
+        };
         let pending: VecDeque<_> = model.init_states().into_iter()
             .map(|s| {
                 let fp = fingerprint(&s);
-                (s, fp)
+                (s, fp, ebits.clone())
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -145,7 +154,7 @@ where M: Model + Send + Sync + 'static,
             max_count -= 1;
 
             // Done if none pending.
-            let (state, state_fp) = match pending.pop_back() {
+            let (state, state_fp, mut ebits) = match pending.pop_back() {
                 None => return,
                 Some(pair) => pair,
             };
@@ -155,7 +164,7 @@ where M: Model + Send + Sync + 'static,
 
             // Done if discoveries found for all properties.
             let mut is_awaiting_discoveries = false;
-            for property in &properties {
+            for (i, property) in properties.iter().enumerate() {
                 if discoveries.contains_key(property.name) { continue }
                 match property {
                     Property { expectation: Expectation::Always, condition: always, .. } => {
@@ -174,15 +183,24 @@ where M: Model + Send + Sync + 'static,
                             is_awaiting_discoveries = true;
                         }
                     },
-                    Property { expectation: Expectation::Eventually, condition: _eventually, .. } => {
-                        // FIXME: port over Graydon's implementation
+                    Property { expectation: Expectation::Eventually, condition: eventually, .. } => {
+                        // The checker early exits after finding discoveries for every property,
+                        // and "eventually" property discoveries are only identifid at terminal
+                        // states, so if we are here it means we are still awaiting a corresponding
+                        // discovery regardless of whether the eventually property is now satisfied
+                        // (i.e. it might be falsifiable via a different path).
+                        is_awaiting_discoveries = true;
+                        if eventually(model, &state) {
+                            ebits.remove(i);
+                        }
                     }
                 }
 
             }
             if !is_awaiting_discoveries { return }
 
-            // Otherwise enqueue newly generated states and fingerprint traces.
+            // Otherwise enqueue newly generated states (with related metadata).
+            let mut is_terminal = true;
             model.actions(&state, &mut actions);
             let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
             for next_state in next_states {
@@ -190,13 +208,40 @@ where M: Model + Send + Sync + 'static,
                 if !model.within_boundary(&next_state) { continue }
 
                 // Skip if already generated.
+                //
+                // FIXME: we should really include ebits in the fingerprint here --
+                // it is possible to arrive at a DAG join with two different ebits
+                // values, and subsequently treat the fact that some eventually
+                // property held on the path leading to the first visit as meaning
+                // that it holds in the path leading to the second visit -- another
+                // possible false-negative.
                 let next_fingerprint = fingerprint(&next_state);
                 if let Entry::Vacant(next_entry) = generated.entry(next_fingerprint) {
                     next_entry.insert(Some(state_fp));
-                } else { continue }
+                } else {
+                    // FIXME: arriving at an already-known state may be a loop (in which case it
+                    // could, in a fancier implementation, be considered a terminal state for
+                    // purposes of eventually-property checking) but it might also be a join in
+                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                    // some cost), but for now we just _don't_ treat them as terminal, and tell
+                    // users they need to explicitly ensure model path-acyclicality when they're
+                    // using eventually properties (using a boundary or empty actions or
+                    // whatever).
+                    is_terminal = false;
+                    continue
+                }
 
-                // Otherwise checking is applicable.
-                pending.push_front((next_state, next_fingerprint));
+                // Otherwise further checking is applicable.
+                is_terminal = false;
+                pending.push_front((next_state, next_fingerprint, ebits.clone()));
+            }
+            if is_terminal {
+                for (i, property) in properties.iter().enumerate() {
+                    if ebits.contains(i) {
+                        // Races other threads, but that's fine.
+                        discoveries.insert(property.name, state_fp);
+                    }
+                }
             }
         }
     }

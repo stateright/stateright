@@ -253,6 +253,11 @@ impl<State, Action> Path<State, Action> {
         &self.0.last().unwrap().0
     }
 
+    /// Extracts the states.
+    pub fn into_states(self) -> Vec<State> {
+        self.0.into_iter().map(|(s, _a)| s).collect()
+    }
+
     /// Extracts the actions.
     pub fn into_actions(self) -> Vec<Action> {
         self.0.into_iter().filter_map(|(_s, a)| a).collect()
@@ -398,6 +403,8 @@ pub trait Checker<M: Model> {
     where M::State: Debug + PartialEq,
           M::Action: Debug + PartialEq,
     {
+        let mut additional_info: Vec<&'static str> = Vec::new();
+
         let found = self.assert_any_discovery(name);
         for init_state in self.model().init_states() {
             if let Some(path) = Path::from_actions(self.model(), init_state, &actions) {
@@ -407,13 +414,22 @@ pub trait Checker<M: Model> {
                         if !(property.condition)(self.model(), path.last_state()) { return }
                     }
                     Expectation::Eventually => {
-                        if actions != self.assert_any_discovery(name).into_actions() {
-                            todo!("Not yet able to validate eventually properties \
-                                   unless they are discovered by the model checker,
-                                   as this implementation does not check that the
-                                   path is terminal.");
+                        let states = path.into_states();
+                        let is_liveness_satisfied = states.iter().any(|s| {
+                            (property.condition)(self.model(), s)
+                        });
+                        let is_path_terminal = {
+                            let mut actions = Vec::new();
+                            self.model().actions(&states.last().unwrap(), &mut actions);
+                            actions.is_empty()
+                        };
+                        if !is_liveness_satisfied && is_path_terminal { return }
+                        if is_liveness_satisfied {
+                            additional_info.push("incorrect counterexample satisfies eventually property");
                         }
-                        if !(property.condition)(self.model(), path.last_state()) { return }
+                        if !is_path_terminal {
+                            additional_info.push("incorrect counterexample is nonterminal");
+                        }
                     }
                     Expectation::Sometimes => {
                         if (property.condition)(self.model(), path.last_state()) { return }
@@ -421,13 +437,94 @@ pub trait Checker<M: Model> {
                 }
             }
         }
-        panic!("Invalid discovery for '{}', but a valid one was found. found={:?}",
-               name, found.into_actions());
+        let additional_info = if additional_info.is_empty() {
+            "".to_string()
+        } else {
+            format!(" ({})", additional_info.join("; "))
+        };
+        panic!("Invalid discovery for '{}'{}, but a valid one was found. found={:?}",
+               name, additional_info, found.into_actions());
+    }
+}
+
+// EventuallyBits tracks one bit per 'eventually' property being checked. Properties are assigned
+// bit-numbers just by counting the 'eventually' properties up from 0 in the properties list. If a
+// bit is present in a bitset, the property has _not_ been found on this path yet. Bits are removed
+// from the propagating bitset when we find a state satisfying an `eventually` property; these
+// states are not considered discoveries. Only if we hit the "end" of a path (i.e. return to a known
+// state / no further state) with any of these bits still 1, the path is considered a discovery,
+// a counterexample to the property.
+type EventuallyBits = id_set::IdSet;
+
+#[cfg(test)]
+mod test_eventually_property_checker {
+    use crate::{Checker, Property};
+    use crate::test_util::dgraph::DGraph;
+
+    fn eventually_odd() -> Property<DGraph> {
+        Property::eventually("odd", |_, s| s % 2 == 1)
+    }
+
+    #[test]
+    fn can_validate() {
+        DGraph::with_property(eventually_odd())
+            .with_path(vec![1])        // satisfied at terminal init
+            .with_path(vec![2, 3])     // satisfied at nonterminal init
+            .with_path(vec![2, 6, 7])  // satisfied at terminal next
+            .with_path(vec![4, 9, 10]) // satisfied at nonterminal next
+            .check().assert_properties();
+        // Repeat with distinct state spaces since stateful checking skips visited states (which we
+        // don't expect here, but this is defense in depth).
+        DGraph::with_property(eventually_odd())
+            .with_path(vec![1]).check().assert_properties();
+        DGraph::with_property(eventually_odd())
+            .with_path(vec![2, 3]).check().assert_properties();
+        DGraph::with_property(eventually_odd())
+            .with_path(vec![2, 6, 7]).check().assert_properties();
+        DGraph::with_property(eventually_odd())
+            .with_path(vec![4, 9, 10]).check().assert_properties();
+    }
+
+    #[test]
+    fn can_discover_counterexample() { // i.e. can falsify
+        assert_eq!(
+            DGraph::with_property(eventually_odd())
+                .with_path(vec![0, 1])
+                .with_path(vec![0, 2])
+                .check().discovery("odd").unwrap().into_states(),
+            vec![0, 2]);
+        assert_eq!(
+            DGraph::with_property(eventually_odd())
+                .with_path(vec![0, 1])
+                .with_path(vec![2, 4])
+                .check().discovery("odd").unwrap().into_states(),
+            vec![2, 4]);
+        assert_eq!(
+            DGraph::with_property(eventually_odd())
+                .with_path(vec![0, 1, 4, 6])
+                .with_path(vec![2, 4, 8])
+                .check().discovery("odd").unwrap().into_states(),
+            vec![2, 4, 6]);
+    }
+
+    #[test]
+    fn fixme_can_miss_counterexample_when_revisiting_a_state() { // i.e. incorrectly verify
+        assert_eq!(
+            DGraph::with_property(eventually_odd())
+                .with_path(vec![0, 2, 4, 2]) // cycle
+                .check().discovery("odd"),
+            None); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 2]
+        assert_eq!(
+            DGraph::with_property(eventually_odd())
+                .with_path(vec![0, 2, 4])
+                .with_path(vec![1, 4, 6]) // revisiting 4
+                .check().discovery("odd"),
+            None); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 6]
     }
 }
 
 #[cfg(test)]
-mod test {
+mod test_path {
     use super::*;
     use crate::test_util::linear_equation_solver::LinearEquation;
 
@@ -449,6 +546,12 @@ mod test {
             path.last_state(),
             &Path::final_state(&model, fingerprints).unwrap());
     }
+}
+
+#[cfg(test)]
+mod test_report {
+    use super::*;
+    use crate::test_util::linear_equation_solver::LinearEquation;
 
     #[test]
     fn report_includes_property_names_and_paths() {
