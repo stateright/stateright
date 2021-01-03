@@ -193,7 +193,7 @@ pub trait Actor: Sized {
     /// # Example
     ///
     /// ```
-    /// use serde_derive::{Deserialize, Serialize};
+    /// use serde::{Deserialize, Serialize};
     /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     /// #[derive(Serialize, Deserialize)]
     /// enum MyActorMsg { Msg1(u64), Msg2(char) }

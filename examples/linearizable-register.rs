@@ -7,7 +7,7 @@
 //! For a succinct overview of the algorithm, I recommend:
 //! http://muratbuffalo.blogspot.com/2012/05/replicatedfault-tolerant-atomic-storage.html
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use stateright::{Checker, Model};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, majority, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};

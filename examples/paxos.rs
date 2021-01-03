@@ -1,6 +1,6 @@
 //! A cluster that implements Single Decree Paxos.
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use stateright::{Model, Checker};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
