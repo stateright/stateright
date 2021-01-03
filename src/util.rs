@@ -149,6 +149,15 @@ impl<V: Hash + Eq, S: BuildHasher> PartialEq for HashableHashSet<V, S> {
     }
 }
 
+impl<V, S> serde::Serialize for HashableHashSet<V, S>
+where V: Eq + Hash + serde::Serialize,
+      S: BuildHasher,
+{
+    fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
+        self.0.serialize(ser)
+    }
+}
+
 #[cfg(test)]
 mod hashable_hash_set_test {
     use crate::util::HashableHashSet;
@@ -276,6 +285,16 @@ impl<'a, K, V, S> IntoIterator for &'a HashableHashMap<K, V, S> {
 impl<K: Hash + Eq, V: PartialEq, S: BuildHasher> PartialEq for HashableHashMap<K, V, S> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
+    }
+}
+
+impl<K, V, S> serde::Serialize for HashableHashMap<K, V, S>
+where K: Eq + Hash + serde::Serialize,
+      V: serde::Serialize,
+      S: BuildHasher,
+{
+    fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
+        self.0.serialize(ser)
     }
 }
 

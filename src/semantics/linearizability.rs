@@ -253,6 +253,22 @@ where RefObj: Default + SequentialSpec
     }
 }
 
+impl<T, RefObj> serde::Serialize for LinearizabilityTester<T, RefObj>
+where RefObj: serde::Serialize + SequentialSpec,
+      RefObj::Op: serde::Serialize,
+      RefObj::Ret: serde::Serialize,
+      T: Ord + serde::Serialize,
+{
+    fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = ser.serialize_struct("LinearizabilityTester", 4)?;
+        out.serialize_field("init_ref_obj", &self.init_ref_obj)?;
+        out.serialize_field("history_by_thread", &self.history_by_thread)?;
+        out.serialize_field("in_flight_by_thread", &self.in_flight_by_thread)?;
+        out.serialize_field("is_valid_history", &self.is_valid_history)?;
+        out.end()
+    }
+}
 
 #[cfg(test)]
 mod test {

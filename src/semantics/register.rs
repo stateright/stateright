@@ -6,15 +6,18 @@ use super::SequentialSpec;
 /// A simple register used to define reference operational semantics via
 /// [`SequentialSpec`].
 #[derive(Clone, Default, Debug, Hash, PartialEq)]
+#[derive(serde::Serialize)]
 pub struct Register<T>(pub T);
 
 /// An operation that can be invoked upon a [`Register`], resulting in a
 /// [`RegisterRet`]
 #[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(serde::Serialize)]
 pub enum RegisterOp<T> { Write(T), Read }
 
 /// A return value for a [`RegisterOp`] invoked upon a [`Register`].
 #[derive(Clone, Debug, Hash, PartialEq)]
+#[derive(serde::Serialize)]
 pub enum RegisterRet<T> { WriteOk, ReadOk(T) }
 
 impl<T: Clone + Debug + PartialEq> SequentialSpec for Register<T> {

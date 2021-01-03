@@ -129,6 +129,7 @@ impl Display for Id {
 
 /// Commands with which an actor can respond.
 #[derive(Debug)]
+#[derive(serde::Serialize)]
 pub enum Command<Msg> {
     /// Cancel the timer if one is set.
     CancelTimer,

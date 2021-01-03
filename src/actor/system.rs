@@ -295,6 +295,7 @@ impl<S: System> SystemModel<S> {
 
 /// Indicates the source and destination for a message.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(serde::Serialize)]
 pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 
 /// Represents a snapshot in time for the entire actor system.
@@ -303,6 +304,23 @@ pub struct SystemState<S: System> {
     pub network: Network<<S::Actor as Actor>::Msg>,
     pub is_timer_set: Vec<bool>,
     pub history: S::History,
+}
+
+impl<S> serde::Serialize for SystemState<S>
+where S: System,
+      <S::Actor as Actor>::State: serde::Serialize,
+      <S::Actor as Actor>::Msg: serde::Serialize,
+      S::History: serde::Serialize,
+{
+    fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = ser.serialize_struct("SystemState", 4)?;
+        out.serialize_field("actor_states", &self.actor_states)?;
+        out.serialize_field("network", &self.network)?;
+        out.serialize_field("is_timer_set", &self.is_timer_set)?;
+        out.serialize_field("history", &self.history)?;
+        out.end()
+    }
 }
 
 // Manual implementation to avoid `S: Clone` constraint that `#derive(Clone)` would introduce on

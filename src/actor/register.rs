@@ -151,6 +151,7 @@ pub enum RegisterActor<ServerActor> {
     Server(ServerActor),
 }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(serde::Serialize)]
 pub enum RegisterActorState<ServerState> {
     /// A client that sends a sequence of [`RegisterMsg::Put`] messages before sending a
     /// [`RegisterMsg::Get`].
