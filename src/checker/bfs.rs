@@ -159,7 +159,7 @@ where M: Model + Send + Sync + 'static,
                 Some(pair) => pair,
             };
             if let Some(visitor) = visitor {
-                visitor.visit(reconstruct_path(model, generated, state_fp));
+                visitor.visit(model, reconstruct_path(model, generated, state_fp));
             }
 
             // Done if discoveries found for all properties.

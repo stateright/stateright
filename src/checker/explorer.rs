@@ -48,7 +48,7 @@ where
 
 struct Snapshot<Action>(bool, Option<Vec<Action>>);
 impl<M: Model> CheckerVisitor<M> for Arc<RwLock<Snapshot<M::Action>>> {
-    fn visit(&self, path: Path<M::State, M::Action>) {
+    fn visit(&self, _: &M, path: Path<M::State, M::Action>) {
         let guard = self.read();
         if !guard.0 { return }
         drop(guard);

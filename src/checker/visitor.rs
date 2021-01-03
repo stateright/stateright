@@ -16,13 +16,13 @@ use std::sync::{Arc, Mutex};
 /// ```
 pub trait CheckerVisitor<M: Model> {
     /// The method to apply to every [`Path`].
-    fn visit(&self, path: Path<M::State, M::Action>);
+    fn visit(&self, model: &M, path: Path<M::State, M::Action>);
 }
 impl<M, F> CheckerVisitor<M> for F
 where M: Model,
       F: Fn(Path<M::State, M::Action>),
 {
-    fn visit(&self, path: Path<M::State, M::Action>) {
+    fn visit(&self, _: &M, path: Path<M::State, M::Action>) {
         self(path)
     }
 }
@@ -44,7 +44,7 @@ impl<M> CheckerVisitor<M> for StateRecorder<M>
 where M: Model,
       M::State: Clone,
 {
-    fn visit(&self, path: Path<M::State, M::Action>) {
+    fn visit(&self, _: &M, path: Path<M::State, M::Action>) {
         self.0.lock().unwrap().push(path.last_state().clone())
     }
 }

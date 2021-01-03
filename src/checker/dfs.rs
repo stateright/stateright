@@ -161,7 +161,7 @@ where M: Model + Send + Sync + 'static,
                 Some(pair) => pair,
             };
             if let Some(visitor) = visitor {
-                visitor.visit(Path::from_fingerprints(
+                visitor.visit(model, Path::from_fingerprints(
                         model,
                         VecDeque::from(fingerprints.clone())));
             }
