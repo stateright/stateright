@@ -27,12 +27,13 @@ Status.LOADING = new Status({
 });
 
 /// Represents a model step. Only loads next steps on demand.
-function Step({action, outcome, state, fingerprint, prevStep}) {
+function Step({action, outcome, state, fingerprint, prevStep, svg}) {
     let step = this;
 
     step.action = action || `Init ${i}`;
     step.outcome = outcome;
     step.state = state;
+    step.svg = svg;
     step.fingerprint = fingerprint;
     step.prevStep = prevStep;
 
@@ -56,6 +57,7 @@ function Step({action, outcome, state, fingerprint, prevStep}) {
                     action: nextStep.action || `Init ${i}`,
                     outcome: nextStep.outcome,
                     state: nextStep.state,
+                    svg: nextStep.svg,
                     fingerprint: nextStep.fingerprint,
                     prevStep: step,
                 }));

@@ -71,12 +71,14 @@
                     Compact?
                 </label>
             </div>
-            <div class="font-code font-small color-dark columns padding-small rounded"
+            <div class="font-code font-small color-dark columns margin-bottom-small padding-small rounded"
                  data-bind="style: { 'white-space': isCompact() ? 'normal' : 'pre-wrap' },
                             text: isCompleteState()
                                   ? selectedStep().state
                                   : selectedStep().outcome || selectedStep().state">CURR STATE</div>
 
+            <div class="color-dark font-code margin-bottom-small padding-small rounded"
+                 data-bind="html: selectedStep().svg, visible: selectedStep().svg">SVG</div>
             <h2>Next Steps</h2>
             <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">
                 <li>

@@ -174,6 +174,10 @@ pub trait Model: Sized {
             .map(|next_state| format!("{:?}", next_state))
     }
 
+    /// Returns an [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) representation of a
+    /// [`Path`] for this model.
+    fn as_svg(&self, _path: Path<Self::State, Self::Action>) -> Option<String> { None }
+
     /// Indicates the steps (action-state pairs) that follow a particular state.
     fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)> {
         // Must generate the actions twice because they are consumed by `next_state`.

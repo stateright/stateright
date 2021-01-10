@@ -58,6 +58,9 @@ ul {
 .font-small {
     font-size: 0.8em;
 }
+.margin-bottom-small {
+    margin: 5px;
+}
 .padding-small {
     padding: 5px;
 }
@@ -102,4 +105,18 @@ ul {
     flex-grow: 3;
     padding-left: 5px;
     padding-right: 5px;
+}
+
+.svg-actor-label {
+    fill: var(--bg-med);
+}
+.svg-actor-timeline {
+    stroke: var(--bg-med);
+}
+.svg-event-label {
+    fill: var(--contrast-brt);
+}
+.svg-event-shape {
+    fill: var(--bg-med);
+    stroke: var(--bg-med);
 }

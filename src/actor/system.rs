@@ -257,6 +257,94 @@ impl<S: System> Model for SystemModel<S> {
         }
     }
 
+    /// Draws a sequence diagram for the actor system.
+    fn as_svg(&self, path: Path<Self::State, Self::Action>) -> Option<String> {
+        use std::collections::HashMap;
+        use std::fmt::Write;
+
+        let plot = |x, y| (x as u64 * 100, y as u64 * 30);
+        let actor_count = path.last_state().actor_states.len();
+        let path = path.into_vec();
+
+        // SVG wrapper.
+        let (mut svg_w, svg_h) = plot(actor_count, path.len());
+        svg_w += 300; // KLUDGE: extra width for event labels
+        let mut svg = format!("<svg version='1.1' baseProfile='full' \
+                                    width='{}' height='{}' viewbox='-20 -20 {} {}' \
+                                    xmlns='http://www.w3.org/2000/svg'>",
+            svg_w, svg_h, svg_w + 20, svg_h + 20);
+
+        // Definitions.
+        write!(&mut svg, "\
+            <defs>\
+              <marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'>\
+                <polygon points='0 0, 12 5, 0 10' />\
+              </marker>\
+            </defs>").unwrap();
+
+        // Vertical timeline for each actor.
+        for actor_index in 0..actor_count {
+            let (x1, y1) = plot(actor_index, 0);
+            let (x2, y2) = plot(actor_index, path.len());
+            write!(&mut svg, "<line x1='{}' y1='{}' x2='{}' y2='{}' class='svg-actor-timeline' />\n",
+                   x1, y1, x2, y2).unwrap();
+            write!(&mut svg, "<text x='{}' y='{}' class='svg-actor-label'>{:?}</text>\n",
+                   x1, y1, actor_index).unwrap();
+        }
+
+        // Arrow for each delivery. Circle for other events.
+        let mut send_time  = HashMap::new();
+        for (time, (state, action)) in path.clone().into_iter().enumerate() {
+            let time = time + 1; // action is for the next step
+            match action {
+                Some(SystemAction::Deliver { src, dst: id, msg }) => {
+                    let src_time = *send_time.get(&(src, id, msg.clone())).unwrap_or(&0);
+                    let (x1, y1) = plot(src.into(), src_time);
+                    let (x2, y2) = plot(id.into(),  time);
+                    write!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-shape' />\n",
+                           x1, x2, y1, y2).unwrap();
+
+                    // Track sends to facilitate building arrows.
+                    let index = usize::from(id);
+                    if let Some(actor_state) = &state.actor_states.get(index) {
+                        let out = self.actors[index].on_msg_out(id, actor_state, src, msg);
+                        for command in out.commands {
+                            if let Command::Send(dst, msg) = command {
+                                send_time.insert((id, dst, msg), time);
+                            }
+                        }
+                    }
+                }
+                Some(SystemAction::Timeout(actor_id)) => {
+                    write!(&mut svg, "<circle cx='{}' cy='{}' r='5' class='svg-event-shape' />\n",
+                           actor_id, time).unwrap();
+                }
+                _ => {}
+            }
+        }
+
+        // Handle event labels last to ensure they are drawn over shapes.
+        for (time, (_state, action)) in path.into_iter().enumerate() {
+            let time = time + 1; // action is for the next step
+            match action {
+                Some(SystemAction::Deliver { dst: id, msg, .. }) => {
+                    let (x, y) = plot(id.into(), time);
+                    write!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>\n",
+                           x, y, msg).unwrap();
+                }
+                Some(SystemAction::Timeout(id)) => {
+                    let (x, y) = plot(id.into(), time);
+                    write!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>Timeout</text>\n",
+                           x, y).unwrap();
+                }
+                _ => {}
+            }
+        }
+
+        write!(&mut svg, "</svg>\n").unwrap();
+        Some(svg)
+    }
+
     fn properties(&self) -> Vec<Property<Self>> {
         self.system.properties()
     }
