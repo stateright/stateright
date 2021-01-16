@@ -5,10 +5,10 @@ function Status({discoveries, done, generated, model, recent_path}) {
     status.discoveries = discoveries;
     status.generated = generated;
     status.model = model
-        .replaceAll('stateright::actor::register::', '')
-        .replaceAll('stateright::actor::system::', '')
-        .replaceAll('stateright::actor::', '')
-        .replaceAll('stateright::', '');
+        .replace('stateright::actor::register::', '')
+        .replace('stateright::actor::system::', '')
+        .replace('stateright::actor::', '')
+        .replace('stateright::', '');
     status.progress = 'Done';
     if (!done) {
         status.progress = recent_path.length < 100
