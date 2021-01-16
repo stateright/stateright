@@ -77,7 +77,7 @@
                                   ? selectedStep().state
                                   : selectedStep().outcome || selectedStep().state">CURR STATE</div>
 
-            <div class="color-dark font-code margin-bottom-small padding-small rounded"
+            <div class="color-dark font-code hscroll margin-bottom-small padding-small rounded"
                  data-bind="html: selectedStep().svg, visible: selectedStep().svg">SVG</div>
             <h2>Next Steps</h2>
             <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">

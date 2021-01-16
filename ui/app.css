@@ -11,6 +11,14 @@
     --contrast-brt: #f2e27a;
 }
 
+/* W/H SHOULD INCLUDE ADD MARGIN/PADDING */
+html {
+	box-sizing: border-box;
+}
+*, *:before, *:after {
+	box-sizing: inherit;
+}
+
 /* GENERAL STYLES */
 
 a {
@@ -58,8 +66,38 @@ ul {
 .font-small {
     font-size: 0.8em;
 }
+.hscroll {
+    overflow: scroll;
+}
+@media only screen and (min-width: 360px) { /* Small phone */
+    .hscroll { width: 350px; }
+}
+@media only screen and (min-width: 375px) { /* iPhone 6/X portrait */
+    .hscroll { width: 365px; }
+}
+@media only screen and (min-width: 414px) { /* iPhone 6 Plus portrait */
+    .hscroll { width: 404px; }
+}
+@media only screen and (min-width: 667px) { /* iPhone 6 landscape */
+    .hscroll { width: 657px; }
+}
+@media only screen and (min-width: 736px) { /* iPhone 6 Plus landscape */
+    .hscroll { width: 726px; }
+}
+@media only screen and (min-width: 768px) { /* iPad portrait */
+    .hscroll { width: 758px; }
+}
+@media only screen and (min-width: 812px) { /* iPhone X landscape */
+    .hscroll { width: 802px; }
+}
+@media only screen and (min-width: 1024px) { /* iPad landscape and larger */
+    .hscroll {
+        overflow: auto;
+        width: auto;
+    }
+}
 .margin-bottom-small {
-    margin: 5px;
+    margin-bottom: 5px;
 }
 .padding-small {
     padding: 5px;
