@@ -5,6 +5,7 @@ use stateright::{Model, Checker};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
 use stateright::util::{HashableHashMap, HashableHashSet};
+use std::borrow::Cow;
 
 type Round = u32;
 type Rank = u32;
@@ -46,8 +47,8 @@ impl Actor for PaxosActor {
     type Msg = RegisterMsg<TestRequestId, TestValue, PaxosMsg>;
     type State = PaxosState;
 
-    fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-        o.set_state(PaxosState {
+    fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
+        PaxosState {
             // shared state
             ballot: (0, 0),
 
@@ -59,13 +60,13 @@ impl Actor for PaxosActor {
             // acceptor state
             accepted: None,
             is_decided: false,
-        });
+        }
     }
 
-    fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
             Put(request_id, value) if !state.is_decided && state.proposal.is_none()  => {
-                let mut state = state.clone();
+                let mut state = state.to_mut();
                 state.ballot = (state.ballot.0 + 1, self.rank);
                 state.proposal = Some((request_id, src, value));
                 state.prepares = Default::default();
@@ -73,7 +74,6 @@ impl Actor for PaxosActor {
                 o.broadcast(
                     &self.peer_ids,
                     &Internal(Prepare { ballot: state.ballot }));
-                o.set_state(state);
             }
             Get(request_id) if state.is_decided => {
                 if let Some((_ballot, (_request_id, _requester_id, value))) = state.accepted {
@@ -89,17 +89,15 @@ impl Actor for PaxosActor {
                 // the other actors and reply based on that.
             },
             Internal(Prepare { ballot }) if state.ballot < ballot => {
-                let mut state = state.clone();
-                state.ballot = ballot;
+                state.to_mut().ballot = ballot;
                 o.send(src, Internal(Prepared {
                     ballot,
                     last_accepted: state.accepted,
                 }));
-                o.set_state(state);
             }
             Internal(Prepared { ballot, last_accepted })
             if ballot == state.ballot && !state.is_decided => {
-                let mut state = state.clone();
+                let mut state = state.to_mut();
                 state.prepares.insert(src, last_accepted);
                 if state.prepares.len() > (self.peer_ids.len() + 1) / 2 {
                     let proposal = state.prepares
@@ -113,18 +111,16 @@ impl Actor for PaxosActor {
                         proposal,
                     }));
                 }
-                o.set_state(state);
             }
             Internal(Accept { ballot, proposal })
             if state.ballot <= ballot && !state.is_decided => {
-                let mut state = state.clone();
+                let mut state = state.to_mut();
                 state.ballot = ballot;
                 state.accepted = Some((ballot, proposal));
-                o.set_state(state);
                 o.send(src, Internal(Accepted { ballot }));
             }
             Internal(Accepted { ballot }) if ballot == state.ballot => {
-                let mut state = state.clone();
+                let mut state = state.to_mut();
                 state.accepts.insert(src);
                 if state.accepts.len() > (self.peer_ids.len() + 1) / 2 {
                     state.is_decided = true;
@@ -137,14 +133,12 @@ impl Actor for PaxosActor {
                     let (request_id, requester_id, _) = proposal;
                     o.send(requester_id, PutOk(request_id));
                 }
-                o.set_state(state);
             }
             Internal(Decided { ballot, proposal }) => {
-                let mut state = state.clone();
+                let mut state = state.to_mut();
                 state.ballot = ballot;
                 state.accepted = Some((ballot, proposal));
                 state.is_decided = true;
-                o.set_state(state);
             }
             _ => {}
         }

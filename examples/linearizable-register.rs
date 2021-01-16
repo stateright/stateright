@@ -8,6 +8,7 @@
 //! http://muratbuffalo.blogspot.com/2012/05/replicatedfault-tolerant-atomic-storage.html
 
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use stateright::{Checker, Model};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, majority, model_peers, Out, System, SystemState};
 use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
@@ -50,50 +51,47 @@ impl Actor for AbdActor {
     type Msg = RegisterMsg<TestRequestId, TestValue, AbdMsg>;
     type State = AbdState;
 
-    fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-        o.set_state(Default::default());
+    fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
+        Default::default()
     }
 
-    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
-            Put(req_id, val) => {
-                if state.phase.is_some() { return }
+            Put(req_id, val) if state.phase.is_none() => {
                 o.broadcast(&self.peers, &Internal(Query(req_id)));
-
-                let mut responses = HashableHashMap::default();
-                responses.insert(id, (state.seq, state.val.clone()));
-
-                let mut state = o.set_state(state.clone());
-                state.phase = Some(AbdPhase::Phase1 {
+                state.to_mut().phase = Some(AbdPhase::Phase1 {
                     request_id: req_id,
                     requester_id: src,
                     write: Some(val),
-                    responses,
+                    responses: {
+                        let mut responses = HashableHashMap::default();
+                        responses.insert(id, (state.seq, state.val.clone()));
+                        responses
+                    },
                 });
             }
-            Get(req_id) => {
-                if state.phase.is_some() { return }
+            Get(req_id) if state.phase.is_none() => {
                 o.broadcast(&self.peers, &Internal(Query(req_id)));
-
-                let mut responses = HashableHashMap::default();
-                responses.insert(id, (state.seq, state.val.clone()));
-
-                let mut state = o.set_state(state.clone());
-                state.phase = Some(AbdPhase::Phase1 {
+                state.to_mut().phase = Some(AbdPhase::Phase1 {
                     request_id: req_id,
                     requester_id: src,
                     write: None,
-                    responses,
+                    responses: {
+                        let mut responses = HashableHashMap::default();
+                        responses.insert(id, (state.seq, state.val.clone()));
+                        responses
+                    },
                 });
             }
             Internal(Query(req_id)) => {
                 o.send(src, Internal(AckQuery(req_id, state.seq, state.val.clone())));
             }
-            Internal(AckQuery(expected_req_id, seq, val)) => {
-                if let Some(AbdPhase::Phase1 { request_id: req_id, .. }) = &state.phase {
-                    if *req_id != expected_req_id { return }
-                }
-                let mut state = state.clone();
+            Internal(AckQuery(expected_req_id, seq, val))
+                if matches!(state.phase,
+                            Some(AbdPhase::Phase1 { request_id, .. })
+                            if request_id == expected_req_id) =>
+            {
+                let mut state = state.to_mut();
                 if let Some(AbdPhase::Phase1 { request_id: req_id, requester_id: requester, write, responses, .. }) = &mut state.phase {
                     responses.insert(src, (seq, val));
                     if responses.len() == majority(self.peers.len() + 1) {
@@ -130,22 +128,22 @@ impl Actor for AbdActor {
                             acks,
                         });
                     }
-                    o.set_state(state);
                 }
             }
             Internal(Record(req_id, seq, val)) => {
                 o.send(src, Internal(AckRecord(req_id)));
                 if seq > state.seq {
-                    let mut state = o.set_state(state.clone());
+                    let mut state = state.to_mut();
                     state.seq = seq;
                     state.val = val;
                 }
             }
-            Internal(AckRecord(expected_req_id)) => {
-                if let Some(AbdPhase::Phase2 { request_id: req_id, .. }) = &state.phase {
-                    if *req_id != expected_req_id { return }
-                }
-                let mut state = state.clone();
+            Internal(AckRecord(expected_req_id))
+                if matches!(state.phase,
+                            Some(AbdPhase::Phase2 { request_id, .. })
+                            if request_id == expected_req_id) =>
+            {
+                let mut state = state.to_mut();
                 if let Some(AbdPhase::Phase2 { request_id: req_id, requester_id: requester, read, acks, .. }) = &mut state.phase {
                     acks.insert(src);
                     if acks.len() == majority(self.peers.len() + 1) {
@@ -158,10 +156,8 @@ impl Actor for AbdActor {
                         state.phase = None;
                     }
                 }
-                o.set_state(state);
             }
-            // The following are ignored as they are actor system outputs.
-            PutOk(_) | GetOk(_, _) => {},
+            _ => {}
         }
     }
 }

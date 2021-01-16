@@ -6,6 +6,7 @@ use crate::actor::{Actor, Id, Out};
 use crate::actor::system::{DuplicatingNetwork, LossyNetwork, System, SystemModel, SystemState};
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
 use crate::semantics::LinearizabilityTester;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -175,33 +176,34 @@ where
     type State = RegisterActorState<ServerActor::State>;
 
     #[allow(clippy::identity_op)]
-    fn on_start(&self, id: Id, o: &mut Out<Self>) {
+    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
             RegisterActor::Client { server_count } => {
                 let index = id.0;
                 let unique_request_id = 1 * index as TestRequestId; // next will be 2 * index
                 let value = (b'A' + (index - server_count) as u8) as char;
-                o.state = Some(RegisterActorState::Client {
-                    awaiting: Some(unique_request_id),
-                    op_count: 1,
-                });
                 o.send(
                     Id((index + 0) % server_count),
                     Put(unique_request_id, value));
+                RegisterActorState::Client {
+                    awaiting: Some(unique_request_id),
+                    op_count: 1,
+                }
             }
             RegisterActor::Server(server_actor) => {
-                let server_out = server_actor.on_start_out(id);
-                o.state = server_out.state.map(RegisterActorState::Server);
-                o.commands = server_out.commands;
+                let mut server_out = Out::new();
+                let state = RegisterActorState::Server(server_actor.on_start(id, &mut server_out));
+                o.append(&mut server_out);
+                state
             }
         }
     }
 
-    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         use RegisterActor as A;
         use RegisterActorState as S;
 
-        match (self, state) {
+        match (self, &**state) {
             (A::Client { server_count }, S::Client {
                                              awaiting: Some(awaiting),
                                              op_count
@@ -213,10 +215,6 @@ where
                         // sequence is of length 2, while the others are of length 1.
                         let index = id.0;
                         let unique_request_id = ((op_count + 1) * index) as TestRequestId;
-                        o.state = Some(RegisterActorState::Client {
-                            awaiting: Some(unique_request_id),
-                            op_count: op_count + 1,
-                        });
                         let max_put_count = if index == *server_count { 2 } else { 1 };
                         if *op_count < max_put_count {
                             let value = (b'Z' - (index - server_count) as u8) as char;
@@ -228,9 +226,13 @@ where
                                 Id((index + op_count) % server_count),
                                 Get(unique_request_id));
                         }
+                        *state = Cow::Owned(RegisterActorState::Client {
+                            awaiting: Some(unique_request_id),
+                            op_count: op_count + 1,
+                        });
                     }
                     RegisterMsg::GetOk(request_id, _value) if &request_id == awaiting => {
-                        o.state = Some(RegisterActorState::Client {
+                        *state = Cow::Owned(RegisterActorState::Client {
                             awaiting: None,
                             op_count: op_count + 1,
                         });
@@ -239,9 +241,13 @@ where
                 }
             }
             (A::Server(server_actor), S::Server(server_state)) => {
-                let server_out = server_actor.on_msg_out(id, server_state, src, msg);
-                o.state = server_out.state.map(RegisterActorState::Server);
-                o.commands = server_out.commands;
+                let mut server_state = Cow::Borrowed(server_state);
+                let mut server_out = Out::new();
+                server_actor.on_msg(id, &mut server_state, src, msg, &mut server_out);
+                if let Cow::Owned(server_state) = server_state {
+                    *state = Cow::Owned(RegisterActorState::Server(server_state))
+                }
+                o.append(&mut server_out);
             }
             _ => {}
         }

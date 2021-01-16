@@ -19,24 +19,24 @@ pub mod ping_pong {
         type Msg = PingPongMsg;
         type State = PingPongCount;
 
-        fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-            o.set_state(PingPongCount(0));
+        fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let PingPongActor::PingActor { pong_id } = self {
                 o.send(*pong_id, PingPongMsg::Ping(0));
             }
+            PingPongCount(0)
         }
 
-        fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+        fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
             match (self, msg) {
                 (PingPongActor::PingActor { .. }, PingPongMsg::Pong(msg_value)) if state.0 == msg_value => {
-                    o.set_state(PingPongCount(state.0 + 1));
                     o.send(src, PingPongMsg::Ping(msg_value + 1));
-                },
+                    *state.to_mut() = PingPongCount(state.0 + 1)
+                }
                 (PingPongActor::PongActor, PingPongMsg::Ping(msg_value)) if state.0 == msg_value => {
-                    o.set_state(PingPongCount(state.0 + 1));
                     o.send(src, PingPongMsg::Pong(msg_value));
-                },
-                _ => {},
+                    *state.to_mut() = PingPongCount(state.0 + 1)
+                }
+                _ => {}
             }
         }
     }

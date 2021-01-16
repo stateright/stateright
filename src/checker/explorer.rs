@@ -313,7 +313,7 @@ mod test {
             states[0],
             StateView {
                 action: Some(Drop(Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
-                outcome: None,
+                outcome: Some("DROP: Envelope { src: Id(0), dst: Id(1), msg: Ping(0) }".to_string()),
                 state: SystemState {
                     actor_states: vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(0))],
                     history: (0, 1),
@@ -326,25 +326,7 @@ mod test {
             states[1],
             StateView {
                 action: Some(Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }),
-                outcome: Some("\
-ActorStep {
-    last_state: PingPongCount(
-        0,
-    ),
-    next_state: Some(
-        PingPongCount(
-            1,
-        ),
-    ),
-    commands: [
-        Send(
-            Id(0),
-            Pong(
-                0,
-            ),
-        ),
-    ],
-}".to_string()),
+                outcome: Some("OUT: [Send(Id(0), Pong(0))]\n\nNEXT_STATE: PingPongCount(\n    1,\n)\n\nPREV_STATE: PingPongCount(\n    0,\n)\n".to_string()),
                 state: SystemState {
                     actor_states: vec![
                         Arc::new(PingPongCount(0)),

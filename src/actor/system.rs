@@ -121,11 +121,10 @@ impl<S: System> Model for SystemModel<S> {
         // init each actor
         for (index, actor) in self.actors.iter().enumerate() {
             let id = Id::from(index);
-            let out = actor.on_start_out(id);
-            init_sys_state.actor_states.push(
-                Arc::new(
-                    out.state.unwrap_or_else(|| panic!("on_start must assign state. id={:?}", id))));
-            self.process_commands(id, out.commands, &mut init_sys_state);
+            let mut out = Out::new();
+            let state = actor.on_start(id, &mut out);
+            init_sys_state.actor_states.push(Arc::new(state));
+            self.process_commands(id, out, &mut init_sys_state);
         }
 
         vec![init_sys_state]
@@ -165,11 +164,13 @@ impl<S: System> Model for SystemModel<S> {
 
                 // Not all messags can be delivered, so ignore those.
                 if last_actor_state.is_none() { return None; }
-                let last_actor_state = last_actor_state.unwrap();
+                let last_actor_state = &**last_actor_state.unwrap();
+                let mut state = Cow::Borrowed(last_actor_state);
 
                 // Some operations are no-ops, so ignore those as well.
-                let out = self.actors[index].on_msg_out(id, last_actor_state, src, msg.clone());
-                if out.is_no_op() { return None; }
+                let mut out = Out::new();
+                self.actors[index].on_msg(id, &mut state, src, msg.clone(), &mut out);
+                if is_no_op(&state, &out) { return None; }
                 let history = self.system.record_msg_in(&last_sys_state.history, src, id, &msg);
 
                 // Update the state as necessary:
@@ -186,32 +187,32 @@ impl<S: System> Model for SystemModel<S> {
                     let env = Envelope { src, dst: id, msg };
                     next_sys_state.network.remove(&env);
                 }
-                if let Some(next_actor_state) = out.state {
+                if let Cow::Owned(next_actor_state) = state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
                 if let Some(history) = history {
                     next_sys_state.history = history;
                 }
-                self.process_commands(id, out.commands, &mut next_sys_state);
+                self.process_commands(id, out, &mut next_sys_state);
                 Some(next_sys_state)
             },
             SystemAction::Timeout(id) => {
                 // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
-                let last_actor_state = &last_sys_state.actor_states[index];
-                let out = self.actors[index].on_timeout_out(id, last_actor_state);
-                let keep_timer = out.commands.iter()
-                    .any(|c| matches!(c, Command::SetTimer(_)));
-                if out.is_no_op() && keep_timer { return None; }
+                let mut state = Cow::Borrowed(&*last_sys_state.actor_states[index]);
+                let mut out = Out::new();
+                self.actors[index].on_timeout(id, &mut state, &mut out);
+                let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(_)));
+                if is_no_op(&state, &out) && keep_timer { return None }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
                 next_sys_state.is_timer_set[index] = false;
 
-                if let Some(next_actor_state) = out.state {
+                if let Cow::Owned(next_actor_state) = state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
-                self.process_commands(id, out.commands, &mut next_sys_state);
+                self.process_commands(id, out, &mut next_sys_state);
                 Some(next_sys_state)
             },
         }
@@ -220,38 +221,63 @@ impl<S: System> Model for SystemModel<S> {
     fn display_outcome(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
     where Self::State: Debug
     {
-        #[derive(Debug)]
-        struct ActorStep<'a, State, Msg> {
-            last_state: &'a Arc<State>,
-            next_state: Option<State>,
-            commands: Vec<Command<Msg>>,
+        struct ActorStep<'a, A: Actor> {
+            last_state: &'a A::State,
+            next_state: Option<A::State>,
+            out: Out<A>,
+        }
+        impl<'a, A: Actor> Display for ActorStep<'a, A> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                writeln!(f, "OUT: {:?}", self.out)?;
+                writeln!(f)?;
+                if let Some(next_state) = &self.next_state {
+                    writeln!(f, "NEXT_STATE: {:#?}", next_state)?;
+                    writeln!(f)?;
+                    writeln!(f, "PREV_STATE: {:#?}", self.last_state)
+                } else {
+                    writeln!(f, "UNCHANGED: {:#?}", self.last_state)
+                }
+            }
         }
 
         match action {
-            SystemAction::Drop(_) => {
-                None
+            SystemAction::Drop(env) => {
+                Some(format!("DROP: {:?}", env))
             },
             SystemAction::Deliver { src, dst: id, msg } => {
                 let index = usize::from(id);
-                if let Some(actor_state) = &last_state.actor_states.get(index) {
-                    let out = self.actors[index].on_msg_out(id, actor_state, src, msg);
-                    Some(format!("{:#?}", ActorStep {
-                        last_state: actor_state,
-                        next_state: out.state,
-                        commands: out.commands,
-                    }))
-                } else {
-                    None
-                }
+                let last_actor_state = match last_state.actor_states.get(index) {
+                    None => return None,
+                    Some(last_actor_state) => &**last_actor_state,
+                };
+                let mut actor_state = Cow::Borrowed(last_actor_state);
+                let mut out = Out::new();
+                self.actors[index].on_msg(id, &mut actor_state, src, msg, &mut out);
+                Some(format!("{}", ActorStep {
+                    last_state: last_actor_state,
+                    next_state: match actor_state {
+                        Cow::Borrowed(_) => None,
+                        Cow::Owned(next_actor_state) => Some(next_actor_state),
+                    },
+                    out,
+                }))
             },
             SystemAction::Timeout(id) => {
                 let index = usize::from(id);
-                let actor_state = &last_state.actor_states[index];
-                let out = self.actors[index].on_timeout_out(id, actor_state);
-                Some(format!("{:#?}", ActorStep {
-                    last_state: actor_state,
-                    next_state: out.state,
-                    commands: out.commands,
+                let last_actor_state = match last_state.actor_states.get(index) {
+                    None => return None,
+                    Some(last_actor_state) => &**last_actor_state,
+                };
+                let mut actor_state = Cow::Borrowed(last_actor_state);
+                let mut out = Out::new();
+                self.actors[index].on_timeout(id, &mut actor_state, &mut out);
+                Some(format!("{}", ActorStep {
+                    last_state: last_actor_state,
+                    next_state: match actor_state {
+                        Cow::Borrowed(_) => None,
+                        Cow::Owned(next_actor_state) => Some(next_actor_state),
+                    },
+                    out,
                 }))
             },
         }
@@ -286,9 +312,9 @@ impl<S: System> Model for SystemModel<S> {
         for actor_index in 0..actor_count {
             let (x1, y1) = plot(actor_index, 0);
             let (x2, y2) = plot(actor_index, path.len());
-            write!(&mut svg, "<line x1='{}' y1='{}' x2='{}' y2='{}' class='svg-actor-timeline' />\n",
+            writeln!(&mut svg, "<line x1='{}' y1='{}' x2='{}' y2='{}' class='svg-actor-timeline' />",
                    x1, y1, x2, y2).unwrap();
-            write!(&mut svg, "<text x='{}' y='{}' class='svg-actor-label'>{:?}</text>\n",
+            writeln!(&mut svg, "<text x='{}' y='{}' class='svg-actor-label'>{:?}</text>",
                    x1, y1, actor_index).unwrap();
         }
 
@@ -301,14 +327,16 @@ impl<S: System> Model for SystemModel<S> {
                     let src_time = *send_time.get(&(src, id, msg.clone())).unwrap_or(&0);
                     let (x1, y1) = plot(src.into(), src_time);
                     let (x2, y2) = plot(id.into(),  time);
-                    write!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-shape' />\n",
+                    writeln!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-shape' />",
                            x1, x2, y1, y2).unwrap();
 
                     // Track sends to facilitate building arrows.
                     let index = usize::from(id);
-                    if let Some(actor_state) = &state.actor_states.get(index) {
-                        let out = self.actors[index].on_msg_out(id, actor_state, src, msg);
-                        for command in out.commands {
+                    if let Some(actor_state) = state.actor_states.get(index) {
+                        let mut actor_state = Cow::Borrowed(&**actor_state);
+                        let mut out = Out::new();
+                        self.actors[index].on_msg(id, &mut actor_state, src, msg, &mut out);
+                        for command in out {
                             if let Command::Send(dst, msg) = command {
                                 send_time.insert((id, dst, msg), time);
                             }
@@ -316,7 +344,7 @@ impl<S: System> Model for SystemModel<S> {
                     }
                 }
                 Some(SystemAction::Timeout(actor_id)) => {
-                    write!(&mut svg, "<circle cx='{}' cy='{}' r='5' class='svg-event-shape' />\n",
+                    writeln!(&mut svg, "<circle cx='{}' cy='{}' r='5' class='svg-event-shape' />",
                            actor_id, time).unwrap();
                 }
                 _ => {}
@@ -329,19 +357,19 @@ impl<S: System> Model for SystemModel<S> {
             match action {
                 Some(SystemAction::Deliver { dst: id, msg, .. }) => {
                     let (x, y) = plot(id.into(), time);
-                    write!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>\n",
+                    writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>",
                            x, y, msg).unwrap();
                 }
                 Some(SystemAction::Timeout(id)) => {
                     let (x, y) = plot(id.into(), time);
-                    write!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>Timeout</text>\n",
+                    writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>Timeout</text>",
                            x, y).unwrap();
                 }
                 _ => {}
             }
         }
 
-        write!(&mut svg, "</svg>\n").unwrap();
+        writeln!(&mut svg, "</svg>").unwrap();
         Some(svg)
     }
 
@@ -356,7 +384,7 @@ impl<S: System> Model for SystemModel<S> {
 
 impl<S: System> SystemModel<S> {
     /// Updates the actor state, sends messages, and configures the timer.
-    fn process_commands(&self, id: Id, commands: Vec<Command<<S::Actor as Actor>::Msg>>, state: &mut SystemState<S>) {
+    fn process_commands(&self, id: Id, commands: Out<S::Actor>, state: &mut SystemState<S>) {
         let index = usize::from(id);
         for c in commands {
             match c {
@@ -687,8 +715,8 @@ mod test {
         impl Actor for TestActor {
             type State = ();
             type Msg = ();
-            fn on_start(&self, _: Id, o: &mut Out<Self>) { o.set_state(()); }
-            fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+            fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State { () }
+            fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
         }
         struct TestSystem;
         impl System for TestSystem {
@@ -713,10 +741,10 @@ mod test {
             type State = ();
             type Msg = ();
             fn on_start(&self, _: Id, o: &mut Out<Self>) {
-                o.set_state(());
                 o.set_timer(model_timeout());
+                ()
             }
-            fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+            fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
         }
         struct TestSystem;
         impl System for TestSystem {

@@ -7,6 +7,7 @@
 
 use crate::actor::*;
 use crate::util::HashableHashMap;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::time::Duration;
 use std::ops::Range;
@@ -61,21 +62,21 @@ impl<A: Actor> Actor for ActorWrapper<A>
     type Msg = MsgWrapper<A::Msg>;
     type State = StateWrapper<A::Msg, A::State>;
 
-    fn on_start(&self, id: Id, o: &mut Out<Self>) {
+    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         o.set_timer(self.resend_interval.clone());
 
-        let mut wrapped_out = self.wrapped_actor.on_start_out(id);
-        let state = StateWrapper {
+        let mut wrapped_out = Out::new();
+        let mut state = StateWrapper {
             next_send_seq: 1,
             msgs_pending_ack: Default::default(),
             last_delivered_seqs: Default::default(),
-            wrapped_state: wrapped_out.state.take()
-                .unwrap_or_else(|| panic!("on_start must assign state. id={:?}", id)),
+            wrapped_state: self.wrapped_actor.on_start(id, &mut wrapped_out),
         };
-        process_output(wrapped_out, state, o);
+        process_output(&mut state, wrapped_out, o);
+        state
     }
 
-    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
             MsgWrapper::Deliver(seq, wrapped_msg) => {
                 // Always ack the message to prevent re-sends, and early exit if already delivered.
@@ -83,24 +84,33 @@ impl<A: Actor> Actor for ActorWrapper<A>
                 if seq <= *state.last_delivered_seqs.get(&src).unwrap_or(&0) { return }
 
                 // Process the message, and early exit if ignored.
-                let wrapped_out = self.wrapped_actor.on_msg_out(id, &state.wrapped_state, src, wrapped_msg);
-                if wrapped_out.is_no_op() { return }
+                let mut wrapped_state = Cow::Borrowed(&state.wrapped_state);
+                let mut wrapped_out = Out::new();
+                self.wrapped_actor.on_msg(
+                    id, &mut wrapped_state, src, wrapped_msg, &mut wrapped_out);
+                if is_no_op(&wrapped_state, &wrapped_out) { return }
 
                 // Never delivered, and not ignored by actor, so update the sequencer and process the original output.
-                let mut state = state.clone();
-                state.last_delivered_seqs.insert(src, seq);
-                process_output(wrapped_out, state, o);
+                if let Cow::Owned(wrapped_state) = wrapped_state {
+                    // Avoid unnecessarily cloning wrapped_state by not calling to_mut() in this
+                    // case.
+                    *state = Cow::Owned(StateWrapper {
+                        next_send_seq: state.next_send_seq,
+                        msgs_pending_ack: state.msgs_pending_ack.clone(),
+                        last_delivered_seqs: state.last_delivered_seqs.clone(),
+                        wrapped_state,
+                    });
+                }
+                state.to_mut().last_delivered_seqs.insert(src, seq);
+                process_output(state.to_mut(), wrapped_out, o);
             },
             MsgWrapper::Ack(seq) => {
-                if !state.msgs_pending_ack.contains_key(&seq) { return }
-                let mut state = state.clone();
-                state.msgs_pending_ack.remove(&seq);
-                o.set_state(state);
+                state.to_mut().msgs_pending_ack.remove(&seq);
             },
         }
     }
 
-    fn on_timeout(&self, _id: Id, state: &Self::State, o: &mut Out<Self>) {
+    fn on_timeout(&self, _id: Id, state: &mut std::borrow::Cow<Self::State>, o: &mut Out<Self>) {
         o.set_timer(self.resend_interval.clone());
         for (seq, (dst, msg)) in &state.msgs_pending_ack {
             o.send(*dst, MsgWrapper::Deliver(*seq, msg.clone()));
@@ -108,13 +118,10 @@ impl<A: Actor> Actor for ActorWrapper<A>
     }
 }
 
-fn process_output<A: Actor>(wrapped_out: Out<A>, mut state: StateWrapper<A::Msg, A::State>, o: &mut Out<ActorWrapper<A>>)
+fn process_output<A: Actor>(state: &mut StateWrapper<A::Msg, A::State>, wrapped_out: Out<A>, o: &mut Out<ActorWrapper<A>>)
 where A::Msg: Hash
 {
-    if let Some(wrapped_state) = wrapped_out.state {
-        state.wrapped_state = wrapped_state;
-    }
-    for command in wrapped_out.commands {
+    for command in wrapped_out {
         match command {
             Command::CancelTimer => {
                 todo!("CancelTimer is not supported at this time");
@@ -129,11 +136,11 @@ where A::Msg: Hash
             },
         }
     }
-    o.set_state(state);
 }
 
 #[cfg(test)]
 mod test {
+    use std::borrow::Cow;
     use crate::{Checker, Property, Model};
     use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
@@ -153,19 +160,16 @@ mod test {
         type Msg = TestMsg;
         type State = Received;
 
-        fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-            let state = Received(Vec::new());
+        fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let TestActor::Sender { receiver_id } = self {
                 o.send(*receiver_id, TestMsg(42));
                 o.send(*receiver_id, TestMsg(43));
             }
-            o.set_state(state);
+            Received(Vec::new())
         }
 
-        fn on_msg(&self, _id: Id, received: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
-            let mut received = received.clone();
-            received.0.push((src, msg));
-            o.set_state(received);
+        fn on_msg(&self, _id: Id, received: &mut Cow<Self::State>, src: Id, msg: Self::Msg, _o: &mut Out<Self>) {
+            received.to_mut().0.push((src, msg));
         }
     }
 

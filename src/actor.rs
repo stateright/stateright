@@ -12,6 +12,7 @@
 //! ```
 //! use stateright::*;
 //! use stateright::actor::*;
+//! use std::borrow::Cow;
 //! use std::iter::FromIterator;
 //! use std::sync::Arc;
 //!
@@ -31,22 +32,22 @@
 //!     type Msg = MsgWithTimestamp;
 //!     type State = Timestamp;
 //!
-//!     fn on_start(&self, _id: Id, o: &mut Out<Self>) {
+//!     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
 //!         // The actor either bootstraps or starts at time zero.
 //!         if let Some(peer_id) = self.bootstrap_to_id {
-//!             o.set_state(Timestamp(1));
 //!             o.send(peer_id, MsgWithTimestamp(1));
+//!             Timestamp(1)
 //!         } else {
-//!             o.set_state(Timestamp(0));
+//!             Timestamp(0)
 //!         }
 //!     }
 //!
-//!     fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+//!     fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
 //!         // Upon receiving a message, the actor updates its timestamp and replies.
 //!         let MsgWithTimestamp(timestamp) = msg;
 //!         if timestamp > state.0 {
-//!             o.set_state(Timestamp(timestamp + 1));
 //!             o.send(src, MsgWithTimestamp(timestamp + 1));
+//!             *state.to_mut() = Timestamp(timestamp + 1);
 //!         }
 //!     }
 //! }
@@ -94,6 +95,7 @@
 
 mod system;
 mod spawn;
+use std::borrow::Cow;
 use std::hash::Hash;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
@@ -139,34 +141,35 @@ pub enum Command<Msg> {
     Send(Id, Msg),
 }
 
-/// Groups outputs to make function types more concise when implementing an actor.
-pub struct Out<A: Actor> {
-    /// The new actor state. `None` indicates no change.
-    pub state: Option<A::State>,
-    /// Commands output by the actor.
-    pub commands: Vec<Command<A::Msg>>,
-}
+/// Holds [`Command`]s output by an actor.
+pub struct Out<A: Actor>(Vec<Command<A::Msg>>);
 
 impl<A: Actor> Out<A> {
+    /// Constructs an empty `Out`.
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Moves all [`Command`]s of `other` into `Self`, leaving `other` empty.
+    fn append<B>(&mut self, other: &mut Out<B>)
+    where B: Actor<Msg = A::Msg>
+    {
+        self.0.append(&mut other.0)
+    }
+
     /// Records the need to set the timer. See [`Actor::on_timeout`].
     pub fn set_timer(&mut self, duration: Range<Duration>) {
-        self.commands.push(Command::SetTimer(duration));
+        self.0.push(Command::SetTimer(duration));
     }
 
     /// Records the need to cancel the timer.
     pub fn cancel_timer(&mut self) {
-        self.commands.push(Command::CancelTimer);
-    }
-
-    /// Updates the actor state.
-    pub fn set_state(&mut self, state: A::State) -> &mut A::State {
-        self.state = Some(state);
-        self.state.as_mut().unwrap()
+        self.0.push(Command::CancelTimer);
     }
 
     /// Records the need to send a message. See [`Actor::on_msg`].
     pub fn send(&mut self, recipient: Id, msg: A::Msg) {
-        self.commands.push(Command::Send(recipient, msg));
+        self.0.push(Command::Send(recipient, msg));
     }
 
     /// Records the need to send a message to multiple recipients. See [`Actor::on_msg`].
@@ -177,11 +180,39 @@ impl<A: Actor> Out<A> {
             self.send(*recipient, msg.clone());
         }
     }
+}
 
-    /// If true, then the actor did not update its state or record commands.
-    pub fn is_no_op(&self) -> bool {
-        self.state.is_none() && self.commands.is_empty()
+impl<A: Actor> Debug for Out<A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
+}
+
+impl<A: Actor> std::ops::Deref for Out<A> {
+    type Target = [Command<A::Msg>];
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<A: Actor> std::iter::FromIterator<Command<A::Msg>> for Out<A> {
+    fn from_iter<I: IntoIterator<Item = Command<A::Msg>>>(iter: I) -> Self {
+        Out(Vec::from_iter(iter))
+    }
+}
+
+impl<A: Actor> IntoIterator for Out<A> {
+    type Item = Command<A::Msg>;
+    type IntoIter = std::vec::IntoIter<Command<A::Msg>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+/// If true, then the actor did not update its state or output commands.
+#[allow(clippy::ptr_arg)] // `&Cow` needed for `matches!`
+pub fn is_no_op<A: Actor>(state: &Cow<A::State>, out: &Out<A>) -> bool {
+    matches!(state, Cow::Borrowed(_)) && out.0.is_empty()
 }
 
 /// An actor initializes internal state optionally emitting [outputs]; then it waits for incoming
@@ -212,54 +243,24 @@ pub trait Actor: Sized {
     type State: Clone + Debug + PartialEq + Hash;
 
     /// Indicates the initial state and commands.
-    fn on_start(&self, id: Id, o: &mut Out<Self>);
+    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State;
 
     /// Indicates the next state and commands when a message is received. See [`Out::send`].
-    fn on_msg(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>);
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>);
 
     /// Indicates the next state and commands when a timeout is encountered. See [`Out::set_timer`].
-    fn on_timeout(&self, _id: Id, _state: &Self::State, _o: &mut Out<Self>) {
+    fn on_timeout(&self, _id: Id, _state: &mut Cow<Self::State>, _o: &mut Out<Self>) {
         // no-op by default
-    }
-
-    /// Returns the initial state and commands.
-    fn on_start_out(&self, id: Id) -> Out<Self> {
-        let mut o = Out {
-            state: None,
-            commands: Vec::new(),
-        };
-        self.on_start(id, &mut o);
-        o
-    }
-
-    /// Returns the next state and commands when a message is received.
-    fn on_msg_out(&self, id: Id, state: &Self::State, src: Id, msg: Self::Msg) -> Out<Self> {
-        let mut o = Out {
-            state: None,
-            commands: Vec::new(),
-        };
-        self.on_msg(id, state, src, msg, &mut o);
-        o
-    }
-
-    /// Returns the next state and commands when a timeout is encountered.
-    fn on_timeout_out(&self, id: Id, state: &Self::State) -> Out<Self> {
-        let mut o = Out {
-            state: None,
-            commands: Vec::new(),
-        };
-        self.on_timeout(id, state, &mut o);
-        o
     }
 }
 
-/// Implemented only for rustdoc. Do not take a dependency on this. It will likely be removed in a
-/// future version of this library.
+/// Implemented only for rustdoc tests. Do not take a dependency on this. It will likely be removed
+/// in a future version of this library.
 impl Actor for () {
     type State = ();
     type Msg = ();
-    fn on_start(&self, _: Id, o: &mut Out<Self>) { o.set_state(()); }
-    fn on_msg(&self, _: Id, _: &Self::State, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+    fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State {}
+    fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
 }
 
 /// Indicates the number of nodes that constitute a majority for a particular cluster size.

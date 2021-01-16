@@ -65,6 +65,7 @@ type LastCompletedOpMap<ThreadId> = BTreeMap<ThreadId, usize>;
 type Complete<ThreadId, Op, Ret> = (LastCompletedOpMap<ThreadId>, Op, Ret);
 type InFlight<ThreadId, Op> = (LastCompletedOpMap<ThreadId>, Op);
 
+#[allow(clippy::len_without_is_empty)] // no use case for an emptiness check
 impl<T: Ord, RefObj: SequentialSpec> LinearizabilityTester<T, RefObj> {
     /// Constructs a [`LinearizabilityTester`].
     pub fn new(init_ref_obj: RefObj) -> Self {

@@ -59,6 +59,7 @@ pub struct SequentialConsistencyTester<ThreadId, RefObj: SequentialSpec> {
     is_valid_history: bool,
 }
 
+#[allow(clippy::len_without_is_empty)] // no use case for an emptiness check
 impl<T: Ord, RefObj: SequentialSpec> SequentialConsistencyTester<T, RefObj> {
     /// Constructs a [`SequentialConsistencyTester`].
     pub fn new(init_ref_obj: RefObj) -> Self {

@@ -4,6 +4,7 @@
 use stateright::{Checker, Model};
 use stateright::actor::{Actor, DuplicatingNetwork, Id, Out, System};
 use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
+use std::borrow::Cow;
 
 #[derive(Clone)]
 struct SingleCopyActor;
@@ -12,18 +13,18 @@ impl Actor for SingleCopyActor {
     type Msg = RegisterMsg<TestRequestId, TestValue, ()>;
     type State = TestValue;
 
-    fn on_start(&self, _id: Id, o: &mut Out<Self>) {
-        o.set_state(TestValue::default());
+    fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
+        TestValue::default()
     }
 
-    fn on_msg(&self, _id: Id, state: &Self::State, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
             Put(req_id, value) => {
-                o.set_state(value);
+                *state.to_mut() = value;
                 o.send(src, PutOk(req_id));
             }
             Get(req_id) => {
-                o.send(src, GetOk(req_id, state.clone()));
+                o.send(src, GetOk(req_id, **state));
             }
             _ => {}
         }
