@@ -20,8 +20,10 @@ the model checker for more exhaustive coverage than solutions such as
 
 ## Getting Started
 
-A short book is in the works: "[Building Distributed Systems With
-Stateright](https://www.stateright.rs)."
+A [video
+introduction](https://youtube.com/playlist?list=PLUhyBsVvEJjaF1VpNhLRfIA4E7CFPirmz)
+is available, and a short book is in the works: "[Building Distributed Systems
+With Stateright](https://www.stateright.rs)."
 
 Consider also joining the [Stateright Discord
 server](https://discord.gg/JbxGSVP4A6) for Q&A or other feedback.
