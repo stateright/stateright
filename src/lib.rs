@@ -301,6 +301,7 @@ fn fingerprint<T: Hash>(value: &T) -> Fingerprint {
 
 /// Implemented only for rustdoc. Do not take a dependency on this. It will likely be removed in a
 /// future version of this library.
+#[doc(hidden)]
 impl Model for () {
     type State = ();
     type Action = ();
