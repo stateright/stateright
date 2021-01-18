@@ -2,6 +2,7 @@
 [![crates.io](https://img.shields.io/crates/v/stateright.svg)](https://crates.io/crates/stateright)
 [![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
 [![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
+[![youtube](https://img.shields.io/youtube/views/Oh0Dmz6asbs?style=social)](https://youtube.com/playlist?list=PLUhyBsVvEJjaF1VpNhLRfIA4E7CFPirmz)
 
 Correctly implementing distributed algorithms such as the
 [Paxos](https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) and
