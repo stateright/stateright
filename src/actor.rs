@@ -93,6 +93,7 @@
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
 //! are available in the repository.
 
+use crate::util::{Choice, Never};
 mod system;
 mod spawn;
 use std::borrow::Cow;
@@ -254,8 +255,125 @@ pub trait Actor: Sized {
     }
 }
 
+impl<A> Actor for Choice<A, Never> where A: Actor {
+    type Msg = A::Msg;
+    type State = Choice<A::State, Never>;
+
+    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+        let actor = self.get();
+        let mut o_prime = Out::new();
+        let state = actor.on_start(id, &mut o_prime);
+
+        o.append(&mut o_prime);
+        Choice::new(state)
+    }
+
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>,
+              src: Id, msg: Self::Msg, o: &mut Out<Self>)
+    {
+        let actor = self.get();
+        let mut state_prime = Cow::Borrowed(state.get());
+        let mut o_prime = Out::new();
+        actor.on_msg(id, &mut state_prime, src, msg, &mut o_prime);
+
+        o.append(&mut o_prime);
+        if let Cow::Owned(state_prime) = state_prime {
+            *state = Cow::Owned(Choice::new(state_prime))
+        }
+    }
+
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+        let actor = self.get();
+        let mut state_prime = Cow::Borrowed(state.get());
+        let mut o_prime = Out::new();
+        actor.on_timeout(id, &mut state_prime, &mut o_prime);
+
+        o.append(&mut o_prime);
+        if let Cow::Owned(state_prime) = state_prime {
+            *state = Cow::Owned(Choice::new(state_prime));
+        }
+    }
+}
+
+impl<Msg, A1, A2> Actor for Choice<A1, A2>
+where Msg: Clone + Debug + Eq + Hash,
+      A1: Actor<Msg = Msg>,
+      A2: Actor<Msg = Msg>,
+{
+    type Msg = Msg;
+    type State = Choice<A1::State, A2::State>;
+
+    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+        match self {
+            Choice::L(actor) => {
+                let mut o_prime = Out::new();
+                let state = actor.on_start(id, &mut o_prime);
+                o.append(&mut o_prime);
+                Choice::L(state)
+            }
+            Choice::R(actor) => {
+                let mut o_prime = Out::new();
+                let state = actor.on_start(id, &mut o_prime);
+                o.append(&mut o_prime);
+                Choice::R(state)
+            }
+        }
+    }
+
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>,
+              src: Id, msg: Self::Msg, o: &mut Out<Self>)
+    {
+        match (self, &**state) {
+            (Choice::L(actor), Choice::L(state_prime)) => {
+                let mut state_prime = Cow::Borrowed(state_prime);
+                let mut o_prime = Out::new();
+                actor.on_msg(id, &mut state_prime, src, msg, &mut o_prime);
+                o.append(&mut o_prime);
+                if let Cow::Owned(state_prime) = state_prime {
+                    *state = Cow::Owned(Choice::L(state_prime));
+                }
+            }
+            (Choice::R(actor), Choice::R(state_prime)) => {
+                let mut state_prime = Cow::Borrowed(state_prime);
+                let mut o_prime = Out::new();
+                actor.on_msg(id, &mut state_prime, src, msg, &mut o_prime);
+                o.append(&mut o_prime);
+                if let Cow::Owned(state_prime) = state_prime {
+                    *state = Cow::Owned(Choice::R(state_prime));
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+        match (self, &**state) {
+            (Choice::L(actor), Choice::L(state_prime)) => {
+                let mut state_prime = Cow::Borrowed(state_prime);
+                let mut o_prime = Out::new();
+                actor.on_timeout(id, &mut state_prime, &mut o_prime);
+                o.append(&mut o_prime);
+                if let Cow::Owned(state_prime) = state_prime {
+                    *state = Cow::Owned(Choice::L(state_prime));
+                }
+            }
+            (Choice::R(actor), Choice::R(state_prime)) => {
+                let mut state_prime = Cow::Borrowed(state_prime);
+                let mut o_prime = Out::new();
+                actor.on_timeout(id, &mut state_prime, &mut o_prime);
+                o.append(&mut o_prime);
+                if let Cow::Owned(state_prime) = state_prime {
+                    *state = Cow::Owned(Choice::R(state_prime));
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 /// Implemented only for rustdoc tests. Do not take a dependency on this. It will likely be removed
 /// in a future version of this library.
+#[doc(hidden)]
 impl Actor for () {
     type State = ();
     type Msg = ();

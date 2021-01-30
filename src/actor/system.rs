@@ -759,3 +759,140 @@ mod test {
         assert_eq!(2, TestSystem.into_model().checker().spawn_bfs().join().generated_count());
     }
 }
+
+#[cfg(test)]
+mod choice_test {
+    use crate::{Checker, Model, Property, StateRecorder};
+    use crate::actor::{DuplicatingNetwork, System, SystemModel, SystemState};
+    use super::*;
+
+    #[derive(Clone)]
+    struct A { b: Id }
+    impl Actor for A {
+        type State = u8;
+        type Msg = ();
+        fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
+            1
+        }
+        fn on_msg(&self, _: Id, state: &mut Cow<Self::State>,
+                  _: Id, _: Self::Msg, o: &mut Out<Self>) {
+            *state.to_mut() = state.wrapping_add(1);
+            o.send(self.b, ());
+        }
+    }
+
+    #[derive(Clone)]
+    struct B { c: Id }
+    impl Actor for B {
+        type State = char;
+        type Msg = ();
+        fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
+            'a'
+        }
+        fn on_msg(&self, _: Id, state: &mut Cow<Self::State>,
+                  _: Id, _: Self::Msg, o: &mut Out<Self>) {
+            *state.to_mut() = (**state as u8).wrapping_add(1) as char;
+            o.send(self.c, ());
+        }
+    }
+
+    #[derive(Clone)]
+    struct C { a: Id }
+    impl Actor for C {
+        type State = String;
+        type Msg = ();
+        fn on_start(&self, _: Id, o: &mut Out<Self>) -> Self::State {
+            o.send(self.a, ());
+            "I".to_string()
+        }
+        fn on_msg(&self, _: Id, state: &mut Cow<Self::State>,
+                  _: Id, _: Self::Msg, o: &mut Out<Self>) {
+            state.to_mut().push('I');
+            o.send(self.a, ());
+        }
+    }
+
+    /// A system that sends `n` messages for `(n, actors)`.
+    impl<A> System for (usize, Vec<A>) where A: Actor + Clone {
+        type Actor = A;
+        type History = usize;
+        fn actors(&self) -> Vec<Self::Actor> {
+            self.1.clone()
+        }
+        fn duplicating_network(&self) -> DuplicatingNetwork {
+            DuplicatingNetwork::No
+        }
+        fn record_msg_out(&self, history: &Self::History, _: Id, _: Id, _: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
+            Some(history + 1)
+        }
+        fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
+            vec![Property::<SystemModel<Self>>::always("true", |_, _| { true })]
+        }
+        fn within_boundary(&self, state: &SystemState<Self>) -> bool {
+            state.history < self.0
+        }
+    }
+
+    #[test]
+    fn choice_correctly_implements_actor() {
+        let sys: (usize, Vec<choice![A, B, C]>) = (
+            8,
+            vec![
+                Choice::new(A { b: Id::from(1) }),
+                Choice::new(B { c: Id::from(2) }).or(),
+                Choice::new(C { a: Id::from(0) }).or().or(),
+            ]
+        );
+        let (recorder, accessor) = StateRecorder::new_with_accessor();
+        sys.into_model().checker()
+            .visitor(recorder)
+            .spawn_dfs().join();
+        let states: Vec<Vec<choice![u8, char, String]>> = accessor().into_iter()
+            .map(|s| s.actor_states.into_iter().map(|a| (&*a).clone()).collect())
+            .collect();
+        assert_eq!(states, vec![
+            // Init.
+            vec![
+                Choice::new(1),
+                Choice::new('a').or(),
+                Choice::new("I".to_string()).or().or(),
+            ],
+            // Then deliver to A.
+            vec![
+                Choice::new(2),
+                Choice::new('a').or(),
+                Choice::new("I".to_string()).or().or(),
+            ],
+            // Then deliver to B.
+            vec![
+                Choice::new(2),
+                Choice::new('b').or(),
+                Choice::new("I".to_string()).or().or(),
+            ],
+            // Then deliver to C.
+            vec![
+                Choice::new(2),
+                Choice::new('b').or(),
+                Choice::new("II".to_string()).or().or(),
+            ],
+            // Then deliver to A again.
+            vec![
+                Choice::new(3),
+                Choice::new('b').or(),
+                Choice::new("II".to_string()).or().or(),
+            ],
+            // Then deliver to B again.
+            vec![
+                Choice::new(3),
+                Choice::new('c').or(),
+                Choice::new("II".to_string()).or().or(),
+            ],
+            // Then deliver to C again.
+            vec![
+                Choice::new(3),
+                Choice::new('c').or(),
+                Choice::new("III".to_string()).or().or(),
+            ],
+        ]);
+    }
+}
