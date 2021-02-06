@@ -51,15 +51,12 @@
 //! # let checker = MyModel.checker().spawn_bfs().join();
 //! ```
 
-mod choice;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher, BuildHasher};
 use std::ops::{Deref, DerefMut};
 use std::iter::FromIterator;
-
-pub use choice::*;
 
 // Reuse a buffer to avoid temporary allocations.
 thread_local!(static BUFFER: RefCell<Vec<u64>> = RefCell::new(Vec::with_capacity(100)));

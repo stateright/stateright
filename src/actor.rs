@@ -93,7 +93,7 @@
 //! [Additional examples](https://github.com/stateright/stateright/tree/master/examples)
 //! are available in the repository.
 
-use crate::util::{Choice, Never};
+use choice::{Choice, Never};
 mod system;
 mod spawn;
 use std::borrow::Cow;

@@ -835,6 +835,7 @@ mod choice_test {
 
     #[test]
     fn choice_correctly_implements_actor() {
+        use choice::choice;
         let sys: (usize, Vec<choice![A, B, C]>) = (
             8,
             vec![

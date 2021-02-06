@@ -15,6 +15,7 @@ keywords = ["actor", "distributed-systems", "linearizability", "model-checking",
 [dependencies]
 ahash = "0.3"
 actix-web = "1.0"
+choice = "0.0.0"
 crossbeam-utils = "0.7"
 dashmap = "3.11"
 id-set = "0.2.2"
