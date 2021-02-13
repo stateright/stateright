@@ -118,7 +118,12 @@ impl<V: Eq + Hash, S: BuildHasher + Default> FromIterator<V> for HashableHashSet
 impl<V: Hash, S> Hash for HashableHashSet<V, S> {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         BUFFER.with(|buffer| {
-            let mut buffer = buffer.borrow_mut();
+            // The cached buffer might already be in use farther up the call stack, so the
+            // algorithm reverts to a fallback as needed.
+            let fallback = RefCell::new(Vec::new());
+
+            let mut buffer = buffer.try_borrow_mut()
+                .unwrap_or_else(|_| fallback.borrow_mut());
             buffer.clear();
             buffer.extend(self.0.iter().map(|v| {
                 let mut inner_hasher = crate::stable::hasher();
@@ -196,6 +201,18 @@ mod hashable_hash_set_test {
 
         assert_eq!(fp1, fp2);
     }
+
+    #[test]
+    fn can_hash_set_of_sets() {
+        // This is a regression test for a case that used to cause `hash` to panic.
+        let mut set = HashableHashSet::new();
+        set.insert({
+            let mut set = HashableHashSet::new();
+            set.insert("value");
+            set
+        });
+        fingerprint(&set); // No assertion as this test is just checking for a panic.
+    }
 }
 
 /// A [`HashMap`] wrapper that implements [`Hash`] by sorting pre-hashed entries and feeding those back
@@ -256,7 +273,12 @@ impl<K: Eq + Hash, V, S: BuildHasher + Default> FromIterator<(K, V)> for Hashabl
 impl<K: Hash, V: Hash, S> Hash for HashableHashMap<K, V, S> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         BUFFER.with(|buffer| {
-            let mut buffer = buffer.borrow_mut();
+            // The cached buffer might already be in use farther up the call stack, so the
+            // algorithm reverts to a fallback as needed.
+            let fallback = RefCell::new(Vec::new());
+
+            let mut buffer = buffer.try_borrow_mut()
+                .unwrap_or_else(|_| fallback.borrow_mut());
             buffer.clear();
             buffer.extend(self.0.iter().map(|(k, v)| {
                 let mut inner_hasher = crate::stable::hasher();
@@ -345,5 +367,17 @@ mod hashable_hash_map_test {
         let fp2 = fingerprint(&map);
 
         assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn can_hash_map_of_maps() {
+        // This is a regression test for a case that used to cause `hash` to panic.
+        let mut map = HashableHashMap::new();
+        map.insert("key", {
+            let mut map = HashableHashMap::new();
+            map.insert("key", "value");
+            map
+        });
+        fingerprint(&map); // No assertion as this test is just checking for a panic.
     }
 }
