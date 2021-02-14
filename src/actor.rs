@@ -174,7 +174,7 @@ impl<A: Actor> Out<A> {
     }
 
     /// Records the need to send a message to multiple recipients. See [`Actor::on_msg`].
-    pub fn broadcast(&mut self, recipients: &[Id], msg: &A::Msg)
+    pub fn broadcast<'a>(&mut self, recipients: impl IntoIterator<Item=&'a Id>, msg: &A::Msg)
     where A::Msg: Clone
     {
         for recipient in recipients {
@@ -386,11 +386,29 @@ pub fn majority(cluster_size: usize) -> usize {
     cluster_size / 2 + 1
 }
 
-#[test]
-fn majority_is_computed_correctly() {
-    assert_eq!(majority(1), 1);
-    assert_eq!(majority(2), 2);
-    assert_eq!(majority(3), 2);
-    assert_eq!(majority(4), 3);
-    assert_eq!(majority(5), 3);
+/// A helper to generate peer [`Id`]s.
+pub fn peer_ids<'a, Id: PartialEq + 'static>(self_id: Id, other_ids: impl IntoIterator<Item=&'a Id>) -> impl Iterator<Item=&'a Id> {
+    other_ids.into_iter().filter(move |o_id| o_id != &&self_id)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn majority_is_computed_correctly() {
+        assert_eq!(majority(1), 1);
+        assert_eq!(majority(2), 2);
+        assert_eq!(majority(3), 2);
+        assert_eq!(majority(4), 3);
+        assert_eq!(majority(5), 3);
+    }
+
+    #[test]
+    fn peer_ids_are_computed_correctly() {
+        let ids: Vec<Id> = (0..3).into_iter().map(Id::from).collect();
+        assert_eq!(
+            peer_ids(ids[1], &ids).collect::<Vec<&Id>>(),
+            vec![&Id::from(0), &Id::from(2)]);
+    }
 }
