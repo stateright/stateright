@@ -145,13 +145,12 @@ fn main() {
 
             // WARNING: Omits `ordered_reliable_link` to keep the message
             //          protocol simple for `nc`.
-            let handles = spawn(
+            spawn(
                 serde_json::to_vec,
                 |bytes| serde_json::from_slice(bytes),
                 vec![
                     (SocketAddrV4::new(Ipv4Addr::LOCALHOST, port), SingleCopyActor)
-                ]);
-            for h in handles { let _ = h.join(); }
+                ]).unwrap();
         }
         _ => app.print_help().unwrap(),
     }
