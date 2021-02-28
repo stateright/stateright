@@ -3,22 +3,25 @@
 //! by Jim Gray and Leslie Lamport.
 
 use stateright::{Checker, Model, Property};
-use stateright::util::{HashableHashMap, HashableHashSet};
+use std::collections::BTreeSet;
 use std::hash::Hash;
+use std::ops::Range;
+
+type R = usize; // represented by integers in 0..N-1
 
 #[derive(Clone)]
-struct TwoPhaseSys<R> { pub rms: HashableHashSet<R> }
+struct TwoPhaseSys { pub rms: Range<R> }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct TwoPhaseState<R: Eq + Hash> {
-    rm_state: HashableHashMap<R, RmState>,
+struct TwoPhaseState {
+    rm_state: Vec<RmState>, // map from each RM
     tm_state: TmState,
-    tm_prepared: HashableHashSet<R>,
-    msgs: HashableHashSet<Message<R>>
+    tm_prepared: Vec<bool>, // map from each RM
+    msgs: BTreeSet<Message>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum Message<R> { Prepared { rm: R }, Commit, Abort }
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum Message { Prepared { rm: R }, Commit, Abort }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum RmState { Working, Prepared, Committed, Aborted }
@@ -27,7 +30,7 @@ enum RmState { Working, Prepared, Committed, Aborted }
 enum TmState { Init, Committed, Aborted }
 
 #[derive(Clone, Debug)]
-enum Action<R> {
+enum Action {
     TmRcvPrepared(R),
     TmCommit,
     TmAbort,
@@ -37,27 +40,27 @@ enum Action<R> {
     RmRcvAbortMsg(R),
 }
 
-impl<R: Clone + Eq + Hash> Model for TwoPhaseSys<R> {
-    type State = TwoPhaseState<R>;
-    type Action = Action<R>;
+impl Model for TwoPhaseSys {
+    type State = TwoPhaseState;
+    type Action = Action;
 
     fn init_states(&self) -> Vec<Self::State> {
         vec![TwoPhaseState {
-            rm_state: self.rms.iter().map(|rm| (rm.clone(), RmState::Working)).collect(),
+            rm_state: self.rms.clone().map(|_| RmState::Working).collect(),
             tm_state: TmState::Init,
-            tm_prepared: Default::default(),
+            tm_prepared: self.rms.clone().map(|_| false).collect(),
             msgs: Default::default(),
         }]
     }
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-        if state.tm_state == TmState::Init && state.tm_prepared == self.rms {
+        if state.tm_state == TmState::Init && state.tm_prepared.iter().all(|p| *p) {
             actions.push(Action::TmCommit);
         }
         if state.tm_state == TmState::Init {
             actions.push(Action::TmAbort);
         }
-        for rm in &self.rms {
+        for rm in self.rms.clone() {
             if state.tm_state == TmState::Init
                     && state.msgs.contains(&Message::Prepared { rm: rm.clone() }) {
                 actions.push(Action::TmRcvPrepared(rm.clone()));
@@ -80,7 +83,7 @@ impl<R: Clone + Eq + Hash> Model for TwoPhaseSys<R> {
     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
         let mut state = last_state.clone();
         match action.clone() {
-            Action::TmRcvPrepared(rm) => { state.tm_prepared.insert(rm); }
+            Action::TmRcvPrepared(rm) => { state.tm_prepared[rm] = true; }
             Action::TmCommit => {
                 state.tm_state = TmState::Committed;
                 state.msgs.insert(Message::Commit);
@@ -90,29 +93,28 @@ impl<R: Clone + Eq + Hash> Model for TwoPhaseSys<R> {
                 state.msgs.insert(Message::Abort);
             },
             Action::RmPrepare(rm) => {
-                state.rm_state.insert(rm.clone(), RmState::Prepared);
+                state.rm_state[rm] = RmState::Prepared;
                 state.msgs.insert(Message::Prepared { rm });
             },
-            Action::RmChooseToAbort(rm) => { state.rm_state.insert(rm, RmState::Aborted); }
-            Action::RmRcvCommitMsg(rm) => { state.rm_state.insert(rm, RmState::Committed); }
-            Action::RmRcvAbortMsg(rm) => { state.rm_state.insert(rm, RmState::Aborted); }
+            Action::RmChooseToAbort(rm) => { state.rm_state[rm] = RmState::Aborted; }
+            Action::RmRcvCommitMsg(rm) => { state.rm_state[rm] = RmState::Committed; }
+            Action::RmRcvAbortMsg(rm) => { state.rm_state[rm] = RmState::Aborted; }
         }
         Some(state)
     }
 
     fn properties(&self) -> Vec<Property<Self>> {
         vec![
-            Property::<Self>::sometimes("abort agreement", |sys, state| {
-                sys.rms.iter().all(|rm| state.rm_state[rm] == RmState::Aborted)
+            Property::<Self>::sometimes("abort agreement", |_, state| {
+                state.rm_state.iter().all(|s| s == &RmState::Aborted)
             }),
-            Property::<Self>::sometimes("commit agreement", |sys, state| {
-                sys.rms.iter().all(|rm| state.rm_state[rm] == RmState::Committed)
+            Property::<Self>::sometimes("commit agreement", |_, state| {
+                state.rm_state.iter().all(|s| s == &RmState::Committed)
             }),
-            Property::<Self>::always("consistent", |sys, state| {
-                !sys.rms.iter().any(|rm1|
-                    sys.rms.iter().any(|rm2|
-                        state.rm_state[rm1] == RmState::Aborted
-                            && state.rm_state[rm2] == RmState::Committed))
+            Property::<Self>::always("consistent", |_, state| {
+               !state.rm_state.iter().any(|s1|
+                    state.rm_state.iter().any(|s2|
+                        s1 == &RmState::Aborted && s2 == &RmState::Committed))
             }),
         ]
     }
@@ -122,23 +124,18 @@ impl<R: Clone + Eq + Hash> Model for TwoPhaseSys<R> {
 #[test]
 fn can_model_2pc() {
     // for very small state space (using BFS this time)
-    let mut rms = HashableHashSet::new();
-    for rm in 1..(3+1) { rms.insert(rm); }
-    let checker = TwoPhaseSys { rms }.checker().spawn_bfs().join();
+    let checker = TwoPhaseSys { rms: 0..3 }.checker().spawn_bfs().join();
     assert_eq!(checker.generated_count(), 288);
     checker.assert_properties();
 
     // for slightly larger state space (using DFS this time)
-    let mut rms = HashableHashSet::new();
-    for rm in 1..(5+1) { rms.insert(rm); }
-    let checker = TwoPhaseSys { rms }.checker().spawn_dfs().join();
+    let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_dfs().join();
     assert_eq!(checker.generated_count(), 8_832);
     checker.assert_properties();
 }
 
 fn main() {
     use clap::{App, Arg, SubCommand, value_t};
-    use std::iter::FromIterator;
 
     env_logger::init_from_env(env_logger::Env::default()
         .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
@@ -162,17 +159,17 @@ fn main() {
 
     match args.subcommand() {
         ("check", Some(args)) => {
-            let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
+            let rm_count = value_t!(args, "rm_count", usize).expect("rm_count");
             println!("Checking two phase commit with {} resource managers.", rm_count);
-            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }.checker()
+            TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get()).spawn_dfs()
                 .report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
-            let rm_count = value_t!(args, "rm_count", u32).expect("rm_count");
+            let rm_count = value_t!(args, "rm_count", usize).expect("rm_count");
             let address = value_t!(args, "address", String).expect("address");
             println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
-            TwoPhaseSys { rms: FromIterator::from_iter(0..rm_count) }.checker()
+            TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get())
                 .serve(address);
         }
