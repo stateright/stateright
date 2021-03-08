@@ -2,7 +2,6 @@
 [![crates.io](https://img.shields.io/crates/v/stateright.svg)](https://crates.io/crates/stateright)
 [![docs.rs](https://docs.rs/stateright/badge.svg)](https://docs.rs/stateright)
 [![LICENSE](https://img.shields.io/crates/l/stateright.svg)](https://github.com/stateright/stateright/blob/master/LICENSE)
-[![youtube](https://img.shields.io/youtube/views/Oh0Dmz6asbs?style=social)](https://youtube.com/playlist?list=PLUhyBsVvEJjaF1VpNhLRfIA4E7CFPirmz)
 
 Correctly implementing distributed algorithms such as the
 [Paxos](https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) and
@@ -14,20 +13,21 @@ problem by providing an embedded [model
 checker](https://en.wikipedia.org/wiki/Model_checking), a UI for exploring
 system behavior ([demo](http://demo.stateright.rs:3000/)), and a lightweight
 actor runtime. It also features a linearizability tester that can be run within
-the model checker for more exhaustive coverage than solutions such as
-[Jepsen](https://jepsen.io/).
+the model checker for more exhaustive test coverage than similar solutions such
+as [Jepsen](https://jepsen.io/).
 
 ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
 
 ## Getting Started
 
-A [video
-introduction](https://youtube.com/playlist?list=PLUhyBsVvEJjaF1VpNhLRfIA4E7CFPirmz)
-is available, and a short book is in the works: "[Building Distributed Systems
-With Stateright](https://www.stateright.rs)."
-
-Consider also joining the [Stateright Discord
-server](https://discord.gg/JbxGSVP4A6) for Q&A or other feedback.
+1. **Please see the book, "[Building Distributed Systems With
+   Stateright](https://www.stateright.rs)."**
+2. A [video
+   introduction](https://youtube.com/playlist?list=PLUhyBsVvEJjaF1VpNhLRfIA4E7CFPirmz)
+   is also available.
+3. Stateright also has detailed [API docs](https://docs.rs/stateright/).
+4. Consider also joining the [Stateright Discord
+   server](https://discord.gg/JbxGSVP4A6) for Q&A or other feedback.
 
 ## Examples
 
