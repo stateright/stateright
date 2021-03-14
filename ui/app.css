@@ -154,6 +154,11 @@ ul {
 .svg-event-label {
     fill: var(--contrast-brt);
 }
+.svg-event-line {
+    fill: var(--bg-med);
+    stroke: var(--bg-med);
+    stroke-width: 2;
+}
 .svg-event-shape {
     fill: var(--bg-med);
     stroke: var(--bg-med);

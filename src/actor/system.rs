@@ -327,7 +327,7 @@ impl<S: System> Model for SystemModel<S> {
                     let src_time = *send_time.get(&(src, id, msg.clone())).unwrap_or(&0);
                     let (x1, y1) = plot(src.into(), src_time);
                     let (x2, y2) = plot(id.into(),  time);
-                    writeln!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-shape' />",
+                    writeln!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-line' />",
                            x1, x2, y1, y2).unwrap();
 
                     // Track sends to facilitate building arrows.
@@ -344,8 +344,22 @@ impl<S: System> Model for SystemModel<S> {
                     }
                 }
                 Some(SystemAction::Timeout(actor_id)) => {
-                    writeln!(&mut svg, "<circle cx='{}' cy='{}' r='5' class='svg-event-shape' />",
-                           actor_id, time).unwrap();
+                    let (x, y) = plot(actor_id.into(),  time);
+                    writeln!(&mut svg, "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
+                           x, y).unwrap();
+
+                    // Track sends to facilitate building arrows.
+                    let index = usize::from(actor_id);
+                    if let Some(actor_state) = state.actor_states.get(index) {
+                        let mut actor_state = Cow::Borrowed(&**actor_state);
+                        let mut out = Out::new();
+                        self.actors[index].on_timeout(actor_id, &mut actor_state, &mut out);
+                        for command in out {
+                            if let Command::Send(dst, msg) = command {
+                                send_time.insert((actor_id, dst, msg), time);
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
