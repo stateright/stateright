@@ -8,8 +8,7 @@ use stateright::util::{HashableHashMap, HashableHashSet};
 use std::borrow::Cow;
 
 type Round = u32;
-type Rank = u32;
-type Ballot = (Round, Rank);
+type Ballot = (Round, Id);
 type Proposal = (TestRequestId, Id, TestValue);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -41,7 +40,7 @@ struct PaxosState {
 }
 
 #[derive(Clone)]
-struct PaxosActor { rank: Rank, peer_ids: Vec<Id> }
+struct PaxosActor { peer_ids: Vec<Id> }
 
 impl Actor for PaxosActor {
     type Msg = RegisterMsg<TestRequestId, TestValue, PaxosMsg>;
@@ -50,7 +49,7 @@ impl Actor for PaxosActor {
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
         PaxosState {
             // shared state
-            ballot: (0, 0),
+            ballot: (0, Id::from(0)),
 
             // leader state
             proposal: None,
@@ -63,11 +62,11 @@ impl Actor for PaxosActor {
         }
     }
 
-    fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
         match msg {
             Put(request_id, value) if !state.is_decided && state.proposal.is_none()  => {
                 let mut state = state.to_mut();
-                state.ballot = (state.ballot.0 + 1, self.rank);
+                state.ballot = (state.ballot.0 + 1, id);
                 state.proposal = Some((request_id, src, value));
                 state.prepares = Default::default();
                 state.accepts = Default::default();
@@ -163,9 +162,9 @@ fn can_model_paxos() {
     // BFS
     let checker = RegisterTestSystem {
         servers: vec![
-            PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
-            PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
-            PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+            PaxosActor { peer_ids: model_peers(0, 3) },
+            PaxosActor { peer_ids: model_peers(1, 3) },
+            PaxosActor { peer_ids: model_peers(2, 3) },
         ],
         client_count: 2,
         within_boundary,
@@ -175,16 +174,16 @@ fn can_model_paxos() {
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(4), dst: Id::from(1), msg: Put(4, 'B') },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1) }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
         Deliver { src: Id::from(1), dst: Id::from(4), msg: PutOk(4) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
         Deliver { src: Id::from(4), dst: Id::from(2), msg: Get(8) },
      ]);
     assert_eq!(checker.generated_count(), 1_161);
@@ -192,9 +191,9 @@ fn can_model_paxos() {
     // DFS
     let checker = RegisterTestSystem {
         servers: vec![
-            PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
-            PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
-            PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+            PaxosActor { peer_ids: model_peers(0, 3) },
+            PaxosActor { peer_ids: model_peers(1, 3) },
+            PaxosActor { peer_ids: model_peers(2, 3) },
         ],
         client_count: 2,
         within_boundary,
@@ -204,16 +203,16 @@ fn can_model_paxos() {
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(4), dst: Id::from(1), msg: Put(4, 'B') },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1) }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1) }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1) }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
         Deliver { src: Id::from(1), dst: Id::from(4), msg: PutOk(4) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1), proposal: (4, Id::from(4), 'B') }) },
+        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
         Deliver { src: Id::from(4), dst: Id::from(2), msg: Get(8) },
      ]);
     assert_eq!(checker.generated_count(), 1_161);
@@ -255,9 +254,9 @@ fn main() {
                      client_count);
             RegisterTestSystem {
                 servers: vec![
-                    PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
-                    PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
-                    PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+                    PaxosActor { peer_ids: model_peers(0, 3) },
+                    PaxosActor { peer_ids: model_peers(1, 3) },
+                    PaxosActor { peer_ids: model_peers(2, 3) },
                 ],
                 client_count,
                 within_boundary,
@@ -276,9 +275,9 @@ fn main() {
                 client_count, address);
             RegisterTestSystem {
                 servers: vec![
-                    PaxosActor { rank: 0, peer_ids: model_peers(0, 3) },
-                    PaxosActor { rank: 1, peer_ids: model_peers(1, 3) },
-                    PaxosActor { rank: 2, peer_ids: model_peers(2, 3) },
+                    PaxosActor { peer_ids: model_peers(0, 3) },
+                    PaxosActor { peer_ids: model_peers(1, 3) },
+                    PaxosActor { peer_ids: model_peers(2, 3) },
                 ],
                 client_count,
                 within_boundary,
@@ -308,9 +307,9 @@ fn main() {
                 serde_json::to_vec,
                 |bytes| serde_json::from_slice(bytes),
                 vec![
-                    (id0, PaxosActor { rank: 0, peer_ids: vec![id1, id2] }),
-                    (id1, PaxosActor { rank: 1, peer_ids: vec![id0, id2] }),
-                    (id2, PaxosActor { rank: 2, peer_ids: vec![id0, id1] }),
+                    (id0, PaxosActor { peer_ids: vec![id1, id2] }),
+                    (id1, PaxosActor { peer_ids: vec![id0, id2] }),
+                    (id2, PaxosActor { peer_ids: vec![id0, id1] }),
                 ]).unwrap();
         }
         _ => app.print_help().unwrap(),
