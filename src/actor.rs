@@ -130,6 +130,22 @@ impl Display for Id {
     }
 }
 
+impl Id {
+    /// Generates a [`Vec`] of [`Id`]s based on an iterator.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stateright::actor::Id;
+    /// let ids = Id::vec_from(0..3);
+    /// ```
+    pub fn vec_from<T>(ids: impl IntoIterator<Item=T>) -> Vec<Id>
+    where T: Into<Id>
+    {
+        ids.into_iter().map(Into::into).collect()
+    }
+}
+
 /// Commands with which an actor can respond.
 #[derive(Debug)]
 #[derive(serde::Serialize)]
