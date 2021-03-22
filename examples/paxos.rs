@@ -1,4 +1,50 @@
-//! A cluster that implements Single Decree Paxos.
+//! This is an implementation of Single Decree Paxos, an algorithm that ensures a cluster of
+//! servers never disagrees on a value.
+//!
+//! # The Algorithm
+//!
+//! The Paxos algorithm is comprised of two phases. These are best understood in reverse order.
+//!
+//! ## Phase 2
+//!
+//! Phase 2 involves broadcasting a proposal (or a sequence of proposals in the case of
+//! Multipaxos). If a quorum accepts a proposal, it is considered "decided" by the cluster even if
+//! the leader does not observe that decision, e.g. due to message loss.
+//!
+//! ## Phase 1
+//!
+//! Phase 1 solves the more complex problem of leadership handoff by introducing a notion of
+//! leadership "terms" and a technique for ensuring new terms are consistent with earlier terms.
+//!
+//! 1. Each term has a distinct leader. Before proposing values during its term, the
+//!    leader broadcasts a message that closes previous terms. Once a quorum replies, the leader
+//!    knows that previous leaders are unable to reach new (and possibly contradictory) decisions.
+//! 2. The leader also needs to learn the proposal that was decided by previous terms (or sequence
+//!    of proposals for Multipaxos), so in their replies, the servers indicate their previously
+//!    accepted proposals.
+//! 3. The leader cannot be guaranteed to know if a proposal was decided unless it talks with every
+//!    server, which undermines the availability of the system, so Paxos leverages a clever trick:
+//!    the leader drives the most recent accepted proposal to a quorum (and for Multipaxos it does
+//!    this for each index in the sequence of proposals). It only needs to look at the most recent
+//!    proposal because any previous leader would have done the same prior to sending its new
+//!    proposals.
+//! 4. Many optimizations are possible. For example, the leader can skip driving consensus on a
+//!    previous proposal if the Phase 1 quorum already agrees or the leader observes auxiliary
+//!    state from which it can infer agreement. The latter optimizations are particularly important
+//!    for Multipaxos.
+//!
+//! ## Leadership Terms
+//!
+//! It is safe to start a new term at any time.
+//!
+//! In Multipaxos, a term is typically maintained until the leader times out (as observed by a
+//! peer), allowing that leader to proposal a sequence of values while (1) avoiding contention
+//! and (2) only paying the cost of a single message round trip for each proposal.
+//!
+//! In contrast, with Single Decree Paxos, a term is typically coupled to the life of a client
+//! request, so each client request gets a new term. This can result in contention if many values
+//! are proposed in parallel, but the following implementation follows this approach to match how
+//! the algorithm is typically described.
 
 use serde::{Deserialize, Serialize};
 use stateright::{Model, Checker};
@@ -63,30 +109,43 @@ impl Actor for PaxosActor {
     }
 
     fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
-        match msg {
-            Put(request_id, value) if !state.is_decided && state.proposal.is_none()  => {
-                let mut state = state.to_mut();
-                state.ballot = (state.ballot.0 + 1, id);
-                state.proposal = Some((request_id, src, value));
-                state.prepares = Default::default();
-                state.accepts = Default::default();
-                o.broadcast(
-                    &self.peer_ids,
-                    &Internal(Prepare { ballot: state.ballot }));
-            }
-            Get(request_id) if state.is_decided => {
+        if state.is_decided {
+            if let Get(request_id) = msg {
+                // While it's tempting to `o.send(src, GetOk(request_id, None))` for undecided,
+                // we don't know if a value was decided elsewhere and the delivery is pending. Our
+                // solution is to not reply in this case, but a more useful choice might be
+                // to broadcast to the other actors and let them reply to the originator, or query
+                // the other actors and reply based on that.
+                let (_b, (_req_id, _src, value)) = state.accepted
+                    .expect("decided but lacks accepted state");
+                o.send(src, GetOk(request_id, value));
+
                 if let Some((_ballot, (_request_id, _requester_id, value))) = state.accepted {
                     o.send(src, GetOk(request_id, value));
                 } else {
                     // See `Internal(Decided ...)` case below.
                     unreachable!("accepted state present when decided");
                 }
-                // While it's tempting to `o.send(src, GetOk(request_id, None))` for undecided,
-                // we don't know if a value was decided elsewhere and the delivery is pending. Our
-                // solution is to not reply in this case, but a more useful choice might be
-                // to broadcast to the other actors and let them reply to the originator, or query
-                // the other actors and reply based on that.
-            },
+            };
+            return;
+        }
+
+        match msg {
+            Put(request_id, value) if state.proposal.is_none()  => {
+                let mut state = state.to_mut();
+                state.proposal = Some((request_id, src, value));
+                state.prepares = Default::default();
+                state.accepts = Default::default();
+
+                // Simulate `Prepare` self-send.
+                state.ballot = (state.ballot.0 + 1, id);
+                // Simulate `Prepared` self-send.
+                state.prepares.insert(src, state.accepted);
+
+                o.broadcast(
+                    &self.peer_ids,
+                    &Internal(Prepare { ballot: state.ballot }));
+            }
             Internal(Prepare { ballot }) if state.ballot < ballot => {
                 state.to_mut().ballot = ballot;
                 o.send(src, Internal(Prepared {
@@ -95,24 +154,44 @@ impl Actor for PaxosActor {
                 }));
             }
             Internal(Prepared { ballot, last_accepted })
-            if ballot == state.ballot && !state.is_decided => {
+            if ballot == state.ballot && state.accepts.is_empty() => {
                 let mut state = state.to_mut();
                 state.prepares.insert(src, last_accepted);
                 if state.prepares.len() > (self.peer_ids.len() + 1) / 2 {
+                    // This stage is best understood as "leadership handoff," in which this term's
+                    // leader needs to ensure it does not contradict a decision (a quorum of
+                    // accepts) from a previous term. Here's how:
+                    //
+                    // 1. To start this term, the leader first "locked" the older terms from
+                    //    additional accepts via the `Prepare` messages.
+                    // 2. If the servers reached a decision in a previous term, then the observed
+                    //    prepare quorum is guaranteed to contain that accepted proposal, and we
+                    //    have to favor that one.
+                    // 3. We only have to drive the proposal accepted by the most recent term
+                    //    because the leaders of the previous terms would have done the same before
+                    //    asking their peers to accept proposals (so any proposals accepted by
+                    //    earlier terms either match the most recently accepted proposal or are
+                    //    guaranteed to have never reached quorum and so are safe to ignore).
+                    // 4. If no proposals were previously accepted, the leader is safe to proceed
+                    //    with the one from the client.
                     let proposal = state.prepares
                         .values().max().unwrap().map(|(_b, p)| p)
                         .unwrap_or_else(||
                             state.proposal.expect("proposal expected")); // See `Put` case above.
                     state.proposal = Some(proposal);
+
+                    // Simulate `Accept` self-send.
                     state.accepted = Some((ballot, proposal));
+                    // Simulate `Accepted` self-send.
+                    state.accepts.insert(src);
+
                     o.broadcast(&self.peer_ids, &Internal(Accept {
                         ballot,
                         proposal,
                     }));
                 }
             }
-            Internal(Accept { ballot, proposal })
-            if state.ballot <= ballot && !state.is_decided => {
+            Internal(Accept { ballot, proposal }) if state.ballot <= ballot => {
                 let mut state = state.to_mut();
                 state.ballot = ballot;
                 state.accepted = Some((ballot, proposal));
@@ -170,23 +249,20 @@ fn can_model_paxos() {
         within_boundary,
         duplicating_network: DuplicatingNetwork::No,
         .. Default::default()
-    }.into_model().checker().spawn_bfs().join();
+    }.into_model().checker()
+        .spawn_bfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
-        Deliver { src: Id::from(4), dst: Id::from(1), msg: Put(4, 'B') },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(1), dst: Id::from(4), msg: PutOk(4) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(4), dst: Id::from(2), msg: Get(8) },
-     ]);
-    assert_eq!(checker.generated_count(), 1_161);
+        Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
+        Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+        Deliver { src: 0.into(), dst: 1.into(), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+        Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+        Deliver { src: 2.into(), dst: 1.into(), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
+        Deliver { src: 1.into(), dst: 4.into(), msg: PutOk(4) },
+        Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+        Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
+    ]);
+    assert_eq!(checker.generated_count(), 9_285);
 
     // DFS
     let checker = RegisterTestSystem {
@@ -202,20 +278,16 @@ fn can_model_paxos() {
     }.into_model().checker().spawn_dfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
-        Deliver { src: Id::from(4), dst: Id::from(1), msg: Put(4, 'B') },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
-        Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(2), dst: Id::from(1), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
-        Deliver { src: Id::from(1), dst: Id::from(4), msg: PutOk(4) },
-        Deliver { src: Id::from(1), dst: Id::from(2), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, Id::from(4), 'B') }) },
-        Deliver { src: Id::from(4), dst: Id::from(2), msg: Get(8) },
-     ]);
-    assert_eq!(checker.generated_count(), 1_161);
+        Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
+        Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
+        Deliver { src: 0.into(), dst: 1.into(), msg: Internal(Prepared { ballot: (1, 1.into()), last_accepted: None }) },
+        Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Accept { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+        Deliver { src: 2.into(), dst: 1.into(), msg: Internal(Accepted { ballot: (1, 1.into()) }) },
+        Deliver { src: 1.into(), dst: 4.into(), msg: PutOk(4) },
+        Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
+        Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
+    ]);
+    assert_eq!(checker.generated_count(), 9_285);
 }
 
 fn main() {
