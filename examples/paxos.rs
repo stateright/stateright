@@ -38,7 +38,7 @@
 //! It is safe to start a new term at any time.
 //!
 //! In Multipaxos, a term is typically maintained until the leader times out (as observed by a
-//! peer), allowing that leader to proposal a sequence of values while (1) avoiding contention
+//! peer), allowing that leader to propose a sequence of values while (1) avoiding contention
 //! and (2) only paying the cost of a single message round trip for each proposal.
 //!
 //! In contrast, with Single Decree Paxos, a term is typically coupled to the life of a client
@@ -119,13 +119,6 @@ impl Actor for PaxosActor {
                 let (_b, (_req_id, _src, value)) = state.accepted
                     .expect("decided but lacks accepted state");
                 o.send(src, GetOk(request_id, value));
-
-                if let Some((_ballot, (_request_id, _requester_id, value))) = state.accepted {
-                    o.send(src, GetOk(request_id, value));
-                } else {
-                    // See `Internal(Decided ...)` case below.
-                    unreachable!("accepted state present when decided");
-                }
             };
             return;
         }
