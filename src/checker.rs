@@ -236,8 +236,8 @@ pub trait Checker<M: Model> {
     fn assert_any_discovery(&self, name: &'static str) -> Path<M::State, M::Action> {
         if let Some(found) = self.discovery(name) { return found }
         assert!(self.is_done(),
-                "Discovery for '{}' not found, but model checking is incomplete.", name);
-        panic!("Discovery for '{}' not found.", name);
+                "Discovery for \"{}\" not found, but model checking is incomplete.", name);
+        panic!("Discovery for \"{}\" not found.", name);
     }
 
     /// Panics if a particular discovery is found.
@@ -250,7 +250,7 @@ pub trait Checker<M: Model> {
                    name, self.discovery_classification(name), found, found.last_state());
         }
         assert!(self.is_done(),
-                "Discovery for '{}' not found, but model checking is incomplete.",
+                "Discovery for \"{}\" not found, but model checking is incomplete.",
                 name);
     }
 
@@ -299,7 +299,7 @@ pub trait Checker<M: Model> {
         } else {
             format!(" ({})", additional_info.join("; "))
         };
-        panic!("Invalid discovery for '{}'{}, but a valid one was found. found={:?}",
+        panic!("Invalid discovery for \"{}\"{}, but a valid one was found. found={:?}",
                name, additional_info, found.into_actions());
     }
 }
