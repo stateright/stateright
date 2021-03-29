@@ -28,9 +28,10 @@
 //! # Example
 //!
 //! A toy example that solves a [sliding puzzle](https://en.wikipedia.org/wiki/Sliding_puzzle)
-//! follows. Caveat: this simple example leverages only a `sometimes` property,
-//! but in most cases for a real scenario you would have an `always` property at
-//! a minimum.
+//! follows. This simple example leverages only a `sometimes` property,
+//! but in most cases for a real system you would have an `always` property at
+//! a minimum. The imagined use case is one in which we must ensure that a particular
+//! configuration of the puzzle has a solution.
 //!
 //! **TIP**: see the [`actor`] module documentation for an actor system example.
 //! More sophisticated examples
@@ -42,13 +43,13 @@
 //! #[derive(Clone, Debug, Eq, PartialEq)]
 //! enum Slide { Down, Up, Right, Left }
 //!
-//! struct Puzzle(Vec<u8>);
+//! struct Puzzle([u8; 9]);
 //! impl Model for Puzzle {
-//!     type State = Vec<u8>;
+//!     type State = [u8; 9];
 //!     type Action = Slide;
 //!
 //!     fn init_states(&self) -> Vec<Self::State> {
-//!         vec![self.0.clone()]
+//!         vec![self.0]
 //!     }
 //!
 //!     fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
@@ -69,7 +70,7 @@
 //!             _ => None
 //!         };
 //!         maybe_from.map(|from| {
-//!             let mut next_state = last_state.clone();
+//!             let mut next_state = *last_state;
 //!             next_state[empty] = last_state[from];
 //!             next_state[from] = 0;
 //!             next_state
@@ -77,18 +78,20 @@
 //!     }
 //!
 //!     fn properties(&self) -> Vec<Property<Self>> {
-//!         vec![Property::sometimes("solved", |_, state: &Vec<u8>| {
-//!             let solved = vec![0, 1, 2,
-//!                               3, 4, 5,
-//!                               6, 7, 8];
+//!         vec![Property::<Self>::sometimes("solved", |_, state| {
+//!             let solved = [0, 1, 2,
+//!                           3, 4, 5,
+//!                           6, 7, 8];
 //!             state == &solved
 //!         })]
 //!     }
 //! }
-//! Puzzle(vec![1, 4, 2,
-//!             3, 5, 8,
-//!             6, 7, 0])
-//!     .checker().spawn_bfs().join().assert_discovery("solved", vec![
+//! let checker = Puzzle([1, 4, 2,
+//!                       3, 5, 8,
+//!                       6, 7, 0])
+//!     .checker().spawn_bfs().join();
+//! checker.assert_properties();
+//! checker.assert_discovery("solved", vec![
 //!         Slide::Down,
 //!         // ... results in:
 //!         //       [1, 4, 2,
