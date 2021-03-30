@@ -267,7 +267,7 @@ mod test {
     #[test]
     fn smoke_test_states() {
         use crate::actor::{ActorModelState, DuplicatingNetwork, Envelope, Id, LossyNetwork};
-        use crate::actor::actor_test_util::ping_pong::{PingPongActor, PingPongCfg, PingPongHistory, PingPongMsg::*};
+        use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
         use crate::actor::ActorModelAction::*;
         use crate::util::HashableHashSet;
         use std::iter::FromIterator;
@@ -302,6 +302,7 @@ mod test {
 
         // To regenerate the path if the fingerprint changes:
         // ```
+        // use crate::actor::actor_test_util::ping_pong::{PingPongActor, PingPongHistory};
         // let fp = fingerprint(&ActorModelState::<PingPongActor, PingPongHistory> {
         //     actor_states: vec![Arc::new(0), Arc::new(0)],
         //     history: (0, 1),

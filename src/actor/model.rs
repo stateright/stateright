@@ -26,16 +26,16 @@ pub struct ActorModel<A, C = (), H = ()>
 where A: Actor,
       H: Clone + Debug + Hash,
 {
-    actors: Vec<A>,
+    pub actors: Vec<A>,
     pub cfg: C,
-    duplicating_network: DuplicatingNetwork,
-    init_history: H,
-    init_network: Vec<Envelope<A::Msg>>,
-    lossy_network: LossyNetwork,
-    properties: Vec<Property<ActorModel<A, C, H>>>,
-    record_msg_in: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
-    record_msg_out: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
-    within_boundary: fn(cfg: &C, state: &ActorModelState<A, H>) -> bool,
+    pub duplicating_network: DuplicatingNetwork,
+    pub init_history: H,
+    pub init_network: Vec<Envelope<A::Msg>>,
+    pub lossy_network: LossyNetwork,
+    pub properties: Vec<Property<ActorModel<A, C, H>>>,
+    pub record_msg_in: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
+    pub record_msg_out: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
+    pub within_boundary: fn(cfg: &C, state: &ActorModelState<A, H>) -> bool,
 }
 
 /// Indicates possible steps that an actor system can take as it evolves.
