@@ -7,8 +7,8 @@
 //!
 //! [`Model`] implementations indicate how a system evolves, such as a set of actors
 //! executing a distributed protocol on an IP network. Incidentally, that scenario
-//! is so common for model checking that Stateright includes an actor [`System`]
-//! model, and unlike many model checkers, Stateright is also able to [spawn] these
+//! is so common for model checking that Stateright includes an [`actor::ActorModel`],
+//! and unlike many model checkers, Stateright is also able to [spawn] these
 //! actors on a real network.
 //!
 //! Models of a system are supplemented with [`always`] and [`sometimes`] properties.
@@ -130,7 +130,6 @@
 //! [safety property]: https://en.wikipedia.org/wiki/Safety_property
 //! [`sometimes`]: Property::sometimes
 //! [spawn]: actor::spawn()
-//! [`System`]: actor::System
 
 #[warn(anonymous_parameters)]
 #[warn(missing_docs)]
@@ -148,8 +147,8 @@ pub mod util;
 
 /// This is the primary abstraction for Stateright. Implementations model a
 /// nondeterministic system's evolution. If you are using Stateright's actor framework,
-/// then you do not need to implement this interface and can instead implement
-/// [`actor::Actor`] and [`actor::System`].
+/// then you do not need to implement this interface and can instead leverage
+/// [`actor::Actor`] and [`actor::ActorModel`].
 ///
 /// You can instantiate a model [`CheckerBuilder`] by calling [`Model::checker`].
 pub trait Model: Sized {

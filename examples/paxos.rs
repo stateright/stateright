@@ -48,8 +48,8 @@
 
 use serde::{Deserialize, Serialize};
 use stateright::{Model, Checker};
-use stateright::actor::{Actor, DuplicatingNetwork, Id, model_peers, Out, System, SystemState};
-use stateright::actor::register::{RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
+use stateright::actor::{Actor, ActorModelState, DuplicatingNetwork, Id, model_peers, Out};
+use stateright::actor::register::{RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterCfg, TestRequestId, TestValue};
 use stateright::util::{HashableHashMap, HashableHashSet};
 use std::borrow::Cow;
 
@@ -216,7 +216,11 @@ impl Actor for PaxosActor {
     }
 }
 
-fn within_boundary(state: &SystemState<RegisterTestSystem<PaxosActor, PaxosMsg>>) -> bool {
+fn within_boundary<H>(
+    _: &RegisterCfg<PaxosActor>,
+    state: &ActorModelState<RegisterActor<PaxosActor>, H>)
+    -> bool
+{
     state.actor_states.iter().all(|s| {
         if let RegisterActorState::Server(s) = &**s {
             s.ballot.0 < 4
@@ -229,21 +233,21 @@ fn within_boundary(state: &SystemState<RegisterTestSystem<PaxosActor, PaxosMsg>>
 #[cfg(test)]
 #[test]
 fn can_model_paxos() {
-    use stateright::actor::SystemAction::Deliver;
+    use stateright::actor::ActorModelAction::Deliver;
 
     // BFS
-    let checker = RegisterTestSystem {
-        servers: vec![
-            PaxosActor { peer_ids: model_peers(0, 3) },
-            PaxosActor { peer_ids: model_peers(1, 3) },
-            PaxosActor { peer_ids: model_peers(2, 3) },
-        ],
-        client_count: 2,
-        within_boundary,
-        duplicating_network: DuplicatingNetwork::No,
-        .. Default::default()
-    }.into_model().checker()
-        .spawn_bfs().join();
+    let checker = RegisterCfg {
+            servers: vec![
+                PaxosActor { peer_ids: model_peers(0, 3) },
+                PaxosActor { peer_ids: model_peers(1, 3) },
+                PaxosActor { peer_ids: model_peers(2, 3) },
+            ],
+            client_count: 2,
+        }
+        .into_model()
+        .duplicating_network(DuplicatingNetwork::No)
+        .within_boundary(within_boundary)
+        .checker().spawn_bfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
@@ -258,17 +262,18 @@ fn can_model_paxos() {
     assert_eq!(checker.generated_count(), 9_285);
 
     // DFS
-    let checker = RegisterTestSystem {
-        servers: vec![
-            PaxosActor { peer_ids: model_peers(0, 3) },
-            PaxosActor { peer_ids: model_peers(1, 3) },
-            PaxosActor { peer_ids: model_peers(2, 3) },
-        ],
-        client_count: 2,
-        within_boundary,
-        duplicating_network: DuplicatingNetwork::No,
-        .. Default::default()
-    }.into_model().checker().spawn_dfs().join();
+    let checker = RegisterCfg {
+            servers: vec![
+                PaxosActor { peer_ids: model_peers(0, 3) },
+                PaxosActor { peer_ids: model_peers(1, 3) },
+                PaxosActor { peer_ids: model_peers(2, 3) },
+            ],
+            client_count: 2,
+        }
+        .into_model()
+        .duplicating_network(DuplicatingNetwork::No)
+        .within_boundary(within_boundary)
+        .checker().spawn_dfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
@@ -317,18 +322,18 @@ fn main() {
                 26, value_t!(args, "client_count", u8).expect("client count missing"));
             println!("Model checking Single Decree Paxos with {} clients.",
                      client_count);
-            RegisterTestSystem {
-                servers: vec![
-                    PaxosActor { peer_ids: model_peers(0, 3) },
-                    PaxosActor { peer_ids: model_peers(1, 3) },
-                    PaxosActor { peer_ids: model_peers(2, 3) },
-                ],
-                client_count,
-                within_boundary,
-                duplicating_network: DuplicatingNetwork::No,
-                .. Default::default()
-            }.into_model().checker()
-                .threads(num_cpus::get()).spawn_dfs()
+            RegisterCfg {
+                    servers: vec![
+                        PaxosActor { peer_ids: model_peers(0, 3) },
+                        PaxosActor { peer_ids: model_peers(1, 3) },
+                        PaxosActor { peer_ids: model_peers(2, 3) },
+                    ],
+                    client_count,
+                }
+                .into_model()
+                .duplicating_network(DuplicatingNetwork::No)
+                .within_boundary(within_boundary)
+                .checker().threads(num_cpus::get()).spawn_dfs()
                 .report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
@@ -338,19 +343,18 @@ fn main() {
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
-            RegisterTestSystem {
-                servers: vec![
-                    PaxosActor { peer_ids: model_peers(0, 3) },
-                    PaxosActor { peer_ids: model_peers(1, 3) },
-                    PaxosActor { peer_ids: model_peers(2, 3) },
-                ],
-                client_count,
-                within_boundary,
-                duplicating_network: DuplicatingNetwork::No,
-                .. Default::default()
-            }.into_model().checker()
-                .threads(num_cpus::get())
-                .serve(address);
+            RegisterCfg {
+                    servers: vec![
+                        PaxosActor { peer_ids: model_peers(0, 3) },
+                        PaxosActor { peer_ids: model_peers(1, 3) },
+                        PaxosActor { peer_ids: model_peers(2, 3) },
+                    ],
+                    client_count,
+                }
+                .into_model()
+                .duplicating_network(DuplicatingNetwork::No)
+                .within_boundary(within_boundary)
+                .checker().threads(num_cpus::get()).serve(address);
         }
         ("spawn", Some(_args)) => {
             let port = 3000;

@@ -4,11 +4,7 @@ function Status({discoveries, done, generated, model, recent_path}) {
 
     status.discoveries = discoveries;
     status.generated = generated;
-    status.model = model
-        .replace('stateright::actor::register::', '')
-        .replace('stateright::actor::system::', '')
-        .replace('stateright::actor::', '')
-        .replace('stateright::', '');
+    status.model = model.replace(/[A-Za-z_]+::/g, '');
     status.progress = 'Done';
     if (!done) {
         status.progress = recent_path.length < 100

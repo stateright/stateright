@@ -4,114 +4,93 @@
 pub mod ping_pong {
     use crate::*;
     use crate::actor::*;
-    use crate::actor::system::*;
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
-    pub enum PingPongActor { PingActor { pong_id: Id }, PongActor }
-
-    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-    pub struct PingPongCount(pub u32);
+    pub struct PingPongActor { serve_to: Option<Id> }
 
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub enum PingPongMsg { Ping(u32), Pong(u32) }
 
     impl Actor for PingPongActor {
         type Msg = PingPongMsg;
-        type State = PingPongCount;
+        type State = u32; // count
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
-            if let PingPongActor::PingActor { pong_id } = self {
-                o.send(*pong_id, PingPongMsg::Ping(0));
+            if let Some(id) = self.serve_to {
+                o.send(id, PingPongMsg::Ping(0));
             }
-            PingPongCount(0)
+            0
         }
 
         fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
-            match (self, msg) {
-                (PingPongActor::PingActor { .. }, PingPongMsg::Pong(msg_value)) if state.0 == msg_value => {
+            match msg {
+                PingPongMsg::Pong(msg_value) if **state == msg_value => {
                     o.send(src, PingPongMsg::Ping(msg_value + 1));
-                    *state.to_mut() = PingPongCount(state.0 + 1)
+                    *state.to_mut() += 1;
                 }
-                (PingPongActor::PongActor, PingPongMsg::Ping(msg_value)) if state.0 == msg_value => {
+                PingPongMsg::Ping(msg_value) if **state == msg_value => {
                     o.send(src, PingPongMsg::Pong(msg_value));
-                    *state.to_mut() = PingPongCount(state.0 + 1)
+                    *state.to_mut() += 1;
                 }
                 _ => {}
             }
         }
     }
 
-    #[derive(Clone)]
-    pub struct PingPongSystem {
-        pub max_nat: u32,
-        pub lossy: LossyNetwork,
-        pub duplicating: DuplicatingNetwork,
+    pub struct PingPongCfg {
         pub maintains_history: bool,
+        pub max_nat: u32,
     }
 
-    impl System for PingPongSystem {
-        type Actor = PingPongActor;
-        type History = (u32, u32); // (msg_in_count, msg_out_count)
+    pub type PingPongHistory = (u32, u32); // (#in, #out)
 
-        fn actors(&self) -> Vec<Self::Actor> {
-            vec![
-                PingPongActor::PingActor { pong_id: Id::from(1) },
-                PingPongActor::PongActor,
-            ]
-        }
-
-        fn lossy_network(&self) -> LossyNetwork { self.lossy }
-
-        fn duplicating_network(&self) -> DuplicatingNetwork { self.duplicating }
-
-        fn record_msg_in(&self, history: &Self::History, _src: Id, _dst: Id, _msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-            if self.maintains_history {
-                let (msg_in_count, msg_out_count) = *history;
-                Some((msg_in_count + 1, msg_out_count))
-            } else {
-                None
-            }
-        }
-
-        fn record_msg_out(&self, history: &Self::History, _src: Id, _dst: Id, _msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-            if self.maintains_history {
-                let (msg_in_count, msg_out_count) = *history;
-                Some((msg_in_count, msg_out_count + 1))
-            } else {
-                None
-            }
-        }
-
-        fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-            vec![
-                Property::<SystemModel<Self>>::always("delta within 1", |_, state| {
-                    let max = state.actor_states.iter().map(|s| s.0).max().unwrap();
-                    let min = state.actor_states.iter().map(|s| s.0).min().unwrap();
-                    max - min <= 1
-                }),
-                Property::<SystemModel<Self>>::sometimes("can reach max", |model, state| {
-                    state.actor_states.iter().any(|s| s.0 == model.system.max_nat)
-                }),
-                Property::<SystemModel<Self>>::eventually("must reach max", move |model, state| {
-                    state.actor_states.iter().any(|s| s.0 == model.system.max_nat)
-                }),
-                Property::<SystemModel<Self>>::eventually("must exceed max", move |model, state| {
+    impl PingPongCfg {
+        pub fn into_model(self) -> ActorModel<PingPongActor, PingPongCfg, PingPongHistory>
+        {
+            ActorModel::new(self, (0, 0))
+                .actor(PingPongActor { serve_to: Some(1.into()) })
+                .actor(PingPongActor { serve_to: None })
+                .record_msg_in(|cfg, history, _| {
+                    if cfg.maintains_history {
+                        let (msg_in_count, msg_out_count) = *history;
+                        Some((msg_in_count + 1, msg_out_count))
+                    } else {
+                        None
+                    }
+                })
+                .record_msg_out(|cfg, history, _| {
+                    if cfg.maintains_history {
+                        let (msg_in_count, msg_out_count) = *history;
+                        Some((msg_in_count, msg_out_count + 1))
+                    } else {
+                        None
+                    }
+                })
+                .within_boundary(|cfg, state| {
+                    state.actor_states.iter().all(|count| **count <= cfg.max_nat)
+                })
+                .property(Expectation::Always, "delta within 1", |_, state| {
+                    let max = state.actor_states.iter().max().unwrap();
+                    let min = state.actor_states.iter().min().unwrap();
+                    **max - **min <= 1
+                })
+                .property(Expectation::Sometimes, "can reach max", |model, state| {
+                    state.actor_states.iter().any(|count| **count == model.cfg.max_nat)
+                })
+                .property(Expectation::Eventually, "must reach max", |model, state| {
+                    state.actor_states.iter().any(|count| **count == model.cfg.max_nat)
+                })
+                .property(Expectation::Eventually, "must exceed max", |model, state| {
                     // this one is falsifiable due to the boundary
-                    state.actor_states.iter().any(|s| s.0 == model.system.max_nat + 1)
-                }),
-                Property::<SystemModel<Self>>::always("#in <= #out", |_model, state| {
+                    state.actor_states.iter().any(|count| **count == model.cfg.max_nat + 1)
+                })
+                .property(Expectation::Always, "#in <= #out", |_, state| {
                     let (msg_in_count, msg_out_count) = state.history;
                     msg_in_count <= msg_out_count
-                }),
-                Property::<SystemModel<Self>>::always("#out <= #in + 1", |_model, state| {
+                })
+                .property(Expectation::Eventually, "#out <= #in + 1", |_, state| {
                     let (msg_in_count, msg_out_count) = state.history;
                     msg_out_count <= msg_in_count + 1
-                }),
-            ]
-        }
-
-        fn within_boundary(&self, state: &SystemState<Self>) -> bool {
-            state.actor_states.iter().all(|s| s.0 <= self.max_nat)
+                })
         }
     }
 }

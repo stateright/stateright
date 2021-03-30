@@ -1,14 +1,63 @@
 //! Private module for selective re-export.
 
-use crate::*;
-use crate::actor::*;
+use crate::{Expectation, Model, Path, Property};
+use crate::actor::{
+    Actor,
+    ActorModelState,
+    Command,
+    is_no_op,
+    Id,
+    Out,
+};
 use crate::util::HashableHashSet;
+use std::borrow::Cow;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Represents a network of messages.
-pub type Network<Msg> = HashableHashSet<Envelope<Msg>>;
+/// Represents a system of [`Actor`]s that communicate over a network. `H` indicates the type of
+/// history to maintain as auxiliary state, if any.  See [Auxiliary Variables in
+/// TLA](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html) for a thorough
+/// introduction to that concept. Use `()` if history is not needed to define the relevant
+/// properties of this system.
+pub struct ActorModel<A, C = (), H = ()>
+where A: Actor,
+      H: Clone + Debug + Hash,
+{
+    actors: Vec<A>,
+    pub cfg: C,
+    duplicating_network: DuplicatingNetwork,
+    init_history: H,
+    init_network: Vec<Envelope<A::Msg>>,
+    lossy_network: LossyNetwork,
+    properties: Vec<Property<ActorModel<A, C, H>>>,
+    record_msg_in: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
+    record_msg_out: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
+    within_boundary: fn(cfg: &C, state: &ActorModelState<A, H>) -> bool,
+}
+
+/// Indicates possible steps that an actor system can take as it evolves.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ActorModelAction<Msg> {
+    /// A message can be delivered to an actor.
+    Deliver { src: Id, dst: Id, msg: Msg },
+    /// A message can be dropped if the network is lossy.
+    Drop(Envelope<Msg>),
+    /// An actor can by notified after a timeout.
+    Timeout(Id),
+}
+
+/// Indicates whether the network duplicates messages. If duplication is disabled, messages
+/// are forgotten once delivered, which can improve model checking performance.
+#[derive(Copy, Clone, PartialEq)]
+pub enum DuplicatingNetwork { Yes, No }
+
+/// Indicates the source and destination for a message.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(serde::Serialize)]
+pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
 /// the network state, losing a message is indistinguishable from an unlimited delay, so in
@@ -16,101 +65,157 @@ pub type Network<Msg> = HashableHashSet<Envelope<Msg>>;
 #[derive(Copy, Clone, PartialEq)]
 pub enum LossyNetwork { Yes, No }
 
-/// Indicates whether the network duplicates messages. If duplication is disabled, messages
-/// are forgotten once delivered, which can improve model checking performance.
-#[derive(Copy, Clone, PartialEq)]
-pub enum DuplicatingNetwork { Yes, No }
+/// Represents a network of messages.
+pub type Network<Msg> = HashableHashSet<Envelope<Msg>>;
 
-/// Represents a system of actors that communicate over a network.
-/// Usage: `let checker = my_system.into_model().checker()`.
-pub trait System: Sized {
-    /// The type of actor for this system.
-    type Actor: Actor;
+/// The specific timeout value is not relevant for model checking, so this helper can be used to
+/// generate an arbitrary timeout range. The specific value is subject to change, so this helper
+/// must only be used for model checking.
+pub fn model_timeout() -> Range<Duration> {
+    Duration::from_micros(0)..Duration::from_micros(0)
+}
 
-    /// The type of history to maintain as auxiliary state, if any.
-    /// See [Auxiliary Variables in TLA](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html)
-    /// for a thorough introduction to that concept. Use `()` if history is not needed to define
-    /// the relevant properties of this system.
-    type History: Clone + Debug + Default + Hash;
+/// A helper to generate a list of peer [`Id`]s given an actor count and the index of a particular
+/// actor.
+pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
+    (0..count)
+        .filter(|j| *j != self_ix)
+        .map(Into::into)
+        .collect()
+}
 
-    /// Defines the actors.
-    fn actors(&self) -> Vec<Self::Actor>;
-
-    /// Defines the initial network.
-    fn init_network(&self) -> Vec<Envelope<<Self::Actor as Actor>::Msg>> {
-        Vec::with_capacity(20)
+impl<A, C, H> ActorModel<A, C, H>
+where A: Actor,
+      H: Clone + Debug + Hash,
+{
+    /// Initializes an [`ActorModel`] with a specified configuration and history.
+    pub fn new(cfg: C, init_history: H) -> ActorModel<A, C, H> {
+        ActorModel {
+            actors: Vec::new(),
+            cfg,
+            duplicating_network: DuplicatingNetwork::Yes,
+            init_history,
+            init_network: Default::default(),
+            lossy_network: LossyNetwork::No,
+            properties: Default::default(),
+            record_msg_in: |_, _, _| None,
+            record_msg_out: |_, _, _| None,
+            within_boundary: |_, _| true,
+        }
     }
 
-    /// Defines whether the network loses messages or not.
-    fn lossy_network(&self) -> LossyNetwork {
-        LossyNetwork::No
+    /// Adds another [`Actor`] to this model.
+    pub fn actor(mut self, actor: A) -> Self {
+        self.actors.push(actor);
+        self
+    }
+
+    /// Adds multiple [`Actor`]s to this model.
+    pub fn actors(mut self, actors: impl IntoIterator<Item=A>) -> Self {
+        for actor in actors {
+            self.actors.push(actor);
+        }
+        self
     }
 
     /// Defines whether the network duplicates messages or not.
-    fn duplicating_network(&self) -> DuplicatingNetwork {
-        DuplicatingNetwork::Yes
+    pub fn duplicating_network(mut self, duplicating_network: DuplicatingNetwork) -> Self {
+        self.duplicating_network = duplicating_network;
+        self
+    }
+
+    /// Defines the initial network.
+    pub fn init_network(mut self, init_network: Vec<Envelope<A::Msg>>) -> Self {
+        self.init_network = init_network;
+        self
+    }
+
+    /// Defines whether the network loses messages or not.
+    pub fn lossy_network(mut self, lossy_network: LossyNetwork) -> Self {
+        self.lossy_network = lossy_network;
+        self
+    }
+
+    /// Adds a [`Property`] to this model.
+    pub fn property(mut self, expectation: Expectation, name: &'static str,
+                     condition: fn(&ActorModel<A, C, H>, &ActorModelState<A, H>) -> bool) -> Self {
+        self.properties.push(Property { expectation, name, condition });
+        self
     }
 
     /// Defines whether/how an incoming message contributes to relevant history. Returning
     /// `Some(new_history)` updates the relevant history, while `None` does not.
-    fn record_msg_in(&self, history: &Self::History, src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        let _ = history;
-        let _ = src;
-        let _ = dst;
-        let _ = msg;
-        None
+    pub fn record_msg_in(mut self,
+                         record_msg_in: fn(cfg: &C, history: &H, Envelope<&A::Msg>) -> Option<H>)
+        -> Self
+    {
+        self.record_msg_in = record_msg_in;
+        self
     }
 
-    /// Defines whether/how an outgoing messages contributes to relevant history. Returning
+    /// Defines whether/how an outgoing message contributes to relevant history. Returning
     /// `Some(new_history)` updates the relevant history, while `None` does not.
-    fn record_msg_out(&self, history: &Self::History, src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        let _ = history;
-        let _ = src;
-        let _ = dst;
-        let _ = msg;
-        None
+    pub fn record_msg_out(mut self,
+                          record_msg_out: fn(cfg: &C, history: &H, Envelope<&A::Msg>) -> Option<H>)
+        -> Self
+    {
+        self.record_msg_out = record_msg_out;
+        self
     }
-
-    /// Generates the expected properties for this model.
-    fn properties(&self) -> Vec<Property<SystemModel<Self>>>;
 
     /// Indicates whether a state is within the state space that should be model checked.
-    fn within_boundary(&self, _state: &SystemState<Self>) -> bool {
-        true
+    pub fn within_boundary(mut self,
+                           within_boundary: fn(cfg: &C, state: &ActorModelState<A, H>) -> bool)
+        -> Self
+    {
+        self.within_boundary = within_boundary;
+        self
     }
 
-    /// Converts this system into a model that can be checked.
-    fn into_model(self) -> SystemModel<Self> {
-        SystemModel {
-            actors: self.actors(),
-            init_network: self.init_network(),
-            lossy_network: self.lossy_network(),
-            duplicating_network: self.duplicating_network(),
-            system: self,
+    // Updates the actor state, sends messages, and configures the timer.
+    fn process_commands(&self, id: Id, commands: Out<A>, state: &mut ActorModelState<A, H>) {
+        let index = usize::from(id);
+        for c in commands {
+            match c {
+                Command::Send(dst, msg) => {
+                    if let Some(history) = (self.record_msg_out)(
+                        &self.cfg,
+                        &state.history,
+                        Envelope { src: id, dst, msg: &msg })
+                    {
+                        state.history = history;
+                    }
+                    state.network.insert(Envelope { src: id, dst, msg });
+                },
+                Command::SetTimer(_) => {
+                    // must use the index to infer how large as actor state may not be initialized yet
+                    if state.is_timer_set.len() <= index {
+                        state.is_timer_set.resize(index + 1, false);
+                    }
+                    state.is_timer_set[index] = true;
+                },
+                Command::CancelTimer => {
+                    state.is_timer_set[index] = false;
+                },
+            }
         }
     }
 }
 
-/// A model of an actor system.
-#[derive(Clone)]
-pub struct SystemModel<S: System> {
-    pub actors: Vec<S::Actor>,
-    pub init_network: Vec<Envelope<<S::Actor as Actor>::Msg>>,
-    pub lossy_network: LossyNetwork,
-    pub duplicating_network: DuplicatingNetwork,
-    pub system: S,
-}
-
-impl<S: System> Model for SystemModel<S> {
-    type State = SystemState<S>;
-    type Action = SystemAction<<S::Actor as Actor>::Msg>;
+impl<A, C, H> Model for ActorModel<A, C, H>
+where A: Actor,
+      H: Clone + Debug + Hash,
+{
+    type State = ActorModelState<A, H>;
+    type Action = ActorModelAction<A::Msg>;
 
     fn init_states(&self) -> Vec<Self::State> {
-        let mut init_sys_state = SystemState {
+        let mut init_sys_state = ActorModelState {
             actor_states: Vec::with_capacity(self.actors.len()),
-            network: Network::with_hasher(stable::build_hasher()), // for consistent discoveries
+            history: self.init_history.clone(),
             is_timer_set: Vec::new(),
-            history: S::History::default(),
+            network: Network::with_hasher(
+                crate::stable::build_hasher()), // for consistent discoveries
         };
 
         // init the network
@@ -134,31 +239,31 @@ impl<S: System> Model for SystemModel<S> {
         for env in &state.network {
             // option 1: message is lost
             if self.lossy_network == LossyNetwork::Yes {
-                actions.push(SystemAction::Drop(env.clone()));
+                actions.push(ActorModelAction::Drop(env.clone()));
             }
 
             // option 2: message is delivered
             if usize::from(env.dst) < self.actors.len() {
-                actions.push(SystemAction::Deliver { src: env.src, dst: env.dst, msg: env.msg.clone() });
+                actions.push(ActorModelAction::Deliver { src: env.src, dst: env.dst, msg: env.msg.clone() });
             }
         }
 
         // option 3: actor timeout
         for (index, &is_scheduled) in state.is_timer_set.iter().enumerate() {
             if is_scheduled {
-                actions.push(SystemAction::Timeout(Id::from(index)));
+                actions.push(ActorModelAction::Timeout(Id::from(index)));
             }
         }
     }
 
     fn next_state(&self, last_sys_state: &Self::State, action: Self::Action) -> Option<Self::State> {
         match action {
-            SystemAction::Drop(env) => {
+            ActorModelAction::Drop(env) => {
                 let mut next_state = last_sys_state.clone();
                 next_state.network.remove(&env);
                 Some(next_state)
             },
-            SystemAction::Deliver { src, dst: id, msg } => {
+            ActorModelAction::Deliver { src, dst: id, msg } => {
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states.get(index);
 
@@ -171,7 +276,10 @@ impl<S: System> Model for SystemModel<S> {
                 let mut out = Out::new();
                 self.actors[index].on_msg(id, &mut state, src, msg.clone(), &mut out);
                 if is_no_op(&state, &out) { return None; }
-                let history = self.system.record_msg_in(&last_sys_state.history, src, id, &msg);
+                let history = (self.record_msg_in)(
+                    &self.cfg,
+                    &last_sys_state.history,
+                    Envelope { src, dst: id, msg: &msg });
 
                 // Update the state as necessary:
                 // - Drop delivered message if not a duplicating network.
@@ -196,7 +304,7 @@ impl<S: System> Model for SystemModel<S> {
                 self.process_commands(id, out, &mut next_sys_state);
                 Some(next_sys_state)
             },
-            SystemAction::Timeout(id) => {
+            ActorModelAction::Timeout(id) => {
                 // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
                 let mut state = Cow::Borrowed(&*last_sys_state.actor_states[index]);
@@ -241,10 +349,10 @@ impl<S: System> Model for SystemModel<S> {
         }
 
         match action {
-            SystemAction::Drop(env) => {
+            ActorModelAction::Drop(env) => {
                 Some(format!("DROP: {:?}", env))
             },
-            SystemAction::Deliver { src, dst: id, msg } => {
+            ActorModelAction::Deliver { src, dst: id, msg } => {
                 let index = usize::from(id);
                 let last_actor_state = match last_state.actor_states.get(index) {
                     None => return None,
@@ -262,7 +370,7 @@ impl<S: System> Model for SystemModel<S> {
                     out,
                 }))
             },
-            SystemAction::Timeout(id) => {
+            ActorModelAction::Timeout(id) => {
                 let index = usize::from(id);
                 let last_actor_state = match last_state.actor_states.get(index) {
                     None => return None,
@@ -323,7 +431,7 @@ impl<S: System> Model for SystemModel<S> {
         for (time, (state, action)) in path.clone().into_iter().enumerate() {
             let time = time + 1; // action is for the next step
             match action {
-                Some(SystemAction::Deliver { src, dst: id, msg }) => {
+                Some(ActorModelAction::Deliver { src, dst: id, msg }) => {
                     let src_time = *send_time.get(&(src, id, msg.clone())).unwrap_or(&0);
                     let (x1, y1) = plot(src.into(), src_time);
                     let (x2, y2) = plot(id.into(),  time);
@@ -343,7 +451,7 @@ impl<S: System> Model for SystemModel<S> {
                         }
                     }
                 }
-                Some(SystemAction::Timeout(actor_id)) => {
+                Some(ActorModelAction::Timeout(actor_id)) => {
                     let (x, y) = plot(actor_id.into(),  time);
                     writeln!(&mut svg, "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
                            x, y).unwrap();
@@ -369,12 +477,12 @@ impl<S: System> Model for SystemModel<S> {
         for (time, (_state, action)) in path.into_iter().enumerate() {
             let time = time + 1; // action is for the next step
             match action {
-                Some(SystemAction::Deliver { dst: id, msg, .. }) => {
+                Some(ActorModelAction::Deliver { dst: id, msg, .. }) => {
                     let (x, y) = plot(id.into(), time);
                     writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>",
                            x, y, msg).unwrap();
                 }
-                Some(SystemAction::Timeout(id)) => {
+                Some(ActorModelAction::Timeout(id)) => {
                     let (x, y) = plot(id.into(), time);
                     writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>Timeout</text>",
                            x, y).unwrap();
@@ -388,169 +496,20 @@ impl<S: System> Model for SystemModel<S> {
     }
 
     fn properties(&self) -> Vec<Property<Self>> {
-        self.system.properties()
+        self.properties.clone()
     }
 
     fn within_boundary(&self, state: &Self::State) -> bool {
-        self.system.within_boundary(state)
+        (self.within_boundary)(&self.cfg, state)
     }
-}
-
-impl<S: System> SystemModel<S> {
-    /// Updates the actor state, sends messages, and configures the timer.
-    fn process_commands(&self, id: Id, commands: Out<S::Actor>, state: &mut SystemState<S>) {
-        let index = usize::from(id);
-        for c in commands {
-            match c {
-                Command::Send(dst, msg) => {
-                    if let Some(history) = self.system.record_msg_out(&state.history, id, dst, &msg) {
-                        state.history = history;
-                    }
-                    state.network.insert(Envelope { src: id, dst, msg });
-                },
-                Command::SetTimer(_) => {
-                    // must use the index to infer how large as actor state may not be initialized yet
-                    if state.is_timer_set.len() <= index {
-                        state.is_timer_set.resize(index + 1, false);
-                    }
-                    state.is_timer_set[index] = true;
-                },
-                Command::CancelTimer => {
-                    state.is_timer_set[index] = false;
-                },
-            }
-        }
-    }
-}
-
-/// Indicates the source and destination for a message.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[derive(serde::Serialize)]
-pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
-
-/// Represents a snapshot in time for the entire actor system.
-pub struct SystemState<S: System> {
-    pub actor_states: Vec<Arc<<S::Actor as Actor>::State>>,
-    pub network: Network<<S::Actor as Actor>::Msg>,
-    pub is_timer_set: Vec<bool>,
-    pub history: S::History,
-}
-
-impl<S> serde::Serialize for SystemState<S>
-where S: System,
-      <S::Actor as Actor>::State: serde::Serialize,
-      <S::Actor as Actor>::Msg: serde::Serialize,
-      S::History: serde::Serialize,
-{
-    fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
-        use serde::ser::SerializeStruct;
-        let mut out = ser.serialize_struct("SystemState", 4)?;
-        out.serialize_field("actor_states", &self.actor_states)?;
-        out.serialize_field("network", &self.network)?;
-        out.serialize_field("is_timer_set", &self.is_timer_set)?;
-        out.serialize_field("history", &self.history)?;
-        out.end()
-    }
-}
-
-// Manual implementation to avoid `S: Clone` constraint that `#derive(Clone)` would introduce on
-// `SystemState<S>`.
-impl<S: System> Clone for SystemState<S> {
-    fn clone(&self) -> Self {
-        SystemState {
-            actor_states: self.actor_states.clone(),
-            network: self.network.clone(),
-            is_timer_set: self.is_timer_set.clone(),
-            history: self.history.clone(),
-        }
-    }
-}
-
-// Manual implementation to avoid `S: Debug` constraint that `#derive(Debug)` would introduce on
-// `SystemState<S>`.
-impl<S: System> Debug for SystemState<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut builder = f.debug_struct("SystemState");
-        builder.field("actor_states", &self.actor_states);
-        builder.field("history", &self.history);
-        builder.field("is_timer_set", &self.is_timer_set);
-        builder.field("network", &self.network);
-        builder.finish()
-    }
-}
-
-// Manual implementation to avoid `S: Eq` constraint that `#derive(Eq)` would introduce on
-// `SystemState<S>`.
-impl<S: System> Eq for SystemState<S>
-where <S::Actor as Actor>::State: Eq, S::History: Eq {}
-
-// Manual implementation to avoid `S: Hash` constraint that `#derive(Hash)` would introduce on
-// `SystemState<S>`.
-impl<S: System> Hash for SystemState<S> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.actor_states.hash(state);
-        self.history.hash(state);
-        self.is_timer_set.hash(state);
-        self.network.hash(state);
-    }
-}
-
-// Manual implementation to avoid `S: PartialEq` constraint that `#derive(PartialEq)` would introduce on
-// `SystemState<S>`.
-impl<S: System> PartialEq for SystemState<S>
-where <S::Actor as Actor>::State: PartialEq, S::History: PartialEq {
-    fn eq(&self, other: &Self) -> bool {
-        self.actor_states.eq(&other.actor_states)
-            && self.history.eq(&other.history)
-            && self.is_timer_set.eq(&other.is_timer_set)
-            && self.network.eq(&other.network)
-    }
-}
-
-/// Indicates possible steps that an actor system can take as it evolves.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SystemAction<Msg> {
-    /// A message can be delivered to an actor.
-    Deliver { src: Id, dst: Id, msg: Msg },
-    /// A message can be dropped if the network is lossy.
-    Drop(Envelope<Msg>),
-    /// An actor can by notified after a timeout.
-    Timeout(Id),
-}
-
-impl From<Id> for usize {
-    fn from(id: Id) -> Self {
-        id.0 as usize
-    }
-}
-
-impl From<usize> for Id {
-    fn from(u: usize) -> Self {
-        Id(u as u64)
-    }
-}
-
-/// The specific timeout value is not relevant for model checking, so this helper can be used to
-/// generate an arbitrary timeout range. The specific value is subject to change, so this helper
-/// must only be used for model checking.
-pub fn model_timeout() -> Range<Duration> {
-    Duration::from_micros(0)..Duration::from_micros(0)
-}
-
-/// A helper to generate a list of peer [`Id`]s given an actor count and the index of a particular
-/// actor.
-pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
-    (0..count)
-        .filter(|j| *j != self_ix)
-        .map(Into::into)
-        .collect()
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::actor::actor_test_util::ping_pong::{PingPongCount, PingPongMsg::*, PingPongSystem};
-    use crate::actor::system::SystemAction::*;
+    use crate::{Checker, StateRecorder};
+    use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
+    use crate::actor::ActorModelAction::*;
     use std::collections::HashSet;
     use std::sync::Arc;
 
@@ -560,8 +519,8 @@ mod test {
         use std::iter::FromIterator;
 
         // helper to make the test more concise
-        let states_and_network = |states: Vec<PingPongCount>, envelopes: Vec<Envelope<_>>| {
-            SystemState::<PingPongSystem> {
+        let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>| {
+            ActorModelState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
                 is_timer_set: Vec::new(),
@@ -570,12 +529,13 @@ mod test {
         };
 
         let (recorder, accessor) = StateRecorder::new_with_accessor();
-        let checker = PingPongSystem {
-            max_nat: 1,
-            lossy: LossyNetwork::Yes,
-            duplicating: DuplicatingNetwork::Yes,
-            maintains_history: false,
-        }.into_model().checker().visitor(recorder).spawn_bfs().join();
+        let checker = PingPongCfg {
+                maintains_history: false,
+                max_nat: 1,
+            }
+            .into_model()
+            .lossy_network(LossyNetwork::Yes)
+            .checker().visitor(recorder).spawn_bfs().join();
         assert_eq!(checker.generated_count(), 14);
 
         let state_space = accessor();
@@ -583,16 +543,16 @@ mod test {
         assert_eq!(HashSet::<_>::from_iter(state_space), HashSet::from_iter(vec![
             // When the network loses no messages...
             states_and_network(
-                vec![PingPongCount(0), PingPongCount(0)],
+                vec![0, 0],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
             states_and_network(
-                vec![PingPongCount(0), PingPongCount(1)],
+                vec![0, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                 ]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
@@ -601,74 +561,76 @@ mod test {
 
             // When the network loses the message for pinger-ponger state (0, 0)...
             states_and_network(
-                vec![PingPongCount(0), PingPongCount(0)],
+                vec![0, 0],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (0, 1)
             states_and_network(
-                vec![PingPongCount(0), PingPongCount(1)],
+                vec![0, 1],
                 vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
             states_and_network(
-                vec![PingPongCount(0), PingPongCount(1)],
+                vec![0, 1],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
             states_and_network(
-                vec![PingPongCount(0), PingPongCount(1)],
+                vec![0, 1],
                 Vec::new()),
 
             // When the network loses a message for pinger-ponger state (1, 1)
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
                 ]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                 ]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) }]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
             states_and_network(
-                vec![PingPongCount(1), PingPongCount(1)],
+                vec![1, 1],
                 Vec::new()),
         ]));
     }
 
     #[test]
     fn maintains_fixed_delta_despite_lossy_duplicating_network() {
-        let checker = PingPongSystem {
-            max_nat: 5,
-            lossy: LossyNetwork::Yes,
-            duplicating: DuplicatingNetwork::Yes,
-            maintains_history: false,
-        }.into_model().checker().spawn_bfs().join();
+        let checker = PingPongCfg {
+                max_nat: 5,
+                maintains_history: false,
+            }
+            .into_model()
+            .lossy_network(LossyNetwork::Yes)
+            .checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 4_094);
         checker.assert_no_discovery("delta within 1");
     }
 
     #[test]
     fn may_never_reach_max_on_lossy_network() {
-        let checker = PingPongSystem {
-            max_nat: 5,
-            lossy: LossyNetwork::Yes,
-            duplicating: DuplicatingNetwork::Yes,
-            maintains_history: false,
-        }.into_model().checker().spawn_bfs().join();
+        let checker = PingPongCfg {
+                max_nat: 5,
+                maintains_history: false,
+            }
+            .into_model()
+            .lossy_network(LossyNetwork::Yes)
+            .checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 4_094);
 
         // can lose the first message and get stuck, for example
@@ -679,28 +641,31 @@ mod test {
 
     #[test]
     fn eventually_reaches_max_on_perfect_delivery_network() {
-        let checker = PingPongSystem {
-            max_nat: 5,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::No,
-            maintains_history: false,
-        }.into_model().checker().spawn_bfs().join();
+        let checker = PingPongCfg {
+                max_nat: 5,
+                maintains_history: false,
+            }
+            .into_model()
+            .duplicating_network(DuplicatingNetwork::No)
+            .lossy_network(LossyNetwork::No)
+            .checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 11);
         checker.assert_no_discovery("must reach max");
     }
 
     #[test]
     fn can_reach_max() {
-        let checker = PingPongSystem {
-            max_nat: 5,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::Yes,
-            maintains_history: false,
-        }.into_model().checker().spawn_bfs().join();
+        let checker = PingPongCfg {
+                max_nat: 5,
+                maintains_history: false,
+            }
+            .into_model()
+            .lossy_network(LossyNetwork::No)
+            .checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 11);
         assert_eq!(
             checker.discovery("can reach max").unwrap().last_state().actor_states,
-            vec![Arc::new(PingPongCount(4)), Arc::new(PingPongCount(5))]);
+            vec![Arc::new(4), Arc::new(5)]);
     }
 
     #[test]
@@ -709,43 +674,32 @@ mod test {
         //   falsifiable liveness property here (eventually must exceed max), whereas "will never"
         //   refers to a verifiable safety property (always will not exceed).
 
-        let checker = PingPongSystem {
-            max_nat: 5,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::No,
-            maintains_history: false,
-        }.into_model().checker().spawn_bfs().join();
+        let checker = PingPongCfg {
+                max_nat: 5,
+                maintains_history: false,
+            }
+            .into_model()
+            .duplicating_network(DuplicatingNetwork::No)
+            .lossy_network(LossyNetwork::No)
+            .checker().spawn_bfs().join();
         assert_eq!(checker.generated_count(), 11);
 
         // this is an example of a liveness property that fails to hold (due to the boundary)
         assert_eq!(
             checker.discovery("must exceed max").unwrap().last_state().actor_states,
-            vec![Arc::new(PingPongCount(5)), Arc::new(PingPongCount(5))]);
+            vec![Arc::new(5), Arc::new(5)]);
     }
 
     #[test]
     fn handles_undeliverable_messages() {
-        struct TestActor;
-        impl Actor for TestActor {
-            type State = ();
-            type Msg = ();
-            fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State { () }
-            fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
-        }
-        struct TestSystem;
-        impl System for TestSystem {
-            type Actor = TestActor;
-            type History = ();
-            fn actors(&self) -> Vec<Self::Actor> { Vec::new() }
-            fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-                // need one property, otherwise checking early exits
-                vec![Property::always("unused", |_, _| true)]
-            }
-            fn init_network(&self) -> Vec<Envelope<<Self::Actor as Actor>::Msg>> {
-                vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }]
-            }
-        }
-        assert!(TestSystem.into_model().checker().spawn_bfs().join().is_done());
+        assert_eq!(
+            ActorModel::new((), ())
+                .actor(())
+                .property(Expectation::Always, "unused", |_, _| true) // force full traversal
+                .init_network(vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }])
+                .checker().spawn_bfs().join()
+                .generated_count(),
+            1);
     }
 
     #[test]
@@ -760,24 +714,23 @@ mod test {
             }
             fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
         }
-        struct TestSystem;
-        impl System for TestSystem {
-            type Actor = TestActor;
-            type History = ();
-            fn actors(&self) -> Vec<Self::Actor> { vec![TestActor] }
-            fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-                vec![Property::always("unused", |_, _| true)]
-            }
-        }
+
         // Init state with timer, followed by next state without timer.
-        assert_eq!(2, TestSystem.into_model().checker().spawn_bfs().join().generated_count());
+        assert_eq!(
+            ActorModel::new((), ())
+                .actor(TestActor)
+                .property(Expectation::Always, "unused", |_, _| true) // force full traversal
+                .checker().spawn_bfs().join()
+                .generated_count(),
+            2);
     }
 }
 
 #[cfg(test)]
 mod choice_test {
-    use crate::{Checker, Model, Property, StateRecorder};
-    use crate::actor::{DuplicatingNetwork, System, SystemModel, SystemState};
+    use choice::Choice;
+    use crate::{Checker, Model, StateRecorder};
+    use crate::actor::DuplicatingNetwork;
     use super::*;
 
     #[derive(Clone)]
@@ -826,40 +779,19 @@ mod choice_test {
         }
     }
 
-    /// A system that sends `n` messages for `(n, actors)`.
-    impl<A> System for (usize, Vec<A>) where A: Actor + Clone {
-        type Actor = A;
-        type History = usize;
-        fn actors(&self) -> Vec<Self::Actor> {
-            self.1.clone()
-        }
-        fn duplicating_network(&self) -> DuplicatingNetwork {
-            DuplicatingNetwork::No
-        }
-        fn record_msg_out(&self, history: &Self::History, _: Id, _: Id, _: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-            Some(history + 1)
-        }
-        fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-            vec![Property::<SystemModel<Self>>::always("true", |_, _| { true })]
-        }
-        fn within_boundary(&self, state: &SystemState<Self>) -> bool {
-            state.history < self.0
-        }
-    }
-
     #[test]
     fn choice_correctly_implements_actor() {
         use choice::choice;
-        let sys: (usize, Vec<choice![A, B, C]>) = (
-            8,
-            vec![
-                Choice::new(A { b: Id::from(1) }),
-                Choice::new(B { c: Id::from(2) }).or(),
-                Choice::new(C { a: Id::from(0) }).or().or(),
-            ]
-        );
+        let sys = ActorModel::<choice![A, B, C], (), u8>::new((), 0)
+            .actor(Choice::new(A { b: Id::from(1) }))
+            .actor(Choice::new(B { c: Id::from(2) }).or())
+            .actor(Choice::new(C { a: Id::from(0) }).or().or())
+            .duplicating_network(DuplicatingNetwork::No)
+            .record_msg_out(|_, out_count, _| Some(out_count + 1))
+            .property(Expectation::Always, "true", |_, _| true)
+            .within_boundary(|_, state| state.history < 8);
         let (recorder, accessor) = StateRecorder::new_with_accessor();
-        sys.into_model().checker()
+        sys.checker()
             .visitor(recorder)
             .spawn_dfs().join();
         let states: Vec<Vec<choice![u8, char, String]>> = accessor().into_iter()
@@ -911,3 +843,4 @@ mod choice_test {
         ]);
     }
 }
+

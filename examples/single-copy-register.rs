@@ -2,8 +2,8 @@
 //! provide consensus.
 
 use stateright::{Checker, Model};
-use stateright::actor::{Actor, DuplicatingNetwork, Id, Out, System};
-use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterTestSystem, TestRequestId, TestValue};
+use stateright::actor::{Actor, DuplicatingNetwork, Id, Out};
+use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterCfg, TestRequestId, TestValue};
 use std::borrow::Cow;
 
 #[derive(Clone)]
@@ -35,15 +35,16 @@ impl Actor for SingleCopyActor {
 #[test]
 fn can_model_single_copy_register() {
     use stateright::actor::DuplicatingNetwork;
-    use stateright::actor::SystemAction::Deliver;
+    use stateright::actor::ActorModelAction::Deliver;
 
     // Linearizable if only one server. DFS for this one.
-    let checker = RegisterTestSystem {
-        servers: vec![SingleCopyActor],
-        client_count: 2,
-        duplicating_network: DuplicatingNetwork::No,
-        .. Default::default()
-    }.into_model().checker().spawn_dfs().join();
+    let checker = RegisterCfg {
+            servers: vec![SingleCopyActor],
+            client_count: 2,
+        }
+        .into_model()
+        .duplicating_network(DuplicatingNetwork::No)
+        .checker().spawn_dfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'B') },
@@ -53,12 +54,13 @@ fn can_model_single_copy_register() {
     assert_eq!(checker.generated_count(), 180);
 
     // Otherwise (if more than one server) then not linearizabile. BFS this time.
-    let checker = RegisterTestSystem {
-        servers: vec![SingleCopyActor, SingleCopyActor],
-        client_count: 2,
-        duplicating_network: DuplicatingNetwork::No,
-        .. Default::default()
-    }.into_model().checker().spawn_bfs().join();
+    let checker = RegisterCfg {
+            servers: vec![SingleCopyActor, SingleCopyActor],
+            client_count: 2,
+        }
+        .into_model()
+        .duplicating_network(DuplicatingNetwork::No)
+        .checker().spawn_bfs().join();
     checker.assert_discovery("linearizable", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
@@ -108,12 +110,13 @@ fn main() {
                 26, value_t!(args, "client_count", u8).expect("client count missing"));
             println!("Model checking a single-copy register with {} clients.",
                      client_count);
-            RegisterTestSystem {
-                servers: vec![SingleCopyActor],
-                client_count,
-                duplicating_network: DuplicatingNetwork::No,
-                .. Default::default()
-            }.into_model().checker()
+            RegisterCfg {
+                    servers: vec![SingleCopyActor],
+                    client_count,
+                }
+                .into_model()
+                .duplicating_network(DuplicatingNetwork::No)
+                .checker()
                 .threads(num_cpus::get()).spawn_dfs()
                 .report(&mut std::io::stdout());
         }
@@ -124,12 +127,13 @@ fn main() {
             println!(
                 "Exploring state space for single-copy register with {} clients on {}.",
                 client_count, address);
-            RegisterTestSystem {
-                servers: vec![SingleCopyActor],
-                client_count,
-                duplicating_network: DuplicatingNetwork::No,
-                .. Default::default()
-            }.into_model().checker()
+            RegisterCfg {
+                    servers: vec![SingleCopyActor],
+                    client_count,
+                }
+                .into_model()
+                .duplicating_network(DuplicatingNetwork::No)
+                .checker()
                 .threads(num_cpus::get())
                 .serve(address);
         }

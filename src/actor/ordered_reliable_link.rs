@@ -141,11 +141,10 @@ where A::Msg: Hash
 #[cfg(test)]
 mod test {
     use std::borrow::Cow;
-    use crate::{Checker, Property, Model};
+    use crate::{Checker, Expectation, Model};
     use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
-    use crate::actor::system::{SystemModel, System, LossyNetwork, DuplicatingNetwork, SystemState};
-    use crate::actor::system::SystemAction;
+    use crate::actor::{ActorModel, ActorModelAction, DuplicatingNetwork, LossyNetwork};
 
     pub enum TestActor {
         Sender { receiver_id: Id },
@@ -173,74 +172,65 @@ mod test {
         }
     }
 
-    struct TestSystem;
-    impl System for TestSystem {
-        type Actor = ActorWrapper<TestActor>;
-        type History = ();
-
-        fn actors(&self) -> Vec<Self::Actor> {
-            vec![
+    fn model() -> ActorModel<ActorWrapper<TestActor>> {
+        ActorModel::new((), ())
+            .actor(
                 ActorWrapper::with_default_timeout(
-                    TestActor::Sender { receiver_id: Id::from(1) }),
+                    TestActor::Sender { receiver_id: Id::from(1) }))
+            .actor(
                 ActorWrapper::with_default_timeout(
-                    TestActor::Receiver),
-            ]
-        }
-
-        fn lossy_network(&self) -> LossyNetwork {
-            LossyNetwork::Yes
-        }
-
-        fn duplicating_network(&self) -> DuplicatingNetwork {
-            DuplicatingNetwork::Yes
-        }
-
-        fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-            vec![
-                Property::<SystemModel<TestSystem>>::always("no redelivery", |_, state| {
-                    let received = &state.actor_states[1].wrapped_state.0;
-                    received.iter().filter(|(_, TestMsg(v))| *v == 42).count() < 2
-                        && received.iter().filter(|(_, TestMsg(v))| *v == 43).count() < 2
-                }),
-                Property::<SystemModel<TestSystem>>::always("ordered", |_, state| {
-                    state.actor_states[1].wrapped_state.0.iter()
-                        .map(|(_, TestMsg(v))| *v)
-                        .fold((true, 0), |(acc, last), next| (acc && last <= next, next))
-                        .0
-                }),
-                // FIXME: convert to an eventually property once the liveness checker is complete
-                Property::<SystemModel<TestSystem>>::sometimes("delivered", |_, state| {
-                    state.actor_states[1].wrapped_state.0 == vec![
-                        (Id::from(0), TestMsg(42)),
-                        (Id::from(0), TestMsg(43)),
-                    ]
-                }),
-            ]
-        }
-
-        fn within_boundary(&self, state: &SystemState<Self>) -> bool {
-            state.actor_states.iter().all(|s| s.wrapped_state.0.len() < 4)
-        }
+                    TestActor::Receiver))
+            .duplicating_network(DuplicatingNetwork::Yes)
+            .lossy_network(LossyNetwork::Yes)
+            .property(Expectation::Always, "no redelivery", |_, state| {
+                let received = &state.actor_states[1].wrapped_state.0;
+                received.iter().filter(|(_, TestMsg(v))| *v == 42).count() < 2
+                    && received.iter().filter(|(_, TestMsg(v))| *v == 43).count() < 2
+            })
+            .property(Expectation::Always, "ordered", |_, state| {
+                state.actor_states[1].wrapped_state.0.iter()
+                    .map(|(_, TestMsg(v))| *v)
+                    .fold((true, 0), |(acc, last), next| (acc && last <= next, next))
+                    .0
+            })
+            // FIXME: convert to an eventually property once the liveness checker is complete
+            .property(Expectation::Sometimes, "delivered", |_, state| {
+                state.actor_states[1].wrapped_state.0 == vec![
+                    (Id::from(0), TestMsg(42)),
+                    (Id::from(0), TestMsg(43)),
+                ]
+            })
+            .within_boundary(|_, state| {
+                state.actor_states.iter().all(|s| s.wrapped_state.0.len() < 4)
+            })
     }
 
     #[test]
     fn messages_are_not_delivered_twice() {
-        TestSystem.into_model().checker().spawn_bfs().join()
+        model().checker().spawn_bfs().join()
             .assert_no_discovery("no redelivery");
     }
 
     #[test]
     fn messages_are_delivered_in_order() {
-        TestSystem.into_model().checker().spawn_bfs().join()
+        model().checker().spawn_bfs().join()
             .assert_no_discovery("ordered");
     }
 
     #[test]
     fn messages_are_eventually_delivered() {
-        let checker = TestSystem.into_model().checker().spawn_bfs().join();
+        let checker = model().checker().spawn_bfs().join();
         checker.assert_discovery("delivered", vec![
-            SystemAction::Deliver { src: Id(0), dst: Id(1), msg: MsgWrapper::Deliver(1, TestMsg(42)) },
-            SystemAction::Deliver { src: Id(0), dst: Id(1), msg: MsgWrapper::Deliver(2, TestMsg(43)) },
+            ActorModelAction::Deliver {
+                src: Id(0),
+                dst: Id(1),
+                msg: MsgWrapper::Deliver(1, TestMsg(42)),
+            },
+            ActorModelAction::Deliver {
+                src: Id(0),
+                dst: Id(1),
+                msg: MsgWrapper::Deliver(2, TestMsg(43)),
+            },
         ]);
     }
 }

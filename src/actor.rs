@@ -1,6 +1,5 @@
-//! This module provides an [Actor] trait, which can be model checked by implementing
-//! [System] and calling [System::into_model()]. You can also [`spawn()`] the actor
-//! in which case it will communicate over a UDP socket.
+//! This module provides an [Actor] trait, which can be model checked using [`ActorModel`].  You
+//! can also [`spawn()`] the actor in which case it will communicate over a UDP socket.
 //!
 //! ## Example
 //!
@@ -52,38 +51,26 @@
 //!     }
 //! }
 //!
-//! /// We now define the actor system, which we parameterize by the maximum
-//! /// expected timestamp.
-//! struct LogicalClockSystem { max_expected: u32 };
-//!
-//! impl System for LogicalClockSystem {
-//!     type Actor = LogicalClockActor;
-//!     type History = ();
-//!
-//!     /// The system contains two actors, one of which bootstraps.
-//!     fn actors(&self) -> Vec<Self::Actor> {
-//!         vec![
-//!             LogicalClockActor { bootstrap_to_id: None},
-//!             LogicalClockActor { bootstrap_to_id: Some(Id::from(0)) }
-//!         ]
-//!     }
-//!
-//!     /// The only property is one indicating that every actor's timestamp is less than the
-//!     /// maximum expected timestamp defined for the system.
-//!     fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-//!         vec![Property::<SystemModel<Self>>::always("less than max", |model, state| {
-//!             state.actor_states.iter().all(|s| s.0 < model.system.max_expected)
-//!         })]
-//!     }
-//! }
-//!
 //! // The model checker should quickly find a counterexample sequence of actions that causes an
 //! // actor timestamp to reach a specified maximum.
-//! let checker = LogicalClockSystem { max_expected: 3 }
-//!     .into_model().checker().spawn_bfs().join();
+//! let checker = ActorModel::new((), ())
+//!     .actor(LogicalClockActor { bootstrap_to_id: None})
+//!     .actor(LogicalClockActor { bootstrap_to_id: Some(Id::from(0)) })
+//!     .property(Expectation::Always, "less than max", |_, state| {
+//!         state.actor_states.iter().all(|s| s.0 < 3)
+//!     })
+//!     .checker().spawn_bfs().join();
 //! checker.assert_discovery("less than max", vec![
-//!     SystemAction::Deliver { src: Id::from(1), dst: Id::from(0), msg: MsgWithTimestamp(1) },
-//!     SystemAction::Deliver { src: Id::from(0), dst: Id::from(1), msg: MsgWithTimestamp(2) },
+//!     ActorModelAction::Deliver {
+//!         src: Id::from(1),
+//!         dst: Id::from(0),
+//!         msg: MsgWithTimestamp(1),
+//!     },
+//!     ActorModelAction::Deliver {
+//!         src: Id::from(0),
+//!         dst: Id::from(1),
+//!         msg: MsgWithTimestamp(2),
+//!     },
 //! ]);
 //! assert_eq!(
 //!     checker.discovery("less than max").unwrap().last_state().actor_states,
@@ -94,7 +81,8 @@
 //! are available in the repository.
 
 use choice::{Choice, Never};
-mod system;
+mod model;
+mod model_state;
 mod spawn;
 use std::borrow::Cow;
 use std::hash::Hash;
@@ -105,10 +93,11 @@ use std::ops::Range;
 
 #[cfg(test)]
 pub mod actor_test_util;
+pub use model::*;
+pub use model_state::*;
 pub mod ordered_reliable_link;
 pub mod register;
 pub use spawn::*;
-pub use system::*;
 
 /// Uniquely identifies an [`Actor`]. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
@@ -143,6 +132,18 @@ impl Id {
     where T: Into<Id>
     {
         ids.into_iter().map(Into::into).collect()
+    }
+}
+
+impl From<Id> for usize {
+    fn from(id: Id) -> Self {
+        id.0 as usize
+    }
+}
+
+impl From<usize> for Id {
+    fn from(u: usize) -> Self {
+        Id(u as u64)
     }
 }
 

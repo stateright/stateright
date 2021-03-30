@@ -266,26 +266,30 @@ mod test {
 
     #[test]
     fn smoke_test_states() {
-        use crate::actor::{DuplicatingNetwork, Envelope, Id, LossyNetwork, System, SystemState};
-        use crate::actor::actor_test_util::ping_pong::{PingPongCount, PingPongMsg::*, PingPongSystem};
-        use crate::actor::SystemAction::*;
+        use crate::actor::{ActorModelState, DuplicatingNetwork, Envelope, Id, LossyNetwork};
+        use crate::actor::actor_test_util::ping_pong::{PingPongActor, PingPongCfg, PingPongHistory, PingPongMsg::*};
+        use crate::actor::ActorModelAction::*;
         use crate::util::HashableHashSet;
         use std::iter::FromIterator;
 
-        let checker = Arc::new(PingPongSystem {
-            max_nat: 2,
-            lossy: LossyNetwork::Yes,
-            duplicating: DuplicatingNetwork::No,
-            maintains_history: true,
-        }.into_model().checker().spawn_bfs());
+        let checker = Arc::new(
+            PingPongCfg {
+                max_nat: 2,
+                maintains_history: true,
+            }
+            .into_model()
+            .duplicating_network(DuplicatingNetwork::No)
+            .lossy_network(LossyNetwork::Yes)
+            .checker()
+            .spawn_bfs());
         assert_eq!(
             get_states(Arc::clone(&checker), "/").unwrap(),
             vec![
                 StateView {
                     action: None,
                     outcome: None,
-                    state: SystemState {
-                        actor_states: vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(0))],
+                    state: ActorModelState {
+                        actor_states: vec![Arc::new(0), Arc::new(0)],
                         history: (0, 1),
                         is_timer_set: vec![],
                         network: HashableHashSet::from_iter(vec![
@@ -295,10 +299,11 @@ mod test {
                     svg: Some("<svg version=\'1.1\' baseProfile=\'full\' width=\'500\' height=\'30\' viewbox=\'-20 -20 520 50\' xmlns=\'http://www.w3.org/2000/svg\'><defs><marker class=\'svg-event-shape\' id=\'arrow\' markerWidth=\'12\' markerHeight=\'10\' refX=\'12\' refY=\'5\' orient=\'auto\'><polygon points=\'0 0, 12 5, 0 10\' /></marker></defs><line x1=\'0\' y1=\'0\' x2=\'0\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'0\' y=\'0\' class=\'svg-actor-label\'>0</text>\n<line x1=\'100\' y1=\'0\' x2=\'100\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'100\' y=\'0\' class=\'svg-actor-label\'>1</text>\n</svg>\n".to_string()),
                 },
             ]);
+
         // To regenerate the path if the fingerprint changes:
         // ```
-        // let fp = fingerprint(&SystemState::<PingPongSystem> {
-        //     actor_states: vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(0))],
+        // let fp = fingerprint(&ActorModelState::<PingPongActor, PingPongHistory> {
+        //     actor_states: vec![Arc::new(0), Arc::new(0)],
         //     history: (0, 1),
         //     is_timer_set: vec![],
         //     network: HashableHashSet::from_iter(vec![
@@ -314,8 +319,8 @@ mod test {
             StateView {
                 action: Some(Drop(Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
                 outcome: Some("DROP: Envelope { src: Id(0), dst: Id(1), msg: Ping(0) }".to_string()),
-                state: SystemState {
-                    actor_states: vec![Arc::new(PingPongCount(0)), Arc::new(PingPongCount(0))],
+                state: ActorModelState {
+                    actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     is_timer_set: vec![],
                     network: HashableHashSet::new(),
@@ -326,11 +331,11 @@ mod test {
             states[1],
             StateView {
                 action: Some(Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }),
-                outcome: Some("OUT: [Send(Id(0), Pong(0))]\n\nNEXT_STATE: PingPongCount(\n    1,\n)\n\nPREV_STATE: PingPongCount(\n    0,\n)\n".to_string()),
-                state: SystemState {
+                outcome: Some("OUT: [Send(Id(0), Pong(0))]\n\nNEXT_STATE: 1\n\nPREV_STATE: 0\n".to_string()),
+                state: ActorModelState {
                     actor_states: vec![
-                        Arc::new(PingPongCount(0)),
-                        Arc::new(PingPongCount(1)),
+                        Arc::new(0),
+                        Arc::new(1),
                     ],
                     history: (1, 2),
                     is_timer_set: vec![],
@@ -344,24 +349,26 @@ mod test {
 
     #[test]
     fn smoke_test_status() {
-        use crate::actor::{DuplicatingNetwork, LossyNetwork, System};
-        use crate::actor::actor_test_util::ping_pong::PingPongSystem;
+        use crate::actor::{DuplicatingNetwork, LossyNetwork};
+        use crate::actor::actor_test_util::ping_pong::PingPongCfg;
 
         let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
-        let checker = PingPongSystem {
-            max_nat: 2,
-            lossy: LossyNetwork::No,
-            duplicating: DuplicatingNetwork::No,
-            maintains_history: true,
-        }.into_model().checker()
+        let checker = PingPongCfg {
+                max_nat: 2,
+                maintains_history: true,
+            }
+            .into_model()
+            .duplicating_network(DuplicatingNetwork::No)
+            .lossy_network(LossyNetwork::No)
+            .checker()
             .visitor(Arc::clone(&snapshot)).spawn_bfs().join();
         let status = get_status(Arc::new(checker), snapshot).unwrap();
         assert_eq!(status.done, true);
         assert_eq!(
             status.model,
-           "stateright::actor::system::SystemModel<\
-                stateright::actor::actor_test_util::ping_pong::PingPongSystem\
-            >");
+            "stateright::actor::model::ActorModel<\
+                 stateright::actor::actor_test_util::ping_pong::PingPongActor, \
+                 stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>");
         assert_eq!(status.generated, 5);
         assert_eq!(status.discoveries.len(), 2);
         assert!(status.discoveries.get("\"can reach max\" example").is_some());

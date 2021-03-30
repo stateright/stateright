@@ -1,9 +1,8 @@
 //! Defines an interface for register-like actors (via [`RegisterMsg`]) and also provides
-//! [`RegisterTestSystem`] for model checking.
+//! [`RegisterCfg::into_model`] for model checking.
 
-use crate::Property;
-use crate::actor::{Actor, Id, Out};
-use crate::actor::system::{DuplicatingNetwork, LossyNetwork, System, SystemModel, SystemState};
+use crate::Expectation;
+use crate::actor::{Actor, ActorModel, Id, Out};
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
 use crate::semantics::LinearizabilityTester;
 use std::borrow::Cow;
@@ -31,112 +30,71 @@ use RegisterMsg::*;
 
 /// A system for testing an actor service with register semantics.
 #[derive(Clone)]
-pub struct RegisterTestSystem<ServerActor, InternalMsg>
+pub struct RegisterCfg<ServerActor> {
+    pub client_count: u8,
+    pub servers: Vec<ServerActor>,
+}
+
+impl<ServerActor, InternalMsg> RegisterCfg<ServerActor>
 where
     ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
     InternalMsg: Clone + Debug + Eq + Hash,
 {
-    pub servers: Vec<ServerActor>,
-    pub client_count: u8,
-    pub within_boundary: fn(state: &SystemState<Self>) -> bool,
-    pub lossy_network: LossyNetwork,
-    pub duplicating_network: DuplicatingNetwork,
-}
-
-impl<ServerActor, InternalMsg> Default for RegisterTestSystem<ServerActor, InternalMsg>
-    where
-    ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
-    InternalMsg: Clone + Debug + Eq + Hash,
-{
-    fn default() -> Self {
-        Self {
-            servers: Vec::new(),
-            client_count: 2,
-            within_boundary: |_| true,
-            lossy_network: LossyNetwork::No,
-            duplicating_network: DuplicatingNetwork::Yes,
-        }
-    }
-}
-
-impl<ServerActor, InternalMsg> System for RegisterTestSystem<ServerActor, InternalMsg>
-    where
-        ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
-        InternalMsg: Clone + Debug + Eq + Hash,
-{
-    type Actor = RegisterActor<ServerActor>;
-    type History = LinearizabilityTester<Id, Register<TestValue>>;
-
-    fn actors(&self) -> Vec<Self::Actor> {
-        let mut actors: Vec<Self::Actor> = self.servers.iter().map(|s| {
-            RegisterActor::Server(s.clone())
-        }).collect();
-        for _ in 0..self.client_count {
-            actors.push(RegisterActor::Client { server_count: self.servers.len() as u64 });
-        }
-        actors
-    }
-
-    fn lossy_network(&self) -> LossyNetwork {
-        self.lossy_network
-    }
-
-    fn duplicating_network(&self) -> DuplicatingNetwork {
-        self.duplicating_network
-    }
-
-    fn record_msg_out(&self, history: &Self::History, src: Id, _dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        // FIXME: Currently throws away useful information about invalid histories. Ideally
-        //        checking would continue, but the property would be labeled with an error.
-        if let Get(_) = msg {
-            let mut history = history.clone();
-            let _ = history.on_invoke(src, RegisterOp::Read);
-            Some(history)
-        } else if let Put(_req_id, value) = msg {
-            let mut history = history.clone();
-            let _ = history.on_invoke(src, RegisterOp::Write(*value));
-            Some(history)
-        } else {
-            None
-        }
-    }
-
-    fn record_msg_in(&self, history: &Self::History, _src: Id, dst: Id, msg: &<Self::Actor as Actor>::Msg) -> Option<Self::History> {
-        // FIXME: Currently throws away useful information about invalid histories. Ideally
-        //        checking would continue, but the property would be labeled with an error.
-        match msg {
-            GetOk(_, v) => {
-                let mut history = history.clone();
-                let _ = history.on_return(dst, RegisterRet::ReadOk(*v));
-                Some(history)
-            }
-            PutOk(_) => {
-                let mut history = history.clone();
-                let _ = history.on_return(dst, RegisterRet::WriteOk);
-                Some(history)
-            }
-            _ => None
-        }
-    }
-
-    fn properties(&self) -> Vec<Property<SystemModel<Self>>> {
-        vec![
-            Property::<SystemModel<Self>>::always("linearizable", |_, state| {
+    pub fn into_model(self) ->
+        ActorModel<
+            RegisterActor<ServerActor>,
+            Self,
+            LinearizabilityTester<Id, Register<TestValue>>>
+    {
+        let server_count = self.servers.len() as u64;
+        let servers = self.servers.iter().cloned().map(RegisterActor::Server);
+        let clients = (0..self.client_count).map(|_| RegisterActor::Client { server_count });
+        ActorModel::new(self.clone(), LinearizabilityTester::new(Register(TestValue::default())))
+            .actors(servers)
+            .actors(clients)
+            .record_msg_out(|_, history, env| {
+                // FIXME: Currently throws away useful information about invalid histories. Ideally
+                //        checking would continue, but the property would be labeled with an error.
+                if let Get(_) = env.msg {
+                    let mut history = history.clone();
+                    let _ = history.on_invoke(env.src, RegisterOp::Read);
+                    Some(history)
+                } else if let Put(_req_id, value) = env.msg {
+                    let mut history = history.clone();
+                    let _ = history.on_invoke(env.src, RegisterOp::Write(*value));
+                    Some(history)
+                } else {
+                    None
+                }
+            })
+            .record_msg_in(|_, history, env| {
+                // FIXME: Currently throws away useful information about invalid histories. Ideally
+                //        checking would continue, but the property would be labeled with an error.
+                match env.msg {
+                    GetOk(_, v) => {
+                        let mut history = history.clone();
+                        let _ = history.on_return(env.dst, RegisterRet::ReadOk(*v));
+                        Some(history)
+                    }
+                    PutOk(_) => {
+                        let mut history = history.clone();
+                        let _ = history.on_return(env.dst, RegisterRet::WriteOk);
+                        Some(history)
+                    }
+                    _ => None
+                }
+            })
+            .property(Expectation::Always, "linearizable", |_, state| {
                 state.history.serialized_history().is_some()
-            }),
-            Property::<SystemModel<Self>>::sometimes("value chosen",  |_, state| {
+            })
+            .property(Expectation::Sometimes, "value chosen", |_, state| {
                 for env in &state.network {
                     if let RegisterMsg::GetOk(_req_id, value) = env.msg {
                         if value != TestValue::default() { return true; }
                     }
                 }
                 false
-            }),
-        ]
-    }
-
-    fn within_boundary(&self, state: &SystemState<Self>) -> bool {
-        (self.within_boundary)(state)
+            })
     }
 }
 
@@ -253,7 +211,6 @@ where
         }
     }
 }
-
 
 /// A simple request ID type for tests.
 pub type TestRequestId = u64;
