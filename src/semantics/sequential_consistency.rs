@@ -1,8 +1,10 @@
 //! Private module for selective re-export. See [`SequentialConsistencyTester`].
 
-use crate::semantics::SequentialSpec;
+use crate::semantics::{ConsistencyTester, SequentialSpec};
 use std::collections::{btree_map, BTreeMap, VecDeque};
 use std::fmt::Debug;
+
+// TODO: update like LinTester then check into their own commit
 
 /// This tester captures a potentially concurrent history of operations and
 /// validates that it adheres to a [`SequentialSpec`] based on the
@@ -82,18 +84,18 @@ impl<T: Ord, RefObj: SequentialSpec> SequentialConsistencyTester<T, RefObj> {
     }
 }
 
-impl<T, RefObj> SequentialConsistencyTester<T, RefObj>
+impl<T, RefObj> ConsistencyTester<T, RefObj> for SequentialConsistencyTester<T, RefObj>
 where
     T: Copy + Debug + Ord,
-    RefObj: SequentialSpec,
-    RefObj::Op: Debug,
-    RefObj::Ret: Debug + PartialEq,
+    RefObj: Clone + SequentialSpec,
+    RefObj::Op: Clone + Debug,
+    RefObj::Ret: Clone + Debug + PartialEq,
 {
     /// Indicates that a thread invoked an operation. Returns `Ok(...)` if the
     /// history is valid, even if it is not sequentially consistent.
     ///
     /// See [`SequentialConsistencyTester::serialized_history`].
-    pub fn on_invoke(&mut self, thread_id: T, op: RefObj::Op) -> Result<&mut Self, String> {
+    fn on_invoke(&mut self, thread_id: T, op: RefObj::Op) -> Result<&mut Self, String> {
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
@@ -114,7 +116,7 @@ where
     /// consistent.
     ///
     /// See [`SequentialConsistencyTester::serialized_history`].
-    pub fn on_return(&mut self, thread_id: T, ret: RefObj::Ret) -> Result<&mut Self, String> {
+    fn on_return(&mut self, thread_id: T, ret: RefObj::Ret) -> Result<&mut Self, String> {
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
@@ -132,16 +134,19 @@ where
         Ok(self)
     }
 
-    /// A helper that indicates both an operation and corresponding return
-    /// value for a thread. Returns `Ok(...)` if the history is valid, even if
-    /// it is not sequentially consistent.
-    ///
-    /// See [`SequentialConsistencyTester::serialized_history`].
-    pub fn on_invret(&mut self, thread_id: T, op: RefObj::Op, ret: RefObj::Ret) -> Result<&mut Self, String> {
-        self.on_invoke(thread_id, op)?
-            .on_return(thread_id, ret)
+    /// Indicates whether the recorded history is sequentially consistent.
+    fn is_consistent(&self) -> bool {
+        self.serialized_history().is_some()
     }
+}
 
+impl<T, RefObj> SequentialConsistencyTester<T, RefObj>
+where
+    T: Copy + Debug + Ord,
+    RefObj: Clone + SequentialSpec,
+    RefObj::Op: Clone + Debug,
+    RefObj::Ret: Clone + Debug + PartialEq,
+{
     /// Attempts to serialize the recorded partially ordered operation history
     /// into a total order that is consistent with a reference object's
     /// operational semantics.

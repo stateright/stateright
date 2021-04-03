@@ -12,7 +12,7 @@
 //! # Verifying Concurrent System Implementations
 //!
 //! A concurrent system can be verified against an implementation of the
-//! [`SequentialSpec`] trait by using a tester such as [`LinearizabilityTester`]
+//! [`SequentialSpec`] trait by using a [`ConsistencyTester`] such as [`LinearizabilityTester`]
 //! for an expected [consistency model]. In that case, operations are sequential
 //! (think blocking I/O) with respect to an abstract thread-like caller, which
 //! is identified by a distinct "thread ID" (sometimes called a "process ID"
@@ -23,7 +23,9 @@
 //! actor does not invoke a second operation in parallel with the first. This
 //! restriction only exists for the purposes of verifying consistency semantics,
 //! and actors need not sequence their operations to a concurrent
-//! system outside of that use case.
+//! system outside of that use case. Alternatively a single actor could maintain
+//! its own [`ConsistencyTester`] with local thread IDs for multiple concurrent
+//! invocations.
 //!
 //! # Additional Reading
 //!
@@ -43,9 +45,11 @@
 //! [consistency model]: https://en.wikipedia.org/wiki/Consistency_model
 //! [`vec`]: self::vec
 
+mod consistency_tester;
 mod linearizability;
 mod sequential_consistency;
 
+pub use consistency_tester::ConsistencyTester;
 pub mod register;
 pub use linearizability::LinearizabilityTester;
 pub use sequential_consistency::SequentialConsistencyTester;

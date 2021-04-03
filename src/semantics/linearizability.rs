@@ -1,6 +1,6 @@
 //! Private module for selective re-export. See [`LinearizabilityTester`].
 
-use crate::semantics::SequentialSpec;
+use crate::semantics::{ConsistencyTester, SequentialSpec};
 use std::collections::{btree_map, BTreeMap, VecDeque};
 use std::fmt::Debug;
 
@@ -88,18 +88,18 @@ impl<T: Ord, RefObj: SequentialSpec> LinearizabilityTester<T, RefObj> {
     }
 }
 
-impl<T, RefObj> LinearizabilityTester<T, RefObj>
+impl<T, RefObj> ConsistencyTester<T, RefObj> for LinearizabilityTester<T, RefObj>
 where
     T: Copy + Debug + Ord,
-    RefObj: SequentialSpec,
-    RefObj::Op: Debug,
-    RefObj::Ret: Debug + PartialEq,
+    RefObj: Clone + SequentialSpec,
+    RefObj::Op: Clone + Debug,
+    RefObj::Ret: Clone + Debug + PartialEq,
 {
     /// Indicates that a thread invoked an operation. Returns `Ok(...)` if the
     /// history is valid, even if it is not lineariable.
     ///
     /// See [`LinearizabilityTester::serialized_history`].
-    pub fn on_invoke(&mut self, thread_id: T, op: RefObj::Op) -> Result<&mut Self, String> {
+    fn on_invoke(&mut self, thread_id: T, op: RefObj::Op) -> Result<&mut Self, String> {
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
@@ -128,7 +128,7 @@ where
     /// `Ok(...)` if the history is valid, even if it is not linearizable.
     ///
     /// See [`LinearizabilityTester::serialized_history`].
-    pub fn on_return(&mut self, thread_id: T, ret: RefObj::Ret) -> Result<&mut Self, String> {
+    fn on_return(&mut self, thread_id: T, ret: RefObj::Ret) -> Result<&mut Self, String> {
         if !self.is_valid_history {
             return Err("Earlier history was invalid.".to_string());
         }
@@ -146,25 +146,23 @@ where
         Ok(self)
     }
 
-    /// A helper that indicates both an operation and corresponding return
-    /// value for a thread. Returns `Ok(...)` if the history is valid, even if
-    /// it is not lineariable.
-    ///
-    /// See [`LinearizabilityTester::serialized_history`].
-    pub fn on_invret(&mut self, thread_id: T, op: RefObj::Op, ret: RefObj::Ret) -> Result<&mut Self, String> {
-        self.on_invoke(thread_id, op)?
-            .on_return(thread_id, ret)
+    /// Indicates whether the recorded history is linearizable.
+    fn is_consistent(&self) -> bool {
+        self.serialized_history().is_some()
     }
+}
 
+impl<T, RefObj> LinearizabilityTester<T, RefObj>
+where
+    T: Copy + Debug + Ord,
+    RefObj: Clone + SequentialSpec,
+    RefObj::Op: Clone + Debug,
+    RefObj::Ret: Clone + Debug + PartialEq,
+{
     /// Attempts to serialize the recorded partially ordered operation history
     /// into a total order that is consistent with a reference object's
     /// operational semantics.
-    pub fn serialized_history(&self) -> Option<Vec<(RefObj::Op, RefObj::Ret)>>
-    where
-        RefObj: Clone,
-        RefObj::Op: Clone,
-        RefObj::Ret: Clone,
-    {
+    pub fn serialized_history(&self) -> Option<Vec<(RefObj::Op, RefObj::Ret)>> {
         if !self.is_valid_history { return None }
         let history_by_thread = self.history_by_thread.iter().map(|(t, cs)| {
             (*t, cs.clone().into_iter().enumerate().collect())
@@ -183,10 +181,6 @@ where
         remaining_history_by_thread: &BTreeMap<T, VecDeque<(usize, Complete<T, RefObj::Op, RefObj::Ret>)>>, // partial order
         in_flight_by_thread: &BTreeMap<T, InFlight<T, RefObj::Op>>) // potential extension of partial order
         -> Option<Vec<(RefObj::Op, RefObj::Ret)>>
-    where
-        RefObj: Clone,
-        RefObj::Op: Clone,
-        RefObj::Ret: Clone,
     {
         // Return collected total order when there is no remaining partial order to interleave.
         let done = remaining_history_by_thread.iter().all(|(_id, h)| h.is_empty());

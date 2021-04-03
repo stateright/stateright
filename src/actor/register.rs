@@ -3,8 +3,8 @@
 
 use crate::Expectation;
 use crate::actor::{Actor, ActorModel, Id, Out};
+use crate::semantics::{ConsistencyTester, LinearizabilityTester};
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
-use crate::semantics::LinearizabilityTester;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
