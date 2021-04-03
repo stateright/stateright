@@ -49,7 +49,7 @@
 use serde::{Deserialize, Serialize};
 use stateright::{Expectation, Model, Checker};
 use stateright::actor::{
-    Actor, ActorModel, ActorModelState, DuplicatingNetwork, Id, model_peers, Out};
+    Actor, ActorModel, DuplicatingNetwork, Id, model_peers, Out};
 use stateright::actor::register::{RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*};
 use stateright::semantics::LinearizabilityTester;
 use stateright::semantics::register::Register;
@@ -261,21 +261,15 @@ impl PaxosModelCfg {
             })
             .record_msg_in(RegisterMsg::record_returns)
             .record_msg_out(RegisterMsg::record_invocations)
-            .within_boundary(Self::within_boundary)
-    }
-
-    fn within_boundary<H>(
-        &self,
-        state: &ActorModelState<RegisterActor<PaxosActor>, H>)
-        -> bool
-    {
-        state.actor_states.iter().all(|s| {
-            if let RegisterActorState::Server(s) = &**s {
-                s.ballot.0 <= self.max_round
-            } else {
-                true
-            }
-        })
+            .within_boundary(|cfg, state| {
+                state.actor_states.iter().all(|s| {
+                    if let RegisterActorState::Server(s) = &**s {
+                        s.ballot.0 <= cfg.max_round
+                    } else {
+                        true
+                    }
+                })
+            })
     }
 }
 

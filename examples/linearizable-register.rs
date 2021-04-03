@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use stateright::{Checker, Expectation, Model};
 use stateright::actor::{
-    Actor, ActorModel, ActorModelState, DuplicatingNetwork, Id, majority, model_peers, Out};
+    Actor, ActorModel, DuplicatingNetwork, Id, majority, model_peers, Out};
 use stateright::actor::register::{
     RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*};
 use stateright::semantics::LinearizabilityTester;
@@ -208,21 +208,15 @@ impl AbdModelCfg {
             })
             .record_msg_in(RegisterMsg::record_returns)
             .record_msg_out(RegisterMsg::record_invocations)
-            .within_boundary(Self::within_boundary)
-    }
-
-    fn within_boundary<H>(
-        &self,
-        state: &ActorModelState<RegisterActor<AbdActor>, H>)
-        -> bool
-    {
-        state.actor_states.iter().all(|s| {
-            if let RegisterActorState::Server(s) = &**s {
-                s.seq.0 <= self.max_clock
-            } else {
-                true
-            }
-        })
+            .within_boundary(|cfg, state| {
+                state.actor_states.iter().all(|s| {
+                    if let RegisterActorState::Server(s) = &**s {
+                        s.seq.0 <= cfg.max_clock
+                    } else {
+                        true
+                    }
+                })
+            })
     }
 }
 
