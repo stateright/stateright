@@ -1,20 +1,26 @@
 //! An actor system where each server exposes a rewritable single-copy register. Servers do not
 //! provide consensus.
 
-use stateright::{Checker, Model};
-use stateright::actor::{Actor, DuplicatingNetwork, Id, Out};
-use stateright::actor::register::{RegisterMsg, RegisterMsg::*, RegisterCfg, TestRequestId, TestValue};
+use stateright::{Checker, Expectation, Model};
+use stateright::actor::{Actor, ActorModel, DuplicatingNetwork, Id, Out};
+use stateright::actor::register::{
+    RegisterActor, RegisterMsg, RegisterMsg::*};
+use stateright::semantics::LinearizabilityTester;
+use stateright::semantics::register::Register;
 use std::borrow::Cow;
+
+type RequestId = u64;
+type Value = char;
 
 #[derive(Clone)]
 struct SingleCopyActor;
 
 impl Actor for SingleCopyActor {
-    type Msg = RegisterMsg<TestRequestId, TestValue, ()>;
-    type State = TestValue;
+    type Msg = RegisterMsg<RequestId, Value, ()>;
+    type State = Value;
 
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
-        TestValue::default()
+        Value::default()
     }
 
     fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
@@ -31,20 +37,57 @@ impl Actor for SingleCopyActor {
     }
 }
 
+#[derive(Clone)]
+struct SingleCopyModelCfg {
+    client_count: usize,
+    server_count: usize,
+}
+
+impl SingleCopyModelCfg {
+    fn into_model(self) ->
+        ActorModel<
+            RegisterActor<SingleCopyActor>,
+            Self,
+            LinearizabilityTester<Id, Register<Value>>>
+    {
+        ActorModel::new(
+                self.clone(),
+                LinearizabilityTester::new(Register(Value::default()))
+            )
+            .actors((0..self.server_count)
+                    .map(|_| RegisterActor::Server(SingleCopyActor)))
+            .actors((0..self.client_count)
+                    .map(|_| RegisterActor::Client {
+                        server_count: self.server_count,
+                    }))
+            .duplicating_network(DuplicatingNetwork::No)
+            .property(Expectation::Always, "linearizable", |_, state| {
+                state.history.serialized_history().is_some()
+            })
+            .property(Expectation::Sometimes, "value chosen", |_, state| {
+                for env in &state.network {
+                    if let RegisterMsg::GetOk(_req_id, value) = env.msg {
+                        if value != Value::default() { return true; }
+                    }
+                }
+                false
+            })
+            .record_msg_in(RegisterMsg::record_returns)
+            .record_msg_out(RegisterMsg::record_invocations)
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn can_model_single_copy_register() {
-    use stateright::actor::DuplicatingNetwork;
     use stateright::actor::ActorModelAction::Deliver;
 
     // Linearizable if only one server. DFS for this one.
-    let checker = RegisterCfg {
-            servers: vec![SingleCopyActor],
+    let checker = SingleCopyModelCfg {
             client_count: 2,
+            server_count: 1,
         }
-        .into_model()
-        .duplicating_network(DuplicatingNetwork::No)
-        .checker().spawn_dfs().join();
+        .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'B') },
@@ -54,13 +97,11 @@ fn can_model_single_copy_register() {
     assert_eq!(checker.generated_count(), 180);
 
     // Otherwise (if more than one server) then not linearizabile. BFS this time.
-    let checker = RegisterCfg {
-            servers: vec![SingleCopyActor, SingleCopyActor],
+    let checker = SingleCopyModelCfg {
             client_count: 2,
+            server_count: 2,
         }
-        .into_model()
-        .duplicating_network(DuplicatingNetwork::No)
-        .checker().spawn_bfs().join();
+        .into_model().checker().spawn_bfs().join();
     checker.assert_discovery("linearizable", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
@@ -110,15 +151,12 @@ fn main() {
                 26, value_t!(args, "client_count", u8).expect("client count missing"));
             println!("Model checking a single-copy register with {} clients.",
                      client_count);
-            RegisterCfg {
-                    servers: vec![SingleCopyActor],
-                    client_count,
+            SingleCopyModelCfg {
+                    client_count: client_count as usize,
+                    server_count: 1,
                 }
-                .into_model()
-                .duplicating_network(DuplicatingNetwork::No)
-                .checker()
-                .threads(num_cpus::get()).spawn_dfs()
-                .report(&mut std::io::stdout());
+                .into_model().checker().threads(num_cpus::get())
+                .spawn_dfs().report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let client_count = std::cmp::min(
@@ -127,14 +165,11 @@ fn main() {
             println!(
                 "Exploring state space for single-copy register with {} clients on {}.",
                 client_count, address);
-            RegisterCfg {
-                    servers: vec![SingleCopyActor],
-                    client_count,
+            SingleCopyModelCfg {
+                    client_count: client_count as usize,
+                    server_count: 1,
                 }
-                .into_model()
-                .duplicating_network(DuplicatingNetwork::No)
-                .checker()
-                .threads(num_cpus::get())
+                .into_model().checker().threads(num_cpus::get())
                 .serve(address);
         }
         ("spawn", Some(_args)) => {
@@ -143,8 +178,8 @@ fn main() {
             println!("  A server that implements a single-copy register.");
             println!("  You can interact with the server using netcat. Example:");
             println!("$ nc -u localhost {}", port);
-            println!("{}", serde_json::to_string(&RegisterMsg::Put::<TestRequestId, TestValue, ()>(1, 'X')).unwrap());
-            println!("{}", serde_json::to_string(&RegisterMsg::Get::<TestRequestId, TestValue, ()>(2)).unwrap());
+            println!("{}", serde_json::to_string(&RegisterMsg::Put::<RequestId, Value, ()>(1, 'X')).unwrap());
+            println!("{}", serde_json::to_string(&RegisterMsg::Get::<RequestId, Value, ()>(2)).unwrap());
             println!();
 
             // WARNING: Omits `ordered_reliable_link` to keep the message

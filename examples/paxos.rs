@@ -47,15 +47,20 @@
 //! the algorithm is typically described.
 
 use serde::{Deserialize, Serialize};
-use stateright::{Model, Checker};
-use stateright::actor::{Actor, ActorModelState, DuplicatingNetwork, Id, model_peers, Out};
-use stateright::actor::register::{RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*, RegisterCfg, TestRequestId, TestValue};
+use stateright::{Expectation, Model, Checker};
+use stateright::actor::{
+    Actor, ActorModel, ActorModelState, DuplicatingNetwork, Id, model_peers, Out};
+use stateright::actor::register::{RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*};
+use stateright::semantics::LinearizabilityTester;
+use stateright::semantics::register::Register;
 use stateright::util::{HashableHashMap, HashableHashSet};
 use std::borrow::Cow;
 
 type Round = u32;
 type Ballot = (Round, Id);
-type Proposal = (TestRequestId, Id, TestValue);
+type Proposal = (RequestId, Id, Value);
+type RequestId = u64;
+type Value = char;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
@@ -89,7 +94,7 @@ struct PaxosState {
 struct PaxosActor { peer_ids: Vec<Id> }
 
 impl Actor for PaxosActor {
-    type Msg = RegisterMsg<TestRequestId, TestValue, PaxosMsg>;
+    type Msg = RegisterMsg<RequestId, Value, PaxosMsg>;
     type State = PaxosState;
 
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
@@ -216,18 +221,62 @@ impl Actor for PaxosActor {
     }
 }
 
-fn within_boundary<H>(
-    _: &RegisterCfg<PaxosActor>,
-    state: &ActorModelState<RegisterActor<PaxosActor>, H>)
-    -> bool
-{
-    state.actor_states.iter().all(|s| {
-        if let RegisterActorState::Server(s) = &**s {
-            s.ballot.0 < 4
-        } else {
-            true
-        }
-    })
+#[derive(Clone)]
+struct PaxosModelCfg {
+    client_count: usize,
+    server_count: usize,
+    max_round: Round,
+}
+
+impl PaxosModelCfg {
+    fn into_model(self) ->
+        ActorModel<
+            RegisterActor<PaxosActor>,
+            Self,
+            LinearizabilityTester<Id, Register<Value>>>
+    {
+        ActorModel::new(
+                self.clone(),
+                LinearizabilityTester::new(Register(Value::default()))
+            )
+            .actors((0..self.server_count)
+                    .map(|i| RegisterActor::Server(PaxosActor {
+                        peer_ids: model_peers(i, self.server_count),
+                    })))
+            .actors((0..self.client_count)
+                    .map(|_| RegisterActor::Client {
+                        server_count: self.server_count,
+                    }))
+            .duplicating_network(DuplicatingNetwork::No)
+            .property(Expectation::Always, "linearizable", |_, state| {
+                state.history.serialized_history().is_some()
+            })
+            .property(Expectation::Sometimes, "value chosen", |_, state| {
+                for env in &state.network {
+                    if let RegisterMsg::GetOk(_req_id, value) = env.msg {
+                        if value != Value::default() { return true; }
+                    }
+                }
+                false
+            })
+            .record_msg_in(RegisterMsg::record_returns)
+            .record_msg_out(RegisterMsg::record_invocations)
+            .within_boundary(Self::within_boundary)
+    }
+
+    fn within_boundary<H>(
+        &self,
+        state: &ActorModelState<RegisterActor<PaxosActor>, H>)
+        -> bool
+    {
+        state.actor_states.iter().all(|s| {
+            if let RegisterActorState::Server(s) = &**s {
+                s.ballot.0 <= self.max_round
+            } else {
+                true
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -236,18 +285,12 @@ fn can_model_paxos() {
     use stateright::actor::ActorModelAction::Deliver;
 
     // BFS
-    let checker = RegisterCfg {
-            servers: vec![
-                PaxosActor { peer_ids: model_peers(0, 3) },
-                PaxosActor { peer_ids: model_peers(1, 3) },
-                PaxosActor { peer_ids: model_peers(2, 3) },
-            ],
+    let checker = PaxosModelCfg {
             client_count: 2,
+            server_count: 3,
+            max_round: 3,
         }
-        .into_model()
-        .duplicating_network(DuplicatingNetwork::No)
-        .within_boundary(within_boundary)
-        .checker().spawn_bfs().join();
+        .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
@@ -262,18 +305,12 @@ fn can_model_paxos() {
     assert_eq!(checker.generated_count(), 9_285);
 
     // DFS
-    let checker = RegisterCfg {
-            servers: vec![
-                PaxosActor { peer_ids: model_peers(0, 3) },
-                PaxosActor { peer_ids: model_peers(1, 3) },
-                PaxosActor { peer_ids: model_peers(2, 3) },
-            ],
+    let checker = PaxosModelCfg {
             client_count: 2,
+            server_count: 3,
+            max_round: 3,
         }
-        .into_model()
-        .duplicating_network(DuplicatingNetwork::No)
-        .within_boundary(within_boundary)
-        .checker().spawn_dfs().join();
+        .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
     checker.assert_discovery("value chosen", vec![
         Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
@@ -322,19 +359,13 @@ fn main() {
                 26, value_t!(args, "client_count", u8).expect("client count missing"));
             println!("Model checking Single Decree Paxos with {} clients.",
                      client_count);
-            RegisterCfg {
-                    servers: vec![
-                        PaxosActor { peer_ids: model_peers(0, 3) },
-                        PaxosActor { peer_ids: model_peers(1, 3) },
-                        PaxosActor { peer_ids: model_peers(2, 3) },
-                    ],
-                    client_count,
+            PaxosModelCfg {
+                    client_count: client_count as usize,
+                    server_count: 3,
+                    max_round: 3,
                 }
-                .into_model()
-                .duplicating_network(DuplicatingNetwork::No)
-                .within_boundary(within_boundary)
-                .checker().threads(num_cpus::get()).spawn_dfs()
-                .report(&mut std::io::stdout());
+                .into_model().checker().threads(num_cpus::get())
+                .spawn_dfs().report(&mut std::io::stdout());
         }
         ("explore", Some(args)) => {
             let client_count = std::cmp::min(
@@ -343,18 +374,13 @@ fn main() {
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
-            RegisterCfg {
-                    servers: vec![
-                        PaxosActor { peer_ids: model_peers(0, 3) },
-                        PaxosActor { peer_ids: model_peers(1, 3) },
-                        PaxosActor { peer_ids: model_peers(2, 3) },
-                    ],
-                    client_count,
+            PaxosModelCfg {
+                    client_count: client_count as usize,
+                    server_count: 3,
+                    max_round: 3,
                 }
-                .into_model()
-                .duplicating_network(DuplicatingNetwork::No)
-                .within_boundary(within_boundary)
-                .checker().threads(num_cpus::get()).serve(address);
+                .into_model().checker().threads(num_cpus::get())
+                .serve(address);
         }
         ("spawn", Some(_args)) => {
             let port = 3000;
@@ -363,8 +389,8 @@ fn main() {
             println!("  You can monitor and interact using tcpdump and netcat. Examples:");
             println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
             println!("$ nc -u localhost {}", port);
-            println!("{}", serde_json::to_string(&RegisterMsg::Put::<TestRequestId, TestValue, ()>(1, 'X')).unwrap());
-            println!("{}", serde_json::to_string(&RegisterMsg::Get::<TestRequestId, TestValue, ()>(2)).unwrap());
+            println!("{}", serde_json::to_string(&RegisterMsg::Put::<RequestId, Value, ()>(1, 'X')).unwrap());
+            println!("{}", serde_json::to_string(&RegisterMsg::Get::<RequestId, Value, ()>(2)).unwrap());
             println!();
 
             // WARNING: Omits `ordered_reliable_link` to keep the message

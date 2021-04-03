@@ -1,9 +1,10 @@
 //! Defines an interface for register-like actors (via [`RegisterMsg`]) and also provides
-//! [`RegisterCfg::into_model`] for model checking.
+//! [`RegisterActor`] for model checking.
 
-use crate::Expectation;
-use crate::actor::{Actor, ActorModel, Id, Out};
-use crate::semantics::{ConsistencyTester, LinearizabilityTester};
+#[cfg(doc)]
+use crate::actor::ActorModel;
+use crate::actor::{Actor, Envelope, Id, Out};
+use crate::semantics::ConsistencyTester;
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -28,73 +29,61 @@ pub enum RegisterMsg<RequestId, Value, InternalMsg> {
 }
 use RegisterMsg::*;
 
-/// A system for testing an actor service with register semantics.
-#[derive(Clone)]
-pub struct RegisterCfg<ServerActor> {
-    pub client_count: u8,
-    pub servers: Vec<ServerActor>,
-}
-
-impl<ServerActor, InternalMsg> RegisterCfg<ServerActor>
-where
-    ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>> + Clone,
-    InternalMsg: Clone + Debug + Eq + Hash,
-{
-    pub fn into_model(self) ->
-        ActorModel<
-            RegisterActor<ServerActor>,
-            Self,
-            LinearizabilityTester<Id, Register<TestValue>>>
+impl<RequestId, Value, InternalMsg> RegisterMsg<RequestId, Value, InternalMsg> {
+    /// This is a helper for configuring an [`ActorModel`] parameterized by a [`ConsistencyTester`]
+    /// for its history. Simply pass this method to [`ActorModel::record_msg_out`]. Records
+    /// [`RegisterOp::Read`] upon [`RegisterMsg::Get`] and [`RegisterOp::Write`] upon
+    /// [`RegisterMsg::Put`].
+    pub fn record_invocations<C, H>(
+        _cfg: &C,
+        history: &H,
+        env: Envelope<&RegisterMsg<RequestId, Value, InternalMsg>>)
+        -> Option<H>
+    where H: Clone + ConsistencyTester<Id, Register<Value>>,
+          Value: Clone + Debug + PartialEq,
     {
-        let server_count = self.servers.len() as u64;
-        let servers = self.servers.iter().cloned().map(RegisterActor::Server);
-        let clients = (0..self.client_count).map(|_| RegisterActor::Client { server_count });
-        ActorModel::new(self.clone(), LinearizabilityTester::new(Register(TestValue::default())))
-            .actors(servers)
-            .actors(clients)
-            .record_msg_out(|_, history, env| {
-                // FIXME: Currently throws away useful information about invalid histories. Ideally
-                //        checking would continue, but the property would be labeled with an error.
-                if let Get(_) = env.msg {
-                    let mut history = history.clone();
-                    let _ = history.on_invoke(env.src, RegisterOp::Read);
-                    Some(history)
-                } else if let Put(_req_id, value) = env.msg {
-                    let mut history = history.clone();
-                    let _ = history.on_invoke(env.src, RegisterOp::Write(*value));
-                    Some(history)
-                } else {
-                    None
-                }
-            })
-            .record_msg_in(|_, history, env| {
-                // FIXME: Currently throws away useful information about invalid histories. Ideally
-                //        checking would continue, but the property would be labeled with an error.
-                match env.msg {
-                    GetOk(_, v) => {
-                        let mut history = history.clone();
-                        let _ = history.on_return(env.dst, RegisterRet::ReadOk(*v));
-                        Some(history)
-                    }
-                    PutOk(_) => {
-                        let mut history = history.clone();
-                        let _ = history.on_return(env.dst, RegisterRet::WriteOk);
-                        Some(history)
-                    }
-                    _ => None
-                }
-            })
-            .property(Expectation::Always, "linearizable", |_, state| {
-                state.history.serialized_history().is_some()
-            })
-            .property(Expectation::Sometimes, "value chosen", |_, state| {
-                for env in &state.network {
-                    if let RegisterMsg::GetOk(_req_id, value) = env.msg {
-                        if value != TestValue::default() { return true; }
-                    }
-                }
-                false
-            })
+        // Currently throws away useful information about invalid histories. Ideally
+        // checking would continue, but the property would be labeled with an error.
+        if let Get(_) = env.msg {
+            let mut history = history.clone();
+            let _ = history.on_invoke(env.src, RegisterOp::Read);
+            Some(history)
+        } else if let Put(_req_id, value) = env.msg {
+            let mut history = history.clone();
+            let _ = history.on_invoke(env.src, RegisterOp::Write(value.clone()));
+            Some(history)
+        } else {
+            None
+        }
+    }
+
+    /// This is a helper for configuring an [`ActorModel`] parameterized by a [`ConsistencyTester`]
+    /// for its history. Simply pass this method to [`ActorModel::record_msg_in`]. Records
+    /// [`RegisterRet::ReadOk`] upon [`RegisterMsg::GetOk`] and [`RegisterRet::WriteOk`] upon
+    /// [`RegisterMsg::PutOk`].
+    pub fn record_returns<C, H>(
+        _cfg: &C,
+        history: &H,
+        env: Envelope<&RegisterMsg<RequestId, Value, InternalMsg>>)
+        -> Option<H>
+    where H: Clone + ConsistencyTester<Id, Register<Value>>,
+          Value: Clone + Debug + PartialEq,
+    {
+        // Currently throws away useful information about invalid histories. Ideally
+        // checking would continue, but the property would be labeled with an error.
+        match env.msg {
+            GetOk(_, v) => {
+                let mut history = history.clone();
+                let _ = history.on_return(env.dst, RegisterRet::ReadOk(v.clone()));
+                Some(history)
+            }
+            PutOk(_) => {
+                let mut history = history.clone();
+                let _ = history.on_return(env.dst, RegisterRet::WriteOk);
+                Some(history)
+            }
+            _ => None
+        }
     }
 }
 
@@ -104,18 +93,19 @@ pub enum RegisterActor<ServerActor> {
     /// corresponding [`RegisterMsg::PutOk`] follows up with a
     /// [`RegisterMsg::Get`].
     Client {
-        server_count: u64,
+        server_count: usize,
     },
     /// A server actor being validated.
     Server(ServerActor),
 }
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[derive(serde::Serialize)]
-pub enum RegisterActorState<ServerState> {
+pub enum RegisterActorState<ServerState, RequestId> {
     /// A client that sends a sequence of [`RegisterMsg::Put`] messages before sending a
     /// [`RegisterMsg::Get`].
     Client {
-        awaiting: Option<TestRequestId>,
+        awaiting: Option<RequestId>,
         op_count: u64,
     },
     /// Wraps the state of a server actor.
@@ -127,18 +117,24 @@ pub enum RegisterActorState<ServerState> {
 // can be derived from `(client_id.0 + k) % server_count` for any `k`.
 impl<ServerActor, InternalMsg> Actor for RegisterActor<ServerActor>
 where
-    ServerActor: Actor<Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>>,
+    ServerActor: Actor<Msg = RegisterMsg<u64, char, InternalMsg>>,
     InternalMsg: Clone + Debug + Eq + Hash,
 {
-    type Msg = RegisterMsg<TestRequestId, TestValue, InternalMsg>;
-    type State = RegisterActorState<ServerActor::State>;
+    type Msg = RegisterMsg<u64, char, InternalMsg>;
+    type State = RegisterActorState<ServerActor::State, u64>;
 
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
             RegisterActor::Client { server_count } => {
+                let server_count = *server_count as u64;
+
                 let index = id.0;
-                let unique_request_id = 1 * index as TestRequestId; // next will be 2 * index
+                if index < server_count {
+                    panic!("RegisterActor clients must be added to the model after servers.");
+                }
+
+                let unique_request_id = 1 * index as u64; // next will be 2 * index
                 let value = (b'A' + (index - server_count) as u8) as char;
                 o.send(
                     Id((index + 0) % server_count),
@@ -164,16 +160,17 @@ where
         match (self, &**state) {
             (A::Client { server_count }, S::Client {
                                              awaiting: Some(awaiting),
-                                             op_count
+                                             op_count,
                                          }) => {
+                let server_count = *server_count as u64;
                 match msg {
                     RegisterMsg::PutOk(request_id) if &request_id == awaiting => {
                         // Clients send a sequence of `Put`s followed by a `Get`. As a simple
                         // heuristic to cover a wider range of behaviors: the first client's `Put`
                         // sequence is of length 2, while the others are of length 1.
                         let index = id.0;
-                        let unique_request_id = ((op_count + 1) * index) as TestRequestId;
-                        let max_put_count = if index == *server_count { 2 } else { 1 };
+                        let unique_request_id = ((op_count + 1) * index) as u64;
+                        let max_put_count = if index == server_count { 2 } else { 1 };
                         if *op_count < max_put_count {
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
@@ -212,8 +209,3 @@ where
     }
 }
 
-/// A simple request ID type for tests.
-pub type TestRequestId = u64;
-
-/// A simple value type for tests.
-pub type TestValue = char;
