@@ -2,6 +2,16 @@
 
 use crate::semantics::SequentialSpec;
 
+/// An implementation of this trait tests the [consistency] of a concurrent system with respect to
+/// a "reference sequential specification" [`SequentialSpec`]. The interface for doing so involves
+/// recording operation invocations and returns.
+///
+/// Currently Stateright includes implementations in the form of a [`LinearizabilityTester`] and
+/// [`SequentialConsistencyTester`].
+///
+/// [consistency]: https://en.wikipedia.org/wiki/Consistency_model
+/// [`LinearizabilityTester`]: crate::semantics::LinearizabilityTester
+/// [`SequentialConsistencyTester`]: crate::semantics::SequentialConsistencyTester
 pub trait ConsistencyTester<T, RefObj>
 where RefObj: SequentialSpec,
       T: Copy,

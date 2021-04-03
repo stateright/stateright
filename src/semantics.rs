@@ -2,28 +2,29 @@
 //! an object or system based on how it responds to a collection of potentially
 //! concurrent (i.e. partially ordered) operations.
 //!
-//! # Defining Correctness
+//! # Defining Correctness Via A Reference Implementation
 //!
-//! [`SequentialSpec`] is a trait for defining correctness, and Stateright
-//! includes reusable implementations such as [`register`] and [`vec`]. More
-//! implementations will be added to cover common data types emulated by
-//! distributed systems.
+//! [`SequentialSpec`] is a trait for defining correctness via a "reference implementation" (e.g.
+//! "*this system should behave like a queue*").  Stateright includes reusable implementations such
+//! as [`register`] for register-like semantics and [`vec`] for stack-like semantics.  Implementing
+//! the trait yourself is also straightforward -- just define two `enum`s for invocations and
+//! returns. Then associate these (as [`SequentialSpec::Op`] and [`SequentialSpec::Ret`]
+//! respectively) with a state type that implements [`SequentialSpec::invoke`].
 //!
 //! # Verifying Concurrent System Implementations
 //!
-//! A concurrent system can be verified against an implementation of the
-//! [`SequentialSpec`] trait by using a [`ConsistencyTester`] such as [`LinearizabilityTester`]
-//! for an expected [consistency model]. In that case, operations are sequential
-//! (think blocking I/O) with respect to an abstract thread-like caller, which
-//! is identified by a distinct "thread ID" (sometimes called a "process ID"
-//! in the literature, but these are assumed to be single-threaded, so thread
-//! ID arguably provides better intuition for most developers).
+//! A concurrent system can be verified against an implementation of the [`SequentialSpec`] trait
+//! by using a [`ConsistencyTester`] for an expected [consistency model],  such as
+//! [`LinearizabilityTester`]. In that case, operations are sequential (think blocking I/O) with
+//! respect to an abstract thread-like caller, which is identified by a distinct "thread ID"
+//! (sometimes called a "process ID" in the literature, but these are assumed to be
+//! single-threaded, so thread ID arguably provides better intuition for most developers).
 //!
 //! An [`actor::Id`] for instance can serve as a thread ID  as long as the
 //! actor does not invoke a second operation in parallel with the first. This
 //! restriction only exists for the purposes of verifying consistency semantics,
 //! and actors need not sequence their operations to a concurrent
-//! system outside of that use case. Alternatively a single actor could maintain
+//! system outside of that use case. Alternatively, a single actor could maintain
 //! its own [`ConsistencyTester`] with local thread IDs for multiple concurrent
 //! invocations.
 //!
@@ -60,8 +61,8 @@ pub mod vec;
 /// against which to validate the [operational semantics] of a more complex
 /// system, such as a distributed system.
 ///
-/// Stateright includes the following checkers for verifying that a concurrent
-/// system adheres to an expected [consistency model]:
+/// Stateright includes the following [`ConsistencyTester`]s for verifying that a concurrent system
+/// adheres to an expected [consistency model]:
 ///
 /// - [`LinearizabilityTester`]
 /// - [`SequentialConsistencyTester`]
