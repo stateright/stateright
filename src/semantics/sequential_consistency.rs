@@ -4,8 +4,6 @@ use crate::semantics::{ConsistencyTester, SequentialSpec};
 use std::collections::{btree_map, BTreeMap, VecDeque};
 use std::fmt::Debug;
 
-// TODO: update like LinTester then check into their own commit
-
 /// This tester captures a potentially concurrent history of operations and
 /// validates that it adheres to a [`SequentialSpec`] based on the
 /// [sequential consistency] model. This model requires that operations be
