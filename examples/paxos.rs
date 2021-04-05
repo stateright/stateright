@@ -245,6 +245,7 @@ impl PaxosModelCfg {
                     })))
             .actors((0..self.client_count)
                     .map(|_| RegisterActor::Client {
+                        put_count: 1,
                         server_count: self.server_count,
                     }))
             .duplicating_network(DuplicatingNetwork::No)
@@ -296,7 +297,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.generated_count(), 9_285);
+    assert_eq!(checker.generated_count(), 11_613);
 
     // DFS
     let checker = PaxosModelCfg {
@@ -316,7 +317,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.generated_count(), 9_285);
+    assert_eq!(checker.generated_count(), 11_613);
 }
 
 fn main() {

@@ -48,8 +48,9 @@ cargo run --release --example 2pc check 3
 cargo run --release --example paxos check 3
 # Single-copy (unreplicated) register with 3 clients.
 cargo run --release --example single-copy-register check 3
-# Linearizable distributed register (ABD algorithm) with 3 clients.
-cargo run --release --example linearizable-register check 3
+# Linearizable distributed register (ABD algorithm) with 2 clients.
+# (please be patient with this one, as it takes longer to check)
+cargo run --release --example linearizable-register check 2
 ```
 
 Passing an `explore` CLI argument causes each example to spin up the Stateright

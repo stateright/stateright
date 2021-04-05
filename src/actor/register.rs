@@ -93,6 +93,7 @@ pub enum RegisterActor<ServerActor> {
     /// corresponding [`RegisterMsg::PutOk`] follows up with a
     /// [`RegisterMsg::Get`].
     Client {
+        put_count: usize,
         server_count: usize,
     },
     /// A server actor being validated.
@@ -126,7 +127,7 @@ where
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
-            RegisterActor::Client { server_count } => {
+            RegisterActor::Client { put_count, server_count } => {
                 let server_count = *server_count as u64;
 
                 let index = id.0;
@@ -134,14 +135,21 @@ where
                     panic!("RegisterActor clients must be added to the model after servers.");
                 }
 
-                let unique_request_id = 1 * index as u64; // next will be 2 * index
-                let value = (b'A' + (index - server_count) as u8) as char;
-                o.send(
-                    Id((index + 0) % server_count),
-                    Put(unique_request_id, value));
-                RegisterActorState::Client {
-                    awaiting: Some(unique_request_id),
-                    op_count: 1,
+                if *put_count == 0 {
+                    RegisterActorState::Client {
+                        awaiting: None,
+                        op_count: 0,
+                    }
+                } else {
+                    let unique_request_id = 1 * index as u64; // next will be 2 * index
+                    let value = (b'A' + (index - server_count) as u8) as char;
+                    o.send(
+                        Id((index + 0) % server_count),
+                        Put(unique_request_id, value));
+                    RegisterActorState::Client {
+                        awaiting: Some(unique_request_id),
+                        op_count: 1,
+                    }
                 }
             }
             RegisterActor::Server(server_actor) => {
@@ -158,20 +166,16 @@ where
         use RegisterActorState as S;
 
         match (self, &**state) {
-            (A::Client { server_count }, S::Client {
-                                             awaiting: Some(awaiting),
-                                             op_count,
-                                         }) => {
+            (
+                A::Client { put_count, server_count },
+                S::Client { awaiting: Some(awaiting), op_count },
+            ) => {
                 let server_count = *server_count as u64;
                 match msg {
                     RegisterMsg::PutOk(request_id) if &request_id == awaiting => {
-                        // Clients send a sequence of `Put`s followed by a `Get`. As a simple
-                        // heuristic to cover a wider range of behaviors: the first client's `Put`
-                        // sequence is of length 2, while the others are of length 1.
                         let index = id.0;
                         let unique_request_id = ((op_count + 1) * index) as u64;
-                        let max_put_count = if index == server_count { 2 } else { 1 };
-                        if *op_count < max_put_count {
+                        if *op_count < *put_count as u64 {
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
                                 Id((index + op_count) % server_count),
@@ -195,7 +199,10 @@ where
                     _ => {}
                 }
             }
-            (A::Server(server_actor), S::Server(server_state)) => {
+            (
+                A::Server(server_actor),
+                S::Server(server_state),
+            ) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
                 server_actor.on_msg(id, &mut server_state, src, msg, &mut server_out);

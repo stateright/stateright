@@ -58,6 +58,7 @@ impl SingleCopyModelCfg {
                     .map(|_| RegisterActor::Server(SingleCopyActor)))
             .actors((0..self.client_count)
                     .map(|_| RegisterActor::Client {
+                        put_count: 1,
                         server_count: self.server_count,
                     }))
             .duplicating_network(DuplicatingNetwork::No)
@@ -94,7 +95,7 @@ fn can_model_single_copy_register() {
         Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Get(4) },
     ]);
-    assert_eq!(checker.generated_count(), 180);
+    assert_eq!(checker.generated_count(), 93);
 
     // Otherwise (if more than one server) then not linearizabile. BFS this time.
     let checker = SingleCopyModelCfg {

@@ -13,7 +13,7 @@ use stateright::{Checker, Expectation, Model};
 use stateright::actor::{
     Actor, ActorModel, DuplicatingNetwork, Id, majority, model_peers, Out};
 use stateright::actor::register::{
-    RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*};
+    RegisterActor, RegisterMsg, RegisterMsg::*};
 use stateright::semantics::LinearizabilityTester;
 use stateright::semantics::register::Register;
 use stateright::util::{HashableHashMap, HashableHashSet};
@@ -121,9 +121,13 @@ impl Actor for AbdActor {
                         // agree.
                         o.broadcast(&self.peers, &Internal(Record(*req_id, seq, val.clone())));
 
-                        state.seq = seq;
-                        state.val = val;
+                        // Self-send `Record`.
+                        if seq > state.seq {
+                            state.seq = seq;
+                            state.val = val;
+                        }
 
+                        // Self-send `AckRecord`.
                         let mut acks = HashableHashSet::default();
                         acks.insert(id);
 
@@ -146,11 +150,17 @@ impl Actor for AbdActor {
             }
             Internal(AckRecord(expected_req_id))
                 if matches!(state.phase,
-                            Some(AbdPhase::Phase2 { request_id, .. })
-                            if request_id == expected_req_id) =>
+                            Some(AbdPhase::Phase2 { request_id, ref acks, .. })
+                            if request_id == expected_req_id && !acks.contains(&src)) =>
             {
                 let mut state = state.to_mut();
-                if let Some(AbdPhase::Phase2 { request_id: req_id, requester_id: requester, read, acks, .. }) = &mut state.phase {
+                if let Some(AbdPhase::Phase2 {
+                    request_id: req_id,
+                    requester_id: requester,
+                    read,
+                    acks,
+                    ..
+                }) = &mut state.phase {
                     acks.insert(src);
                     if acks.len() == majority(self.peers.len() + 1) {
                         let msg = if let Some(val) = read {
@@ -172,7 +182,6 @@ impl Actor for AbdActor {
 struct AbdModelCfg {
     client_count: usize,
     server_count: usize,
-    max_clock: LogicalClock,
 }
 
 impl AbdModelCfg {
@@ -192,6 +201,7 @@ impl AbdModelCfg {
                     })))
             .actors((0..self.client_count)
                     .map(|_| RegisterActor::Client {
+                        put_count: 1,
                         server_count: self.server_count,
                     }))
             .duplicating_network(DuplicatingNetwork::No)
@@ -208,15 +218,6 @@ impl AbdModelCfg {
             })
             .record_msg_in(RegisterMsg::record_returns)
             .record_msg_out(RegisterMsg::record_invocations)
-            .within_boundary(|cfg, state| {
-                state.actor_states.iter().all(|s| {
-                    if let RegisterActorState::Server(s) = &**s {
-                        s.seq.0 <= cfg.max_clock
-                    } else {
-                        true
-                    }
-                })
-            })
     }
 }
 
@@ -229,7 +230,6 @@ fn can_model_linearizable_register() {
     let checker = AbdModelCfg {
             client_count: 2,
             server_count: 2,
-            max_clock: 3,
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
@@ -246,13 +246,12 @@ fn can_model_linearizable_register() {
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(6, (1, Id::from(1)), 'B')) },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(6)) },
     ]);
-    assert_eq!(checker.generated_count(), 1321);
+    assert_eq!(checker.generated_count(), 544);
 
     // DFS
     let checker = AbdModelCfg {
             client_count: 2,
             server_count: 2,
-            max_clock: 3,
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
@@ -269,7 +268,7 @@ fn can_model_linearizable_register() {
         Deliver { src: Id::from(0), dst: Id::from(1), msg: Internal(Record(6, (1, Id::from(1)), 'B')) },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(AckRecord(6)) },
     ]);
-    assert_eq!(checker.generated_count(), 1321);
+    assert_eq!(checker.generated_count(), 544);
 }
 
 fn main() {
@@ -308,8 +307,7 @@ fn main() {
                      client_count);
             AbdModelCfg {
                     client_count: client_count as usize,
-                    server_count: 2,
-                    max_clock: 3,
+                    server_count: 3,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .spawn_dfs().report(&mut std::io::stdout());
@@ -323,8 +321,7 @@ fn main() {
                  client_count, address);
             AbdModelCfg {
                     client_count: client_count as usize,
-                    server_count: 2,
-                    max_clock: 3,
+                    server_count: 3,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .serve(address);
