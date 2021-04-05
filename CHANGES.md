@@ -1,5 +1,10 @@
 # Changes
 
+## 0.26.0
+
+`RegisterActor::Client` now has a `put_count` field that indicates how many
+`RegisterMsg::Put`s to perform before issuing a `RegisterMsg::Get`.
+
 ## 0.25.0
 
 I was recently asked where linearizability was specified in the actor examples.
