@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Represents a snapshot in time for the entire actor system.
-pub struct ActorModelState<A: Actor, H> {
+pub struct ActorModelState<A: Actor, H = ()> {
     pub actor_states: Vec<Arc<A::State>>,
     pub network: Network<A::Msg>,
     pub is_timer_set: Vec<bool>,
