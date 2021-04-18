@@ -39,7 +39,7 @@ where A: Actor,
 }
 
 /// Indicates possible steps that an actor system can take as it evolves.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ActorModelAction<Msg> {
     /// A message can be delivered to an actor.
     Deliver { src: Id, dst: Id, msg: Msg },
@@ -55,7 +55,7 @@ pub enum ActorModelAction<Msg> {
 pub enum DuplicatingNetwork { Yes, No }
 
 /// Indicates the source and destination for a message.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(serde::Serialize)]
 pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
 

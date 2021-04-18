@@ -1,9 +1,11 @@
 use crate::{Model, Path};
+use std::collections::HashSet;
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
 /// A visitor to apply to every [`Path`] of the checked [`Model`].
 ///
-/// Implementations include [`StateRecorder`] and
+/// Implementations include [`PathRecorder`], [`StateRecorder`], and
 /// `impl<M: Model> `[`Fn`]`(Path<M::State, M::Action>)`.
 ///
 /// # Example
@@ -24,6 +26,42 @@ where M: Model,
 {
     fn visit(&self, _: &M, path: Path<M::State, M::Action>) {
         self(path)
+    }
+}
+
+/// A [`CheckerVisitor`] that records paths visited by the model checker.
+///
+/// # Example
+///
+/// ```
+/// # use stateright::*; let model = ();
+/// # let expected_paths = vec![
+/// #   Path::from_actions(&model, (), Vec::new()).unwrap(),
+/// # ].into_iter().collect();
+/// let (recorder, accessor) = PathRecorder::new_with_accessor();
+/// model.checker().visitor(recorder).spawn_dfs().join();
+/// assert_eq!(accessor(), expected_paths);
+/// ```
+pub struct PathRecorder<M: Model>(Arc<Mutex<HashSet<Path<M::State, M::Action>>>>);
+impl<M> CheckerVisitor<M> for PathRecorder<M>
+where M: Model,
+      M::Action: Eq + Hash,
+      M::State: Eq + Hash,
+{
+    fn visit(&self, _: &M, path: Path<M::State, M::Action>) {
+        self.0.lock().unwrap().insert(path);
+    }
+}
+impl<M> PathRecorder<M>
+where M: Model,
+      M::Action: Clone,
+      M::State: Clone,
+{
+    /// Instantiates a ([`PathRecorder`], accessor) pair.
+    pub fn new_with_accessor() -> (Self, impl Fn() -> HashSet<Path<M::State, M::Action>>) {
+        let recorder = Self(Arc::new(Mutex::new(Default::default())));
+        let accessor = { let r = Arc::clone(&recorder.0); move || r.lock().unwrap().clone() };
+        (recorder, accessor)
     }
 }
 
@@ -54,7 +92,7 @@ where M: Model,
 {
     /// Instantiates a ([`StateRecorder`], accessor) pair.
     pub fn new_with_accessor() -> (Self, impl Fn() -> Vec<M::State>) {
-        let recorder = Self(Arc::new(Mutex::new(Vec::new())));
+        let recorder = Self(Arc::new(Mutex::new(Default::default())));
         let accessor = { let r = Arc::clone(&recorder.0); move || r.lock().unwrap().clone() };
         (recorder, accessor)
     }

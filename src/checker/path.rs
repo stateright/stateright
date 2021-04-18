@@ -12,7 +12,7 @@ use std::hash::Hash;
 ///
 /// [`path.into_vec()`]: Path::into_vec
 /// [`path.into_actions()`]: Path::into_actions
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Path<State, Action>(Vec<(State, Option<Action>)>);
 
 impl<State, Action> Path<State, Action> {
