@@ -57,6 +57,9 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher, BuildHasher};
 use std::ops::{Deref, DerefMut};
 use std::iter::FromIterator;
+mod vector_clock;
+
+pub use vector_clock::*;
 
 // Reuse a buffer to avoid temporary allocations.
 thread_local!(static BUFFER: RefCell<Vec<u64>> = RefCell::new(Vec::with_capacity(100)));
