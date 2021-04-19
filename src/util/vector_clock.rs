@@ -1,6 +1,7 @@
 //! Private module for selective re-export.
 
 use std::cmp::Ordering;
+use std::fmt::{self, Display, Formatter};
 
 /// A [vector clock](https://en.wikipedia.org/wiki/Vector_clock), which provides a partial causal
 /// order on events in a distributed sytem.
@@ -37,6 +38,23 @@ impl VectorClock {
     }
 }
 
+impl Display for VectorClock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "<")?;
+        for c in &self.0 {
+            write!(f, "{}, ", c)?;
+        }
+        write!(f, "...>")?;
+        Ok(())
+    }
+}
+
+impl From<Vec<u32>> for VectorClock {
+    fn from(v: Vec<u32>) -> Self {
+        VectorClock(v)
+    }
+}
+
 impl PartialOrd for VectorClock {
     fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
         let mut expected_ordering = Ordering::Equal;
@@ -62,15 +80,24 @@ impl PartialOrd for VectorClock {
     }
 }
 
-impl From<Vec<u32>> for VectorClock {
-    fn from(v: Vec<u32>) -> Self {
-        VectorClock(v)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn can_display() {
+        assert_eq!(
+            format!("{}", VectorClock::from(vec![1, 2, 3, 4])),
+            "<1, 2, 3, 4, ...>");
+
+        // Notably equal vectors don't necessarily display the same.
+        assert_eq!(
+            format!("{}", VectorClock::from(vec![])),
+            "<...>");
+        assert_eq!(
+            format!("{}", VectorClock::from(vec![0])),
+            "<0, ...>");
+    }
 
     #[test]
     fn can_increment() {
@@ -97,7 +124,7 @@ mod test {
     }
 
     #[test]
-    fn vector_clock_forms_partial_order() {
+    fn can_order_partially() {
         use Ordering::*;
 
         // Clocks with matching elements are equal. Missing elements are implicitly zero.
