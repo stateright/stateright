@@ -1,11 +1,11 @@
 //! Private module for selective re-export.
 
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 use std::fmt::{self, Display, Formatter};
 
 /// A [vector clock](https://en.wikipedia.org/wiki/Vector_clock), which provides a partial causal
 /// order on events in a distributed sytem.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq)]
 pub struct VectorClock(Vec<u32>);
 
 impl VectorClock {
@@ -19,11 +19,11 @@ impl VectorClock {
     pub fn merge_max(c1: &VectorClock, c2: &VectorClock) -> Self {
         let VectorClock(c1) = c1;
         let VectorClock(c2) = c2;
-        let mut result = vec![0; std::cmp::max(c1.len(), c2.len())];
+        let mut result = vec![0; max(c1.len(), c2.len())];
         for (i, element) in result.iter_mut().enumerate() {
             let v1 = *c1.get(i).unwrap_or(&0);
             let v2 = *c2.get(i).unwrap_or(&0);
-            *element = std::cmp::max(v1, v2);
+            *element = max(v1, v2);
         }
         VectorClock(result)
     }
@@ -49,6 +49,19 @@ impl Display for VectorClock {
     }
 }
 
+impl PartialEq for VectorClock {
+    fn eq(&self, rhs: &Self) -> bool {
+        for i in 0..max(self.0.len(), rhs.0.len()) {
+            let lhs_elem = self.0.get(i).unwrap_or(&0);
+            let rhs_elem = rhs.0.get(i).unwrap_or(&0);
+            if lhs_elem != rhs_elem {
+                return false
+            }
+        }
+        true
+    }
+}
+
 impl From<Vec<u32>> for VectorClock {
     fn from(v: Vec<u32>) -> Self {
         VectorClock(v)
@@ -58,7 +71,7 @@ impl From<Vec<u32>> for VectorClock {
 impl PartialOrd for VectorClock {
     fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
         let mut expected_ordering = Ordering::Equal;
-        for i in 0..self.0.len() {
+        for i in 0..max(self.0.len(), rhs.0.len()) {
             let ordering = {
                 let lhs_elem = self.0.get(i).unwrap_or(&0);
                 let rhs_elem = rhs.0.get(i).unwrap_or(&0);
@@ -97,6 +110,26 @@ mod test {
         assert_eq!(
             format!("{}", VectorClock::from(vec![0])),
             "<0, ...>");
+    }
+
+    #[test]
+    fn can_equate() {
+        assert_eq!(
+            VectorClock::new(),
+            VectorClock::new());
+        assert_eq!(
+            VectorClock::from(vec![0]),
+            VectorClock::from(vec![]));
+        assert_eq!(
+            VectorClock::from(vec![]),
+            VectorClock::from(vec![0]));
+
+        assert_ne!(
+            VectorClock::from(vec![]),
+            VectorClock::from(vec![1]));
+        assert_ne!(
+            VectorClock::from(vec![1]),
+            VectorClock::from(vec![]));
     }
 
     #[test]
@@ -145,6 +178,9 @@ mod test {
         // less-than-or-equal.
         assert_eq!(
             Some(Less),
+            VectorClock::from(vec![]).partial_cmp(&vec![1].into()));
+        assert_eq!(
+            Some(Less),
             VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 4].into()));
         assert_eq!(
             Some(Less),
@@ -155,6 +191,9 @@ mod test {
 
         // A clock is greater if at least one element is greater and the rest are
         // greater-than-or-equal.
+        assert_eq!(
+            Some(Greater),
+            VectorClock::from(vec![1]).partial_cmp(&vec![].into()));
         assert_eq!(
             Some(Greater),
             VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 1, 2].into()));
