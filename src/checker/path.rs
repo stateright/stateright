@@ -134,8 +134,10 @@ impl<State, Action> Path<State, Action> {
     }
 }
 
-impl<State, Action> Into<Vec<(State, Option<Action>)>> for Path<State, Action> {
-    fn into(self) -> Vec<(State, Option<Action>)> { self.0 }
+impl<State, Action> From<Path<State, Action>> for Vec<(State, Option<Action>)> {
+    fn from(source: Path<State, Action>) -> Self {
+        source.0
+    }
 }
 
 impl<State, Action> Display for Path<State, Action> 
