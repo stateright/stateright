@@ -1,6 +1,7 @@
 //! Private module for selective re-export.
 
 use std::cmp::{max, Ordering};
+use std::hash::{Hash, Hasher};
 use std::fmt::{self, Display, Formatter};
 
 /// A [vector clock](https://en.wikipedia.org/wiki/Vector_clock), which provides a partial causal
@@ -47,6 +48,16 @@ impl Display for VectorClock {
         }
         write!(f, "...>")?;
         Ok(())
+    }
+}
+
+impl Hash for VectorClock {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let cutoff = self.0.iter()
+            .rposition(|elem| elem != &0)
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        self.0[..cutoff].hash(state);
     }
 }
 
@@ -129,6 +140,49 @@ mod test {
             VectorClock::from(vec![]),
             VectorClock::from(vec![1]));
         assert_ne!(
+            VectorClock::from(vec![1]),
+            VectorClock::from(vec![]));
+    }
+
+    #[test]
+    fn can_hash() {
+        use std::collections::hash_map::DefaultHasher;
+
+        macro_rules! assert_hash_eq {
+            ($v1:expr, $v2:expr) => {
+                let mut h1 = DefaultHasher::new();
+                let mut h2 = DefaultHasher::new();
+                $v1.hash(&mut h1);
+                $v2.hash(&mut h2);
+                assert_eq!(h1.finish(), h2.finish());
+            }
+        }
+        macro_rules! assert_hash_ne {
+            ($v1:expr, $v2:expr) => {
+                let mut h1 = DefaultHasher::new();
+                let mut h2 = DefaultHasher::new();
+                $v1.hash(&mut h1);
+                $v2.hash(&mut h2);
+                assert_ne!(h1.finish(), h2.finish());
+            }
+        }
+
+        // same hash if equal
+        assert_hash_eq!(
+            VectorClock::new(),
+            VectorClock::new());
+        assert_hash_eq!(
+            VectorClock::from(vec![]),
+            VectorClock::from(vec![0, 0]));
+        assert_hash_eq!(
+            VectorClock::from(vec![1]),
+            VectorClock::from(vec![1, 0]));
+
+        // otherwise hash varies w/ high probability
+        assert_hash_ne!(
+            VectorClock::from(vec![]),
+            VectorClock::from(vec![1]));
+        assert_hash_ne!(
             VectorClock::from(vec![1]),
             VectorClock::from(vec![]));
     }
