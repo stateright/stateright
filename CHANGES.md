@@ -1,5 +1,12 @@
 # Changes
 
+## 0.26.1
+
+This commit introduces a `PathRecorder` visitor and a `VectorClock` utility
+type. It also adds an `Actor` implementation for `Vec<(Id, Msg)>` for any
+message type `Msg`, which can be used as a simple client actor for exercising a
+system.
+
 ## 0.26.0
 
 `RegisterActor::Client` now has a `put_count` field that indicates how many
