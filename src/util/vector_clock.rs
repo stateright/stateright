@@ -6,6 +6,7 @@ use std::fmt::{self, Display, Formatter};
 /// A [vector clock](https://en.wikipedia.org/wiki/Vector_clock), which provides a partial causal
 /// order on events in a distributed sytem.
 #[derive(Clone, Debug, Default, Eq)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct VectorClock(Vec<u32>);
 
 impl VectorClock {
