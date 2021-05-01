@@ -109,7 +109,7 @@ where M: 'static + Model + Send + Sync,
                     }
                 }))
             }
-        };
+        }
 
         App::new()
             .data(Arc::clone(&data))
