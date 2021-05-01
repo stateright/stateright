@@ -126,7 +126,7 @@ where M: 'static + Model + Send + Sync,
 
 type Data<Action, Checker> = web::Data<Arc<(Arc<RwLock<Snapshot<Action>>>, Arc<Checker>)>>;
 
-fn status<M, C>(_: HttpRequest, data: Data<M::Action, C>) -> Result<Json<StatusView>>
+fn status<M, C>(_: HttpRequest, data: Data<M::Action, C>) -> Json<StatusView>
 where M: Model,
       M::Action: Debug,
       M::State: Hash,
@@ -148,7 +148,7 @@ where M: Model,
             .collect(),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
-    Ok(Json(status))
+    Json(status)
 }
 
 fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>)
@@ -403,9 +403,7 @@ mod test {
     {
         let req = actix_web::test::TestRequest::get().to_http_request();
         let data = web::Data::new(Arc::new((snapshot, checker)));
-        match status(req, data) {
-            Ok(Json(view)) => Ok(view),
-            Err(err) => Err(err),
-        }
+        let Json(view) = status(req, data);
+        Ok(view)
     }
 }
