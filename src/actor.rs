@@ -398,6 +398,31 @@ impl Actor for () {
     fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
 }
 
+/// Sends a series of messages in sequence to the associated actor [`Id`]s waiting for a message
+/// delivery between each. This is useful for testing actor systems.
+impl<Msg> Actor for Vec<(Id, Msg)>
+where Msg: Clone + Debug + Eq + Hash,
+{
+    type Msg = Msg;
+    type State = usize;
+
+    fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+        if let Some((dst, msg)) = self.get(0) {
+            o.send(*dst, msg.clone());
+            1
+        } else {
+            0
+        }
+    }
+
+    fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, _src: Id, _msg: Self::Msg, o: &mut Out<Self>) {
+        if let Some((dst, msg)) = self.get(**state) {
+            o.send(*dst, msg.clone());
+            *state.to_mut() += 1;
+        }
+    }
+}
+
 /// Indicates the number of nodes that constitute a majority for a particular cluster size.
 pub fn majority(cluster_size: usize) -> usize {
     cluster_size / 2 + 1
@@ -427,5 +452,40 @@ mod test {
         assert_eq!(
             peer_ids(ids[1], &ids).collect::<Vec<&Id>>(),
             vec![&Id::from(0), &Id::from(2)]);
+    }
+
+    #[test]
+    fn vec_can_serve_as_actor() {
+        use crate::{Checker, Expectation, Model};
+        use crate::StateRecorder;
+        let (recorder, accessor) = StateRecorder::new_with_accessor();
+        ActorModel::new((), ())
+            .actor(vec![
+               (1.into(), 'A'),
+               (1.into(), 'B'),
+            ])
+            .actor(vec![
+               (0.into(), 'C'),
+               (0.into(), 'D'),
+            ])
+            .property(Expectation::Always, "", |_, _| true)
+            .checker()
+            .visitor(recorder)
+            .spawn_bfs()
+            .join();
+        let messages_by_state: Vec<_> = accessor().into_iter().map(|s| {
+            let mut messages: Vec<_> = s.network
+                .into_iter()
+                .map(|e| e.msg)
+                .collect();
+            messages.sort();
+            messages
+        }).collect();
+        assert_eq!(messages_by_state, vec![
+            vec!['A', 'C'],
+            vec!['A', 'B', 'C'],
+            vec!['A', 'C', 'D'],
+            vec!['A', 'B', 'C', 'D'],
+        ]);
     }
 }
