@@ -1,8 +1,7 @@
 /// Represents the checker status. Reloads periodically until checking completes.
-function Status({discoveries, done, generated, model, recent_path}) {
+function Status({done, generated, model, properties, recent_path}) {
     let status = this;
 
-    status.discoveries = discoveries;
     status.generated = generated;
     status.model = model.replace(/[A-Za-z_]+::/g, '');
     status.progress = 'Done';
@@ -11,14 +10,43 @@ function Status({discoveries, done, generated, model, recent_path}) {
             ? recent_path
             : recent_path.substring(0, 99 - 3) + '...';
     }
+    status.properties = properties.map((p) => {
+        let expectation = p[0];
+        let discoveryPath = p[2];
+        return {
+            expectation,
+            name: p[1],
+            discoveryPath,
+            summary: (() => {
+                if (discoveryPath) {
+                    switch (expectation) {
+                        case 'Always':     return '⚠️ Counterexample found: ';
+                        case 'Sometimes':  return '✅ Example found: ';
+                        case 'Eventually': return '⚠️ Counterexample found: ';
+                        default:
+                            throw new Error(`Invalid expectation ${expectation}.`);
+                    }
+                } else {
+                    if (!done) { return '🔎 Searching: ' };
+                    switch (expectation) {
+                        case 'Always':     return '✅ Safety holds: ';
+                        case 'Sometimes':  return '⚠️ Example not found: ';
+                        case 'Eventually': return '✅ Liveness holds: ';
+                        default:
+                            throw new Error(`Invalid expectation ${expectation}.`);
+                    }
+                }
+            })(),
+        };
+    });
     status.recentPath = recent_path;
 }
 /// Placeholder status.
 Status.LOADING = new Status({
-    discoveries: 'loading...',
     done: 'loading...',
     generated: 'loading...',
     model: 'loading...',
+    properties: [],
     recent_path: 'loading...',
 });
 

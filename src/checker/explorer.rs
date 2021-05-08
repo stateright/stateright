@@ -7,14 +7,16 @@ use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 struct StatusView {
     done: bool,
     model: String,
     generated: usize,
-    discoveries: BTreeMap<String, String>, // name+classification -> encoded path
+    properties: Vec<(Expectation,
+                     String,           // name
+                     Option<String>)>, // encoded path to discovery
     recent_path: Option<String>,
 }
 
@@ -141,12 +143,12 @@ where M: Model,
         model: std::any::type_name::<M>().to_string(),
         done: checker.is_done(),
         generated: checker.generated_count(),
-        discoveries: checker.discoveries().into_iter()
-            .map(|(name, path)| {
-                let key = format!("\"{}\" {}", name, checker.discovery_classification(name));
-                let value = path.encode();
-                (key, value)
-            })
+        properties: checker.model().properties().into_iter()
+            .map(|p| (
+                    p.expectation,
+                    p.name.to_string(),
+                    checker.discovery(p.name).map(|p| p.encode()),
+            ))
             .collect(),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
@@ -386,9 +388,23 @@ mod test {
                  stateright::actor::actor_test_util::ping_pong::PingPongActor, \
                  stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>");
         assert_eq!(status.generated, 5);
-        assert_eq!(status.discoveries.len(), 2);
-        assert!(status.discoveries.get("\"can reach max\" example").is_some());
-        assert!(status.discoveries.get("\"must exceed max\" counterexample").is_some());
+        assert_eq!(status.properties, vec![
+            (Expectation::Always, "delta within 1".to_string(), None),
+            (Expectation::Sometimes, "can reach max".to_string(), Some(
+                    "2298670378538534683\
+                    /6952966106190701737\
+                    /713954962230533912\
+                    /13964153056603498260".to_string())),
+            (Expectation::Eventually, "must reach max".to_string(), None),
+            (Expectation::Eventually, "must exceed max".to_string(), Some(
+                    "2298670378538534683\
+                    /6952966106190701737\
+                    /713954962230533912\
+                    /13964153056603498260\
+                    /8719175338738027539".to_string())),
+            (Expectation::Always, "#in <= #out".to_string(), None),
+            (Expectation::Eventually, "#out <= #in + 1".to_string(), None)
+        ]);
         assert!(status.recent_path.unwrap().starts_with("["));
     }
 

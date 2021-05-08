@@ -280,7 +280,8 @@ impl<M: Model> Clone for Property<M> {
 }
 
 /// Indicates whether a property is always, eventually, or sometimes true.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub enum Expectation {
     /// The property is true for all reachable states.
     Always,

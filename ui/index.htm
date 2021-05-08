@@ -36,15 +36,24 @@
                 </li>
             </ul>
 
-            <h2>Discoveries</h2>
+            <h2>Properties</h2>
             <ul class="font-small" data-bind="foreach: {
-                                                        data: Object.keys(status().discoveries),
-                                                        as: 'discoveryName',
-                                                        noChildContext: true }">
+                                                data: status().properties,
+                                                as: 'p',
+                                                noChildContext: true,
+                                              }">
                 <li>
-                    <a class="font-code" href="#"
-                       data-bind="attr: {href: '#/steps/' + status().discoveries[discoveryName]},
-                                  text: discoveryName">DISCOVERY</a>
+                    <!-- ko if: p.discoveryPath -->
+                        <b data-bind="text: p.summary">SUMMARY</b>
+                        <a class="font-code" href="#"
+                           data-bind="attr: {href: '#/steps/' + p.discoveryPath},
+                                      text: p.expectation + ' ' + p.name">PROPERTY</a>
+                    <!-- /ko -->
+                    <!-- ko if: !p.discoveryPath -->
+                        <b data-bind="text: p.summary">SUMMARY</b>
+                        <span class="font-code"
+                              data-bind="text: p.expectation + ' ' + p.name">PROPERTY</span>
+                    <!-- /ko -->
                 </li>
             </ul>
 
