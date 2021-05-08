@@ -66,6 +66,7 @@ function Step({action, outcome, state, fingerprint, prevStep, svg}) {
         step.nextSteps(nextSteps);
         return nextSteps;
     };
+    step.isIgnored = 'undefined' === typeof step.state;
 }
 /// Special step that points to the init steps.
 Step.PRE_INIT = new Step({
@@ -82,7 +83,7 @@ function App() {
     app.selectedStep = ko.observable(Step.PRE_INIT);
     app.isCompact = ko.observable(false);
     app.isCompleteState = ko.observable(false);
-    app.isStepNoOp = (step) => step.state == app.selectedStep().state;
+    app.isSameStateAsSelected = (step) => step.state == app.selectedStep().state;
     app.status = ko.observable(Status.LOADING);
 
     window.onhashchange = prepareView;

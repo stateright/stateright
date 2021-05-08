@@ -54,7 +54,7 @@
                 <li>
                     <a class="font-code" href="#"
                        data-bind="attr: {href: '#/steps' + $data.path},
-                                  css: {'is-no-op': $root.isStepNoOp($data)},
+                                  css: {'is-same-state': $root.isSameStateAsSelected($data)},
                                   text: $data.action">PREV</a>
                 </li>
             </ol>
@@ -83,8 +83,14 @@
             <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">
                 <li>
                     <a class="font-code" href="#"
-                       data-bind="attr: {href: '#/steps' + $data.path},
-                                  css: {'is-no-op': $root.isStepNoOp($data)},
+                       data-bind="attr: {
+                                    href: $data.state ? '#/steps' + $data.path : undefined,
+                                    title: $data.isIgnored ? 'Action ignored by model' : undefined,
+                                  },
+                                  css: {
+                                    'is-ignored': $data.isIgnored,
+                                    'is-same-state': $root.isSameStateAsSelected($data),
+                                  },
                                   text: $data.action">NEXT</a>
                 </li>
             </ul>

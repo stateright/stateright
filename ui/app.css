@@ -29,8 +29,20 @@ a:hover {
     color: var(--contrast-brt);
     text-decoration: underline;
 }
-a.is-no-op {
+a.is-same-state {
     color: var(--fg-med);
+}
+a.is-same-state:before {
+    content: "current state: ";
+    font-weight: bold;
+}
+a.is-ignored {
+    color: var(--fg-med);
+    text-decoration: none;
+}
+a.is-ignored:before {
+    content: "ignored: ";
+    font-weight: bold;
 }
 body {
     font-family: sans-serif;
