@@ -6,7 +6,7 @@ function Status({done, generated, model, properties, recent_path}) {
     status.model = model.replace(/[A-Za-z_]+::/g, '');
     status.progress = 'Done';
     if (!done) {
-        status.progress = recent_path.length < 100
+        status.progress = (recent_path || '').length < 100
             ? recent_path
             : recent_path.substring(0, 99 - 3) + '...';
     }
