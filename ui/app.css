@@ -67,10 +67,6 @@ ul {
     background: var(--bg-drk);
     border: solid var(--contrast-dim) 1px;
     color: var(--fg-lit);
-    column-rule: solid var(--contrast-dim) 1px;
-}
-.columns {
-    column-width: 300px;
 }
 .font-code {
     font-family: "Courier New", "Lucida Console", Monaco, monospace;
