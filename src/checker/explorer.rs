@@ -21,24 +21,23 @@ struct StatusView {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct StateView<State, Action> {
-    action: Option<Action>,
+struct StateView<State> {
+    action: Option<String>,
     outcome: Option<String>,
     state: Option<State>,
     svg: Option<String>,
 }
 
-type StateViewsJson<State, Action> = Json<Vec<StateView<State, Action>>>;
+type StateViewsJson<State> = Json<Vec<StateView<State>>>;
 
-impl<Action, State> serde::Serialize for StateView<State, Action>
+impl<State> serde::Serialize for StateView<State>
 where
-    Action: Debug,
     State: Debug + Hash,
 {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         let mut out = ser.serialize_struct("StateView", 3)?;
         if let Some(ref action) = self.action {
-            out.serialize_field("action", &format!("{:?}", action))?;
+            out.serialize_field("action", action)?;
         }
         if let Some(ref outcome) = self.outcome {
             out.serialize_field("outcome", outcome)?;
@@ -156,8 +155,9 @@ where M: Model,
 }
 
 fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>)
-    -> Result<StateViewsJson<M::State, M::Action>>
+    -> Result<StateViewsJson<M::State>>
 where M: Model,
+      M::Action: Debug,
       M::State: Debug + Hash,
       C: Checker<M>,
 {
@@ -204,7 +204,7 @@ where M: Model,
         model.actions(&last_state, &mut actions2);
         model.actions(&last_state, &mut actions3);
         for ((action, action2), action3) in actions1.into_iter().zip(actions2).zip(actions3) {
-            let outcome = model.display_outcome(&last_state, action2);
+            let outcome = model.format_step(&last_state, action2);
             let state = model.next_state(&last_state, action3);
             if let Some(state) = state {
                 let svg = {
@@ -213,7 +213,7 @@ where M: Model,
                     model.as_svg(Path::from_fingerprints::<M>(model, fingerprints))
                 };
                 results.push(StateView {
-                    action: Some(action),
+                    action: Some(model.format_action(&action)),
                     outcome,
                     state: Some(state),
                     svg,
@@ -221,7 +221,7 @@ where M: Model,
             } else {
                 // "Action ignored" case is still returned, as it may be useful for debugging.
                 results.push(StateView {
-                    action: Some(action),
+                    action: Some(model.format_action(&action)),
                     outcome: None,
                     state: None,
                     svg: None,
@@ -264,7 +264,7 @@ mod test {
         // ```
         assert_eq!(get_states(Arc::clone(&checker), "/2716592049047647680/9080728272894440685").unwrap(), vec![
             StateView {
-                action: Some(BinaryClockAction::GoHigh),
+                action: Some("GoHigh".to_string()),
                 outcome: Some("1".to_string()),
                 state: Some(1),
                 svg: None,
@@ -285,7 +285,6 @@ mod test {
     fn smoke_test_states() {
         use crate::actor::{ActorModelState, DuplicatingNetwork, Envelope, Id, LossyNetwork};
         use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
-        use crate::actor::ActorModelAction::*;
         use crate::util::HashableHashSet;
         use std::iter::FromIterator;
 
@@ -335,7 +334,7 @@ mod test {
         assert_eq!(
             states[0],
             StateView {
-                action: Some(Drop(Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
+                action: Some("Drop(Envelope { src: Id(0), dst: Id(1), msg: Ping(0) })".to_string()),
                 outcome: Some("DROP: Envelope { src: Id(0), dst: Id(1), msg: Ping(0) }".to_string()),
                 state: Some(ActorModelState {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
@@ -348,7 +347,7 @@ mod test {
         assert_eq!(
             states[1],
             StateView {
-                action: Some(Deliver { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }),
+                action: Some("Id(0) → Ping(0) → Id(1)".to_string()),
                 outcome: Some("OUT: [Send(Id(0), Pong(0))]\n\nNEXT_STATE: 1\n\nPREV_STATE: 0\n".to_string()),
                 state: Some(ActorModelState {
                     actor_states: vec![
@@ -409,8 +408,9 @@ mod test {
     }
 
     fn get_states<M, C>(checker: Arc<C>, path_name: &'static str)
-                -> Result<Vec<StateView<M::State, M::Action>>>
+                -> Result<Vec<StateView<M::State>>>
     where M: Model,
+          M::Action: Debug,
           M::State: Debug + Hash,
           C: Checker<M>,
     {

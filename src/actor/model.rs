@@ -326,7 +326,15 @@ where A: Actor,
         }
     }
 
-    fn display_outcome(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
+    fn format_action(&self, action: &Self::Action) -> String {
+        if let ActorModelAction::Deliver { src, dst, msg } = action {
+            format!("{:?} → {:?} → {:?}", src, msg, dst)
+        } else {
+            format!("{:?}", action)
+        }
+    }
+
+    fn format_step(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
     where Self::State: Debug
     {
         struct ActorStep<'a, A: Actor> {

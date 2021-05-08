@@ -168,8 +168,15 @@ pub trait Model: Sized {
     /// does not change the state.
     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State>;
 
-    /// Summarizes the outcome of taking a step.
-    fn display_outcome(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
+    /// Converts an action of this model to a more intuitive representation (e.g. for Explorer).
+    fn format_action(&self, action: &Self::Action) -> String
+    where Self::Action: Debug
+    {
+        format!("{:?}", action)
+    }
+
+    /// Converts a step of this model to a more intuitive representation (e.g. for Explorer).
+    fn format_step(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
     where Self::State: Debug
     {
         self.next_state(last_state, action)
