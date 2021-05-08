@@ -20,7 +20,7 @@
     <main class="main-flex">
         <nav class="main-flex-left">
             <h2>Status</h2>
-            <ul class="font-small" data-bind="with: status">
+            <ul data-bind="with: status">
                 <li>
                     <label>Model:</label>
                     <span data-bind="text: model">MODEL</span>
@@ -37,7 +37,7 @@
             </ul>
 
             <h2>Properties</h2>
-            <ul class="font-small" data-bind="foreach: {
+            <ul data-bind="foreach: {
                                                 data: status().properties,
                                                 as: 'p',
                                                 noChildContext: true,
@@ -58,8 +58,7 @@
             </ul>
 
             <h2>Path</h2>
-            <ol class="font-small"
-                data-bind="foreach: selectedStep().pathSteps()">
+            <ol data-bind="foreach: selectedStep().pathSteps()">
                 <li>
                     <a class="font-code" href="#"
                        data-bind="attr: {href: '#/steps' + $data.path},
@@ -89,7 +88,7 @@
             <div class="color-dark font-code hscroll margin-bottom-small padding-small rounded"
                  data-bind="html: selectedStep().svg, visible: selectedStep().svg">SVG</div>
             <h2>Next Steps</h2>
-            <ul class="font-small" data-bind="foreach: selectedStep().nextSteps">
+            <ul data-bind="foreach: selectedStep().nextSteps">
                 <li>
                     <a class="font-code" href="#"
                        data-bind="attr: {
