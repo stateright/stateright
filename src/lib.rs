@@ -180,7 +180,7 @@ pub trait Model: Sized {
     where Self::State: Debug
     {
         self.next_state(last_state, action)
-            .map(|next_state| format!("{:?}", next_state))
+            .map(|next_state| format!("{:#?}", next_state))
     }
 
     /// Returns an [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) representation of a
