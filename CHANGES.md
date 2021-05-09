@@ -1,8 +1,26 @@
 # Changes
 
+## 0.27.0
+
+This release introduces multiple enhancements for Stateright Explorer. Explorer
+now shows ignored actions. It also has labels for previous/next states that
+match the current state. Arguably the biggest improvement is that Explorer now
+shows all properties (not just properties with discoveries) and explains the
+checker outcomes for each property. There are also some minor styling changes
+in the UI.
+
+Another small improvement is that `ActorModel` now overrides rendering of the
+`Deliver` action with a more concise/intuitive representation.
+
+While preparing an example for a revised screenshot, I accidentally created a
+model with unwanted nondeterminism: my model depended on iteration order, which
+in turn depended upon a random seed. Root causing took a long time, so I
+improved the error message that shows when the checker detects unwanted
+nondetermism to make similar mistakes easier to debug in the future.
+
 ## 0.26.1
 
-This commit introduces a `PathRecorder` visitor and a `VectorClock` utility
+This release introduces a `PathRecorder` visitor and a `VectorClock` utility
 type. It also adds an `Actor` implementation for `Vec<(Id, Msg)>` for any
 message type `Msg`, which can be used as a simple client actor for exercising a
 system.
