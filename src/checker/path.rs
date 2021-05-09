@@ -21,6 +21,8 @@ impl<State, Action> Path<State, Action> {
     where M: Model<State = State, Action = Action>,
           M::State: Hash,
     {
+        // FIXME: Don't panic. Return a `Result` so the details can be bubbled up to Explorer/etc.
+        //        Also serialize the states rather than printing the fingerprints.
         let init_print = match fingerprints.pop_front() {
             Some(init_print) => init_print,
             None => panic!("empty path is invalid"),
@@ -29,7 +31,23 @@ impl<State, Action> Path<State, Action> {
             .find(|s| {
                 fingerprint(&s) == init_print
             })
-            .expect("no init state matches fingerprint");
+            .unwrap_or_else(|| {
+                panic!(r#"
+Unable to reconstruct a `Path` based on digests ("fingerprints") from states visited earlier. No
+init state has the expected fingerprint ({:?}). This usually happens when the return value of
+`Model::init_states` varies.
+
+The most obvious cause would be a model that operates directly upon untracked external state such
+as the file system, a thread local `RefCell`, or a source of randomness. Note that this is often
+inadvertent. For example, iterating over a `HashMap` or `HashableHashMap` does not always happen in
+the same order (depending on the random seed), which can lead to unexpected nondeterminism.
+
+Available init fingerprints (none of which match): {:?}"#,
+                init_print,
+                model.init_states().into_iter()
+                    .map(|s| fingerprint(&s))
+                    .collect::<Vec<_>>());
+            });
         let mut output = Vec::new();
         while let Some(next_fp) = fingerprints.pop_front() {
             let (action, next_state) = model
@@ -40,7 +58,25 @@ impl<State, Action> Path<State, Action> {
                     } else {
                         None
                     }
-                }).expect("no next state matches fingerprint");
+                }).unwrap_or_else(|| {
+                    panic!(r#"
+Unable to reconstruct a `Path` based on digests ("fingerprints") from states visited earlier. {}
+previous state(s) of the path were able to be reconstructed, but no subsequent state has the next
+fingerprint ({:?}). This usually happens when `Model::actions` or `Model::next_state` vary even
+when given the same input arguments.
+
+The most obvious cause would be a model that operates directly upon untracked external state such
+as the file system, a thread local `RefCell`, or a source of randomness. Note that this is often
+inadvertent. For example, iterating over a `HashMap` or `HashableHashMap` does not always happen in
+the same order (depending on the random seed), which can lead to unexpected nondeterminism.
+
+Available next fingerprints (none of which match): {:?}"#,
+                    1 + output.len(),
+                    next_fp,
+                    model.next_states(&last_state).into_iter()
+                        .map(|s| fingerprint(&s))
+                        .collect::<Vec<_>>());
+                });
             output.push((last_state, Some(action)));
 
             last_state = next_state;
@@ -147,5 +183,43 @@ where Action: Debug,
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::iter::FromIterator;
+    use std::panic::catch_unwind;
+    use super::*;
+
+    #[test]
+    fn panics_if_unable_to_reconstruct_init_state() {
+        let model: fn(Option<&_>, &mut Vec<_>) = |prev_state, next_states| {
+            if prev_state.is_none() {
+                next_states.push("UNEXPECTED");
+            }
+        };
+        let err_result = catch_unwind(|| {
+            Path::from_fingerprints(
+                &model,
+                VecDeque::from_iter(vec![fingerprint(&"expected")]));
+        });
+        assert!(err_result.is_err());
+    }
+
+    #[test]
+    fn panics_if_unable_to_reconstruct_next_state() {
+        let model: fn(Option<&_>, &mut Vec<_>) = |prev_state, next_states| {
+            match prev_state {
+                None => next_states.push("expected"),
+                Some(_) => next_states.push("UNEXPECTED"),
+            }
+        };
+        let err_result = catch_unwind(|| {
+            Path::from_fingerprints(
+                &model,
+                VecDeque::from_iter(vec![fingerprint(&"expected"), fingerprint(&"expected")]));
+        });
+        assert!(err_result.is_err());
     }
 }

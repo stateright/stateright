@@ -1,10 +1,8 @@
 //! Utilities for tests.
 
-use crate::{Model, Property};
-
 /// A machine that cycles between two states.
 pub mod binary_clock {
-    use super::*;
+    use crate::*;
 
     #[derive(Clone)]
     pub struct BinaryClock;
@@ -51,7 +49,7 @@ pub mod binary_clock {
 pub mod dgraph {
     use crate::Checker;
     use std::collections::{BTreeMap, BTreeSet};
-    use super::*;
+    use crate::*;
 
     #[derive(Clone)]
     pub struct DGraph {
@@ -114,6 +112,27 @@ pub mod dgraph {
 
         fn properties(&self) -> Vec<Property<Self>> {
             vec![self.property.clone()]
+        }
+    }
+}
+
+/// A model defined by a function.
+pub mod function {
+    use crate::*;
+
+    impl<T> Model for fn(Option<&T>, &mut Vec<T>) {
+        type State = T;
+        type Action = T;
+        fn init_states(&self) -> Vec<Self::State> {
+            let mut actions = Default::default();
+            self(None, &mut actions);
+            actions
+        }
+        fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+            self(Some(state), actions);
+        }
+        fn next_state(&self, _: &Self::State, action: Self::Action) -> Option<Self::State> {
+            Some(action)
         }
     }
 }
