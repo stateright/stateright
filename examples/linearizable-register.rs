@@ -35,7 +35,7 @@ pub enum AbdMsg {
 }
 use AbdMsg::*;
 
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AbdState {
     seq: Seq,
     val: Value,
@@ -57,8 +57,12 @@ impl Actor for AbdActor {
     type Msg = RegisterMsg<RequestId, Value, AbdMsg>;
     type State = AbdState;
 
-    fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
-        Default::default()
+    fn on_start(&self, id: Id, _o: &mut Out<Self>) -> Self::State {
+        AbdState {
+            seq: (0, id),
+            val: Value::default(),
+            phase: None,
+        }
     }
 
     fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
@@ -105,6 +109,9 @@ impl Actor for AbdActor {
 
                         // Determine sequencer and value.
                         let (_, (seq, val)) = responses.into_iter()
+                            // The following relies on the fact that sequencers are distinct.
+                            // Otherwise the chosen response can vary even when given the same
+                            // inputs due to the underlying `HashMap`'s random seed.
                             .max_by_key(|(_, (seq, _))| seq)
                             .unwrap();
                         let mut seq = *seq;
