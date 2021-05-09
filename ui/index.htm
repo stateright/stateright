@@ -66,28 +66,8 @@
                                   text: $data.action">PREV</a>
                 </li>
             </ol>
-        </nav>
-        <section class="main-flex-right">
-            <div class="heading-with-controls">
-                <h2>Current State</h2>
-                <label>
-                    <input type="checkbox" data-bind="checked: isCompleteState" />
-                    Complete State?
-                </label>
-                <label>
-                    <input type="checkbox" data-bind="checked: isCompact" />
-                    Compact?
-                </label>
-            </div>
-            <div class="font-code font-small color-dark margin-bottom-small padding-small rounded"
-                 data-bind="style: { 'white-space': isCompact() ? 'normal' : 'pre-wrap' },
-                            text: isCompleteState()
-                                  ? selectedStep().state
-                                  : selectedStep().outcome || selectedStep().state">CURR STATE</div>
 
-            <div class="color-dark font-code hscroll margin-bottom-small padding-small rounded"
-                 data-bind="html: selectedStep().svg, visible: selectedStep().svg">SVG</div>
-            <h2>Next Steps</h2>
+            <h2>Next Action Choices</h2>
             <ul data-bind="foreach: selectedStep().nextSteps">
                 <li>
                     <a class="font-code" href="#"
@@ -102,6 +82,26 @@
                                   text: $data.action">NEXT</a>
                 </li>
             </ul>
+        </nav>
+        <section class="main-flex-right">
+            <div class="heading-with-controls">
+                <h2>Current State</h2>
+                <label>
+                    <input type="checkbox" data-bind="checked: isCompleteState" />
+                    Complete State?
+                </label>
+                <label>
+                    <input type="checkbox" data-bind="checked: isCompact" />
+                    Compact?
+                </label>
+            </div>
+            <div class="color-dark font-code hscroll margin-bottom-small padding-small rounded"
+                 data-bind="html: selectedStep().svg, visible: selectedStep().svg">SVG</div>
+            <div class="font-code font-small color-dark margin-bottom-small padding-small rounded"
+                 data-bind="style: { 'white-space': isCompact() ? 'normal' : 'pre-wrap' },
+                            text: isCompleteState()
+                                  ? selectedStep().state
+                                  : selectedStep().outcome || selectedStep().state">CURR STATE</div>
         </section>
     </main>
     <script src="app.js"></script>
