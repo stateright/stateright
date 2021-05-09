@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="app.css" />
     <script src="knockout-3.5.0.js"></script>
 </head>
-<body class="color-med">
+<body class="color-med" data-bind="event: {keydown: onKeyDown}">
     <header class="header color-dark">
         <h1><a href="/">Stateright Explorer</a></h1>
         <span class="header-links-container">
@@ -57,12 +57,16 @@
                 </li>
             </ul>
 
-            <h2>Path</h2>
-            <ol data-bind="foreach: selectedStep().pathSteps()">
+            <h2>Path of Actions</h2>
+            <ol class="path-list" data-bind="foreach: farthestStep().pathSteps()">
                 <li>
                     <a class="font-code" href="#"
-                       data-bind="attr: {href: '#/steps' + $data.path},
-                                  css: {'is-same-state': $root.isSameStateAsSelected($data)},
+                       data-bind="attr: {href: $root.farthestStep().computeUriWithOffset($root.farthestStep().pathSteps().length - $index() - 1)},
+                                  css: {
+                                    'is-selected-state': $data == $root.selectedStep(),
+                                    'is-same-state': $data != $root.selectedStep()
+                                                  && $root.isSameStateAsSelected($data)
+                                  },
                                   text: $data.action">PREV</a>
                 </li>
             </ol>

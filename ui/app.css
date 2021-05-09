@@ -32,16 +32,22 @@ a:hover {
 a.is-same-state {
     color: var(--fg-med);
 }
-a.is-same-state:before {
-    content: "current state: ";
+a.is-same-state:after {
+    content: " (state matches selected)";
     font-weight: bold;
+}
+a.is-selected-state {
+    background: var(--contrast-dim);
+    border: solid 1px var(--contrast-brt);
+    border-radius: 3px;
+    color: var(--bg-med);
 }
 a.is-ignored {
     color: var(--fg-med);
     text-decoration: none;
 }
-a.is-ignored:before {
-    content: "ignored: ";
+a.is-ignored:after {
+    content: " (ignored)";
     font-weight: bold;
 }
 body {
@@ -149,8 +155,13 @@ ul {
 .main-flex-right {
     flex-basis: 400px;
     flex-grow: 3;
-    padding-left: 5px;
-    padding-right: 5px;
+    margin-left: 25px;
+    margin-right: 25px;
+}
+
+.path-list a {
+    border: solid 1px transparent;
+    display: inline-table;
 }
 
 .svg-actor-label {

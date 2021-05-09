@@ -64,6 +64,17 @@ function Step({action, outcome, state, fingerprint, prevStep, svg}) {
     step.path = prevStep ? prevStep.path + '/' + fingerprint : '';
     step.pathSteps = () => (prevStep ? prevStep.pathSteps() : []).concat([step]);
     step.nextSteps = ko.observableArray();
+    step.computeOffsetTo = (dstStep) => {
+        let offset = 0;
+        for (let cursor = step; cursor; cursor = cursor.prevStep) {
+            if (cursor == dstStep) { return offset; }
+            ++offset;
+        }
+        return null;
+    };
+    step.computeUriWithOffset = (offset) => {
+        return `#/steps${step.path}?offset=${offset}`;
+    };
     step.fetchNextSteps = async () => {
         Step._NEXT_STEPS = Step._NEXT_STEPS || {};
         let cached = Step._NEXT_STEPS[step.path];
@@ -109,9 +120,30 @@ function App() {
     let app = this;
 
     app.selectedStep = ko.observable(Step.PRE_INIT);
+    app.farthestStep = ko.observable(Step.PRE_INIT);
     app.isCompact = ko.observable(false);
     app.isCompleteState = ko.observable(false);
     app.isSameStateAsSelected = (step) => step.state == app.selectedStep().state;
+    app.onKeyDown = (data, ev) => {
+        switch (ev.keyCode) {
+            case 38: // up arrow
+            case 75: { // k (vim style)
+                let offset = app.farthestStep().computeOffsetTo(app.selectedStep());
+                offset = Math.min(offset + 1, app.farthestStep().pathSteps().length - 1);
+                window.location = app.farthestStep().computeUriWithOffset(offset);
+                break;
+            }
+            case 40: // down arrow
+            case 74: { // k (vim style)
+                let offset = app.farthestStep().computeOffsetTo(app.selectedStep());
+                offset = Math.max(offset - 1, 0);
+                window.location = app.farthestStep().computeUriWithOffset(offset);
+                break;
+            }
+            default:
+                return true;
+        }
+    };
     app.status = ko.observable(Status.LOADING);
 
     window.onhashchange = prepareView;
@@ -122,7 +154,7 @@ function App() {
         console.log('Refreshing status.');
         let response = await fetch('/.status');
         let json = await response.json();
-        console.log(json);
+        console.log({json});
         app.status(new Status(json));
         if (!json.done) {
             setTimeout(refreshStatus, 5000);
@@ -134,7 +166,11 @@ function App() {
 
         // Canonicalize, then extract view name and remaining components.
         hash = hash || '#/steps';
-        let components = hash.split('/'); // e.g. ['#', 'steps', 4, 2]
+
+        let [path, queryString] = hash.split('?');
+        console.log({path, queryString});
+
+        let components = path.split('/'); // e.g. ['#', 'steps', 4, 2]
         let view = components[1];
         components.shift();
         components.shift();
@@ -145,10 +181,29 @@ function App() {
                 while (true) {
                     let nextSteps = await step.fetchNextSteps();
                     let nextFingerprint = components.shift();
-                    if (!nextFingerprint) { return app.selectedStep(step); }
+                    if (!nextFingerprint) {
+                        app.selectedStep(step);
+                        app.farthestStep(step);
+                        break;
+                    }
                     step = nextSteps.find(step => step.fingerprint == nextFingerprint);
                 }
+                break;
             default: throw new Error(`Invalid view: '${view}'`);
+        }
+
+        let pairs = (queryString || '').split('&');
+        for (let pair of pairs) {
+            let [qsKey, qsVal] = pair.split('=');
+            console.log({qsKey, qsVal});
+
+            switch (qsKey) {
+                case 'offset':
+                    for (let offset = parseInt(qsVal); offset > 0; --offset) {
+                        app.selectedStep(app.selectedStep().prevStep);
+                    }
+                    break; 
+            }
         }
     }
 }
