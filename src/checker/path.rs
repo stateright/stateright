@@ -32,11 +32,6 @@ impl<State, Action> Path<State, Action> {
             .expect("no init state matches fingerprint");
         let mut output = Vec::new();
         while let Some(next_fp) = fingerprints.pop_front() {
-            let mut actions = Vec::new();
-            model.actions(
-                &last_state,
-                &mut actions);
-
             let (action, next_state) = model
                 .next_steps(&last_state).into_iter()
                 .find_map(|(a,s)| {
