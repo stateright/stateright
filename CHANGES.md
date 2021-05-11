@@ -1,5 +1,10 @@
 # Changes
 
+## 0.27.1
+
+This release introduces the ability to quickly navigate forward/backward along
+a path using `down`/`up` or `j`/`k`.
+
 ## 0.27.0
 
 This release introduces multiple enhancements for Stateright Explorer. Explorer
