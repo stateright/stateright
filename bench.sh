@@ -25,6 +25,6 @@ bench() {
 }
 
 bench 2pc check 10
-bench paxos check 7
+bench paxos check 6
 bench single-copy-register check 4
 bench linearizable-register check 2
