@@ -95,7 +95,7 @@ fn can_model_single_copy_register() {
         Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Get(4) },
     ]);
-    assert_eq!(checker.generated_count(), 93);
+    assert_eq!(checker.unique_state_count(), 93);
 
     // Otherwise (if more than one server) then not linearizabile. BFS this time.
     let checker = SingleCopyModelCfg {
@@ -115,7 +115,7 @@ fn can_model_single_copy_register() {
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'A') },
         Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
     ]);
-    assert_eq!(checker.generated_count(), 20);
+    assert_eq!(checker.unique_state_count(), 20);
 }
 
 fn main() {

@@ -14,7 +14,7 @@ struct StatusView {
     done: bool,
     model: String,
     state_count: usize,
-    generated: usize,
+    unique_state_count: usize,
     properties: Vec<(Expectation,
                      String,           // name
                      Option<String>)>, // encoded path to discovery
@@ -143,7 +143,7 @@ where M: Model,
         model: std::any::type_name::<M>().to_string(),
         done: checker.is_done(),
         state_count: checker.state_count(),
-        generated: checker.generated_count(),
+        unique_state_count: checker.unique_state_count(),
         properties: checker.model().properties().into_iter()
             .map(|p| (
                     p.expectation,
@@ -389,7 +389,7 @@ mod test {
                  stateright::actor::actor_test_util::ping_pong::PingPongActor, \
                  stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>");
         assert_eq!(status.state_count, 5);
-        assert_eq!(status.generated, 5);
+        assert_eq!(status.unique_state_count, 5);
         assert_eq!(status.properties, vec![
             (Expectation::Always, "delta within 1".to_string(), None),
             (Expectation::Sometimes, "can reach max".to_string(), Some(

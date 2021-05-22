@@ -544,7 +544,7 @@ mod test {
             .into_model()
             .lossy_network(LossyNetwork::Yes)
             .checker().visitor(recorder).spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 14);
+        assert_eq!(checker.unique_state_count(), 14);
 
         let state_space = accessor();
         assert_eq!(state_space.len(), 14); // same as the generated count
@@ -626,7 +626,7 @@ mod test {
             .into_model()
             .lossy_network(LossyNetwork::Yes)
             .checker().spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 4_094);
+        assert_eq!(checker.unique_state_count(), 4_094);
         checker.assert_no_discovery("delta within 1");
     }
 
@@ -639,7 +639,7 @@ mod test {
             .into_model()
             .lossy_network(LossyNetwork::Yes)
             .checker().spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 4_094);
+        assert_eq!(checker.unique_state_count(), 4_094);
 
         // can lose the first message and get stuck, for example
         checker.assert_discovery("must reach max", vec![
@@ -657,7 +657,7 @@ mod test {
             .duplicating_network(DuplicatingNetwork::No)
             .lossy_network(LossyNetwork::No)
             .checker().spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 11);
+        assert_eq!(checker.unique_state_count(), 11);
         checker.assert_no_discovery("must reach max");
     }
 
@@ -670,7 +670,7 @@ mod test {
             .into_model()
             .lossy_network(LossyNetwork::No)
             .checker().spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 11);
+        assert_eq!(checker.unique_state_count(), 11);
         assert_eq!(
             checker.discovery("can reach max").unwrap().last_state().actor_states,
             vec![Arc::new(4), Arc::new(5)]);
@@ -690,7 +690,7 @@ mod test {
             .duplicating_network(DuplicatingNetwork::No)
             .lossy_network(LossyNetwork::No)
             .checker().spawn_bfs().join();
-        assert_eq!(checker.generated_count(), 11);
+        assert_eq!(checker.unique_state_count(), 11);
 
         // this is an example of a liveness property that fails to hold (due to the boundary)
         assert_eq!(
@@ -706,7 +706,7 @@ mod test {
                 .property(Expectation::Always, "unused", |_, _| true) // force full traversal
                 .init_network(vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }])
                 .checker().spawn_bfs().join()
-                .generated_count(),
+                .unique_state_count(),
             1);
     }
 
@@ -729,7 +729,7 @@ mod test {
                 .actor(TestActor)
                 .property(Expectation::Always, "unused", |_, _| true) // force full traversal
                 .checker().spawn_bfs().join()
-                .generated_count(),
+                .unique_state_count(),
             2);
     }
 }

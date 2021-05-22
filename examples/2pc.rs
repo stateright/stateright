@@ -125,12 +125,12 @@ impl Model for TwoPhaseSys {
 fn can_model_2pc() {
     // for very small state space (using BFS this time)
     let checker = TwoPhaseSys { rms: 0..3 }.checker().spawn_bfs().join();
-    assert_eq!(checker.generated_count(), 288);
+    assert_eq!(checker.unique_state_count(), 288);
     checker.assert_properties();
 
     // for slightly larger state space (using DFS this time)
     let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_dfs().join();
-    assert_eq!(checker.generated_count(), 8_832);
+    assert_eq!(checker.unique_state_count(), 8_832);
     checker.assert_properties();
 }
 

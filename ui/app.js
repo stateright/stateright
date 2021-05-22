@@ -1,9 +1,9 @@
 /// Represents the checker status. Reloads periodically until checking completes.
-function Status({done, state_count, generated, model, properties, recent_path}) {
+function Status({done, state_count, unique_state_count, model, properties, recent_path}) {
     let status = this;
 
     status.stateCount = state_count.toLocaleString();
-    status.generated = generated.toLocaleString();
+    status.uniqueStateCount = unique_state_count.toLocaleString();
     status.model = model.replace(/[0-9A-Za-z_]+::/g, '');
     status.progress = 'Done';
     if (!done) {
@@ -46,7 +46,7 @@ function Status({done, state_count, generated, model, properties, recent_path}) 
 Status.LOADING = new Status({
     done: 'loading...',
     state_count: 'loading...',
-    generated: 'loading...',
+    unique_state_count: 'loading...',
     model: 'loading...',
     properties: [],
     recent_path: 'loading...',

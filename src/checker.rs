@@ -161,12 +161,12 @@ pub trait Checker<M: Model> {
     fn model(&self) -> &M;
 
     /// Indicate how many states have been generated including repeats. Always greater than or
-    /// equal to [`Checker::generated_count`].
+    /// equal to [`Checker::unique_state_count`].
     fn state_count(&self) -> usize;
 
     /// Indicates how many unique states have been generated. Always less than or equal to
     /// [`Checker::state_count`].
-    fn generated_count(&self) -> usize;
+    fn unique_state_count(&self) -> usize;
 
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
@@ -198,12 +198,12 @@ pub trait Checker<M: Model> {
         while !self.is_done() {
             let _ = writeln!(w, "Checking. states={}, unique={}",
                              self.state_count(),
-                             self.generated_count());
+                             self.unique_state_count());
             std::thread::sleep(std::time::Duration::from_millis(1_000));
         }
         let _ = writeln!(w, "Done. states={}, unique={}, sec={}",
                          self.state_count(),
-                         self.generated_count(),
+                         self.unique_state_count(),
                          method_start.elapsed().as_secs());
 
         // Finish with a discovery summary.

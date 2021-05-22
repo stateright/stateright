@@ -297,7 +297,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.generated_count(), 45_148);
+    assert_eq!(checker.unique_state_count(), 45_148);
 
     // DFS
     let checker = PaxosModelCfg {
@@ -317,7 +317,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.generated_count(), 45_148);
+    assert_eq!(checker.unique_state_count(), 45_148);
 }
 
 fn main() {

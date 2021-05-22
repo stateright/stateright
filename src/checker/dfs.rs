@@ -286,7 +286,7 @@ where M: Model,
         self.state_count.load(Ordering::Relaxed)
     }
 
-    fn generated_count(&self) -> usize { self.generated.len() }
+    fn unique_state_count(&self) -> usize { self.generated.len() }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
         self.discoveries.iter()
@@ -350,7 +350,7 @@ mod test {
     fn can_complete_by_eliminating_properties() {
         let checker = LinearEquation { a: 2, b: 10, c: 14 }.checker().spawn_dfs().join();
         checker.assert_properties();
-        assert_eq!(checker.generated_count(), 55);
+        assert_eq!(checker.unique_state_count(), 55);
 
         // DFS found this example...
         assert_eq!(
