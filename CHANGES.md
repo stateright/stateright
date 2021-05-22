@@ -1,5 +1,12 @@
 # Changes
 
+## 0.28.0
+
+Stateright now distinguishes between the number of states (including
+regenerated) and the number of unique states. To facilitate this,
+`Checker::generated_count` has been removed in favor of `state_count` and
+`unique_state_count` methods.
+
 ## 0.27.1
 
 This release introduces the ability to quickly navigate forward/backward along
