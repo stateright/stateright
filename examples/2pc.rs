@@ -134,46 +134,37 @@ fn can_model_2pc() {
     checker.assert_properties();
 }
 
-fn main() {
-    use clap::{App, Arg, SubCommand, value_t};
-
+fn main() -> Result<(), pico_args::Error> {
     env_logger::init_from_env(env_logger::Env::default()
         .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
-    let mut app = App::new("2pc")
-        .about("model check abstract two phase commit")
-        .subcommand(SubCommand::with_name("check")
-            .about("model check")
-            .arg(Arg::with_name("rm_count")
-                 .help("number of resource managers")
-                 .default_value("7")))
-        .subcommand(SubCommand::with_name("explore")
-            .about("interactively explore state space")
-            .arg(Arg::with_name("rm_count")
-                 .help("number of resource managers")
-                 .default_value("2"))
-            .arg(Arg::with_name("address")
-                .help("address Explorer service should listen upon")
-                .default_value("localhost:3000")));
-    let args = app.clone().get_matches();
-
-    match args.subcommand() {
-        ("check", Some(args)) => {
-            let rm_count = value_t!(args, "rm_count", usize).expect("rm_count");
+    let mut args = pico_args::Arguments::from_env();
+    match args.subcommand()?.as_deref() {
+        Some("check") => {
+            let rm_count = args.opt_free_from_str()?
+                .unwrap_or(2);
             println!("Checking two phase commit with {} resource managers.", rm_count);
             TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get()).spawn_dfs()
                 .report(&mut std::io::stdout());
         }
-        ("explore", Some(args)) => {
-            let rm_count = value_t!(args, "rm_count", usize).expect("rm_count");
-            let address = value_t!(args, "address", String).expect("address");
+        Some("explore") => {
+            let rm_count = args.opt_free_from_str()?
+                .unwrap_or(2);
+            let address = args.opt_free_from_str()?
+                .unwrap_or("localhost:3000".to_string());
             println!("Exploring state space for two phase commit with {} resource managers on {}.", rm_count, address);
             TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get())
                 .serve(address);
         }
-        _ => app.print_help().unwrap(),
+        _ => {
+            println!("USAGE:");
+            println!("  ./2pc check [RESOURCE_MANAGER_COUNT]");
+            println!("  ./2pc explore [RESOURCE_MANAGER_COUNT] [ADDRESS]");
+        }
     }
+
+    Ok(())
 }
 

@@ -320,38 +320,18 @@ fn can_model_paxos() {
     assert_eq!(checker.unique_state_count(), 45_148);
 }
 
-fn main() {
-    use clap::{App, AppSettings, Arg, SubCommand, value_t};
+fn main() -> Result<(), pico_args::Error> {
     use stateright::actor::spawn;
     use std::net::{SocketAddrV4, Ipv4Addr};
 
     env_logger::init_from_env(env_logger::Env::default()
         .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
-    let mut app = App::new("paxos")
-        .about("single decree paxos")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(SubCommand::with_name("check")
-            .about("model check")
-            .arg(Arg::with_name("client_count")
-                .help("number of clients")
-                .default_value("2")))
-        .subcommand(SubCommand::with_name("explore")
-            .about("interactively explore state space")
-            .arg(Arg::with_name("client_count")
-                .help("number of clients")
-                .default_value("2"))
-            .arg(Arg::with_name("address")
-                .help("address Explorer service should listen upon")
-                .default_value("localhost:3000")))
-        .subcommand(SubCommand::with_name("spawn")
-            .about("spawn with messaging over UDP"));
-    let args = app.clone().get_matches();
-
-    match args.subcommand() {
-        ("check", Some(args)) => {
-            let client_count = std::cmp::min(
-                26, value_t!(args, "client_count", u8).expect("client count missing"));
+    let mut args = pico_args::Arguments::from_env();
+    match args.subcommand()?.as_deref() {
+        Some("check") => {
+            let client_count: u8 = args.opt_free_from_str()?
+                .unwrap_or(2);
             println!("Model checking Single Decree Paxos with {} clients.",
                      client_count);
             PaxosModelCfg {
@@ -362,10 +342,11 @@ fn main() {
                 .into_model().checker().threads(num_cpus::get())
                 .spawn_dfs().report(&mut std::io::stdout());
         }
-        ("explore", Some(args)) => {
-            let client_count = std::cmp::min(
-                26, value_t!(args, "client_count", u8).expect("client count missing"));
-            let address = value_t!(args, "address", String).expect("address");
+        Some("explore") => {
+            let client_count = args.opt_free_from_str()?
+                .unwrap_or(2);
+            let address = args.opt_free_from_str()?
+                .unwrap_or("localhost:3000".to_string());
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
@@ -377,7 +358,7 @@ fn main() {
                 .into_model().checker().threads(num_cpus::get())
                 .serve(address);
         }
-        ("spawn", Some(_args)) => {
+        Some("spawn") => {
             let port = 3000;
 
             println!("  A set of servers that implement Single Decree Paxos.");
@@ -402,6 +383,13 @@ fn main() {
                     (id2, PaxosActor { peer_ids: vec![id0, id1] }),
                 ]).unwrap();
         }
-        _ => app.print_help().unwrap(),
+        _ => {
+            println!("USAGE:");
+            println!("  ./paxos check [CLIENT_COUNT]");
+            println!("  ./paxos explore [CLIENT_COUNT] [ADDRESS]");
+            println!("  ./paxos spawn");
+        }
     }
+
+    Ok(())
 }
