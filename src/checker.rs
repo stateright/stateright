@@ -160,7 +160,12 @@ pub trait Checker<M: Model> {
     /// Returns a reference to this checker's [`Model`].
     fn model(&self) -> &M;
 
-    /// Indicates how many states have been generated.
+    /// Indicate how many states have been generated including repeats. Always greater than or
+    /// equal to [`Checker::generated_count`].
+    fn state_count(&self) -> usize;
+
+    /// Indicates how many unique states have been generated. Always less than or equal to
+    /// [`Checker::state_count`].
     fn generated_count(&self) -> usize;
 
     /// Returns a map from property name to corresponding "discovery" (indicated
@@ -191,12 +196,15 @@ pub trait Checker<M: Model> {
         // Start with the checking status.
         let method_start = Instant::now();
         while !self.is_done() {
-            let _ = writeln!(w, "Checking. generated={}", self.generated_count());
+            let _ = writeln!(w, "Checking. states={}, unique={}",
+                             self.state_count(),
+                             self.generated_count());
             std::thread::sleep(std::time::Duration::from_millis(1_000));
         }
-        let _ = writeln!(w, "Done. generated={}, sec={}",
-                 self.generated_count(),
-                 method_start.elapsed().as_secs());
+        let _ = writeln!(w, "Done. states={}, unique={}, sec={}",
+                         self.state_count(),
+                         self.generated_count(),
+                         method_start.elapsed().as_secs());
 
         // Finish with a discovery summary.
         for (name, path) in self.discoveries() {
@@ -423,8 +431,8 @@ mod test_report {
         let output = String::from_utf8(written).unwrap();
         assert!(
             output.starts_with("\
-                Checking. generated=1\n\
-                Done. generated=12, sec="),
+                Checking. states=1, unique=1\n\
+                Done. states=15, unique=12, sec="),
             "Output did not start as expected (see test). output={:?}`", output);
         assert!(
             output.ends_with("\
@@ -441,8 +449,8 @@ mod test_report {
         let output = String::from_utf8(written).unwrap();
         assert!(
             output.starts_with("\
-                Checking. generated=1\n\
-                Done. generated=55, sec="),
+                Checking. states=1, unique=1\n\
+                Done. states=55, unique=55, sec="),
             "Output did not start as expected (see test). output={:?}`", output);
         assert!(
             output.ends_with("\

@@ -8,15 +8,20 @@ use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 // While this file is currently quite similar to bfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
 
 pub(crate) struct DfsChecker<M: Model> {
+    // Immutable state.
     model: Arc<M>,
     thread_count: usize,
     handles: Vec<std::thread::JoinHandle<()>>,
+
+    // Mutable state.
     job_market: Arc<Mutex<JobMarket<M::State>>>,
+    state_count: Arc<AtomicUsize>,
     generated: Arc<DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Vec<Fingerprint>>>,
 }
@@ -34,8 +39,15 @@ where M: Model + Send + Sync + 'static,
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
 
-        let generated = Arc::new(DashSet::default());
-        for s in model.init_states() { generated.insert(fingerprint(&s)); }
+        let init_states: Vec<_> = model.init_states().into_iter()
+            .filter(|s| model.within_boundary(&s))
+            .collect();
+        let state_count = Arc::new(AtomicUsize::new(init_states.len()));
+        let generated = Arc::new({
+            let generated = DashSet::default();
+            for s in &init_states { generated.insert(fingerprint(s)); }
+            generated
+        });
         let ebits = {
             let mut ebits = EventuallyBits::new();
             for (i, p) in model.properties().iter().enumerate() {
@@ -45,7 +57,7 @@ where M: Model + Send + Sync + 'static,
             }
             ebits
         };
-        let pending: Vec<_> = model.init_states().into_iter()
+        let pending: Vec<_> = init_states.into_iter()
             .map(|s| {
                 let fs = vec![fingerprint(&s)];
                 (s, fs, ebits.clone())
@@ -64,6 +76,7 @@ where M: Model + Send + Sync + 'static,
             let visitor = Arc::clone(&visitor);
             let has_new_job = Arc::clone(&has_new_job);
             let job_market = Arc::clone(&job_market);
+            let state_count = Arc::clone(&state_count);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
             handles.push(std::thread::spawn(move || {
@@ -96,7 +109,14 @@ where M: Model + Send + Sync + 'static,
                             }
                         };
                     }
-                    Self::check_block(&*model, &*generated, &mut pending, &*discoveries, &*visitor, 1500);
+                    Self::check_block(
+                        &*model,
+                        &*state_count,
+                        &*generated,
+                        &mut pending,
+                        &*discoveries,
+                        &*visitor,
+                        1500);
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
                         let mut job_market = job_market.lock();
@@ -134,6 +154,7 @@ where M: Model + Send + Sync + 'static,
             thread_count,
             handles,
             job_market,
+            state_count,
             generated,
             discoveries,
         }
@@ -141,6 +162,7 @@ where M: Model + Send + Sync + 'static,
 
     fn check_block(
         model: &M,
+        state_count: &AtomicUsize,
         generated: &DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
@@ -210,6 +232,7 @@ where M: Model + Send + Sync + 'static,
             for next_state in next_states {
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) { continue }
+                state_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                 // Skip if already generated.
                 //
@@ -257,6 +280,10 @@ where M: Model,
       M::State: Hash,
 {
     fn model(&self) -> &M { &self.model }
+
+    fn state_count(&self) -> usize {
+        self.state_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
 
     fn generated_count(&self) -> usize { self.generated.len() }
 
