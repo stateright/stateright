@@ -8,7 +8,7 @@ use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // While this file is currently quite similar to bfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
@@ -34,7 +34,7 @@ where M: Model + Send + Sync + 'static,
 {
     pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
-        let target_generated_count = options.target_generated_count;
+        let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
@@ -125,9 +125,10 @@ where M: Model + Send + Sync + 'static,
                         has_new_job.notify_all();
                         return
                     }
-                    if let Some(target_generated_count) = target_generated_count {
-                        if target_generated_count.get() <= generated.len() {
-                            log::debug!("{}: Reached target generated count. Shutting down... gen={}", t, generated.len());
+                    if let Some(target_state_count) = target_state_count {
+                        if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
+                            log::debug!("{}: Reached target state count. Shutting down... gen={}",
+                                        t, generated.len());
                             return;
                         }
                     }
@@ -232,7 +233,7 @@ where M: Model + Send + Sync + 'static,
             for next_state in next_states {
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) { continue }
-                state_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                state_count.fetch_add(1, Ordering::Relaxed);
 
                 // Skip if already generated.
                 //
@@ -282,7 +283,7 @@ where M: Model,
     fn model(&self) -> &M { &self.model }
 
     fn state_count(&self) -> usize {
-        self.state_count.load(std::sync::atomic::Ordering::Relaxed)
+        self.state_count.load(Ordering::Relaxed)
     }
 
     fn generated_count(&self) -> usize { self.generated.len() }

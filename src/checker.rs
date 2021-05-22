@@ -27,7 +27,7 @@ pub use visitor::*;
               Consider calling spawn_bfs() or spawn_dfs()."]
 pub struct CheckerBuilder<M: Model> {
     model: M,
-    target_generated_count: Option<NonZeroUsize>,
+    target_state_count: Option<NonZeroUsize>,
     thread_count: usize,
     visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
 }
@@ -35,7 +35,7 @@ impl<M: Model> CheckerBuilder<M> {
     pub(crate) fn new(model: M) -> Self {
         Self {
             model,
-            target_generated_count: None,
+            target_state_count: None,
             thread_count: 1,
             visitor: None,
         }
@@ -136,8 +136,8 @@ impl<M: Model> CheckerBuilder<M> {
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons
     /// the checker may exceed this number, but it will never generate fewer states if more exist.
-    pub fn target_generated_count(self, target_generated_count: usize) -> Self {
-        Self { target_generated_count: NonZeroUsize::new(target_generated_count), .. self }
+    pub fn target_state_count(self, count: usize) -> Self {
+        Self { target_state_count: NonZeroUsize::new(count), .. self }
     }
 
     /// Sets the number of threads available for model checking. For maximum performance this
