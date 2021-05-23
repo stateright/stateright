@@ -49,8 +49,8 @@
 use serde::{Deserialize, Serialize};
 use stateright::{Expectation, Model, Checker};
 use stateright::actor::{
-    Actor, ActorModel, DuplicatingNetwork, Id, model_peers, Out};
-use stateright::actor::register::{RegisterActor, RegisterActorState, RegisterMsg, RegisterMsg::*};
+    Actor, ActorModel, DuplicatingNetwork, Id, majority, model_peers, Out};
+use stateright::actor::register::{RegisterActor, RegisterMsg, RegisterMsg::*};
 use stateright::semantics::LinearizabilityTester;
 use stateright::semantics::register::Register;
 use stateright::util::{HashableHashMap, HashableHashSet};
@@ -155,7 +155,7 @@ impl Actor for PaxosActor {
             if ballot == state.ballot => {
                 let mut state = state.to_mut();
                 state.prepares.insert(src, last_accepted);
-                if state.prepares.len() > (self.peer_ids.len() + 1) / 2 {
+                if state.prepares.len() == majority(self.peer_ids.len() + 1) {
                     // This stage is best understood as "leadership handoff," in which this term's
                     // leader needs to ensure it does not contradict a decision (a quorum of
                     // accepts) from a previous term. Here's how:
@@ -198,7 +198,7 @@ impl Actor for PaxosActor {
             Internal(Accepted { ballot }) if ballot == state.ballot => {
                 let mut state = state.to_mut();
                 state.accepts.insert(src);
-                if state.accepts.len() > (self.peer_ids.len() + 1) / 2 {
+                if state.accepts.len() == majority(self.peer_ids.len() + 1) {
                     state.is_decided = true;
                     let proposal = state.proposal
                         .expect("proposal expected"); // See `Put` case above.
@@ -225,7 +225,6 @@ impl Actor for PaxosActor {
 struct PaxosModelCfg {
     client_count: usize,
     server_count: usize,
-    max_round: Round,
 }
 
 impl PaxosModelCfg {
@@ -262,15 +261,6 @@ impl PaxosModelCfg {
             })
             .record_msg_in(RegisterMsg::record_returns)
             .record_msg_out(RegisterMsg::record_invocations)
-            .within_boundary(|cfg, state| {
-                state.actor_states.iter().all(|s| {
-                    if let RegisterActorState::Server(s) = &**s {
-                        s.ballot.0 <= cfg.max_round
-                    } else {
-                        true
-                    }
-                })
-            })
     }
 }
 
@@ -283,7 +273,6 @@ fn can_model_paxos() {
     let checker = PaxosModelCfg {
             client_count: 2,
             server_count: 3,
-            max_round: 3,
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
@@ -297,13 +286,12 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.unique_state_count(), 45_148);
+    assert_eq!(checker.unique_state_count(), 23_217);
 
     // DFS
     let checker = PaxosModelCfg {
             client_count: 2,
             server_count: 3,
-            max_round: 3,
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
@@ -317,7 +305,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.unique_state_count(), 45_148);
+    assert_eq!(checker.unique_state_count(), 23_217);
 }
 
 fn main() -> Result<(), pico_args::Error> {
@@ -330,14 +318,13 @@ fn main() -> Result<(), pico_args::Error> {
     let mut args = pico_args::Arguments::from_env();
     match args.subcommand()?.as_deref() {
         Some("check") => {
-            let client_count: u8 = args.opt_free_from_str()?
+            let client_count = args.opt_free_from_str()?
                 .unwrap_or(2);
             println!("Model checking Single Decree Paxos with {} clients.",
                      client_count);
             PaxosModelCfg {
-                    client_count: client_count as usize,
+                    client_count,
                     server_count: 3,
-                    max_round: 3,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .spawn_dfs().report(&mut std::io::stdout());
@@ -351,9 +338,8 @@ fn main() -> Result<(), pico_args::Error> {
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
             PaxosModelCfg {
-                    client_count: client_count as usize,
+                    client_count,
                     server_count: 3,
-                    max_round: 3,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .serve(address);
