@@ -128,12 +128,12 @@ fn main() -> Result<(), pico_args::Error> {
     let mut args = pico_args::Arguments::from_env();
     match args.subcommand()?.as_deref() {
         Some("check") => {
-            let client_count: u8 = args.opt_free_from_str()?
+            let client_count = args.opt_free_from_str()?
                 .unwrap_or(2);
             println!("Model checking a single-copy register with {} clients.",
                      client_count);
             SingleCopyModelCfg {
-                    client_count: client_count as usize,
+                    client_count,
                     server_count: 1,
                 }
                 .into_model().checker().threads(num_cpus::get())
@@ -148,7 +148,7 @@ fn main() -> Result<(), pico_args::Error> {
                 "Exploring state space for single-copy register with {} clients on {}.",
                 client_count, address);
             SingleCopyModelCfg {
-                    client_count: client_count as usize,
+                    client_count,
                     server_count: 1,
                 }
                 .into_model().checker().threads(num_cpus::get())
