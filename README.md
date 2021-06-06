@@ -6,7 +6,7 @@
 Correctly implementing distributed algorithms such as the
 [Paxos](https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) and
 [Raft](https://en.wikipedia.org/wiki/Raft_%28computer_science%29) consensus
-protocols is notoriously difficult due inherent nondetermism such as message
+protocols is notoriously difficult due to inherent nondetermism such as message
 reordering by network devices. Stateright is a
 [Rust](https://www.rust-lang.org/) actor library that aims to solve this
 problem by providing an embedded [model
