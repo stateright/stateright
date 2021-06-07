@@ -138,7 +138,7 @@ impl Actor for PaxosActor {
                 // Simulate `Prepare` self-send.
                 state.ballot = (state.ballot.0 + 1, id);
                 // Simulate `Prepared` self-send.
-                state.prepares.insert(src, state.accepted);
+                state.prepares.insert(id, state.accepted);
 
                 o.broadcast(
                     &self.peer_ids,
@@ -181,7 +181,7 @@ impl Actor for PaxosActor {
                     // Simulate `Accept` self-send.
                     state.accepted = Some((ballot, proposal));
                     // Simulate `Accepted` self-send.
-                    state.accepts.insert(src);
+                    state.accepts.insert(id);
 
                     o.broadcast(&self.peer_ids, &Internal(Accept {
                         ballot,
@@ -286,7 +286,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.unique_state_count(), 23_217);
+    assert_eq!(checker.unique_state_count(), 16_668);
 
     // DFS
     let checker = PaxosModelCfg {
@@ -305,7 +305,7 @@ fn can_model_paxos() {
         Deliver { src: 1.into(), dst: 2.into(), msg: Internal(Decided { ballot: (1, 1.into()), proposal: (4, 4.into(), 'B') }) },
         Deliver { src: 4.into(), dst: 2.into(), msg: Get(8) }
     ]);
-    assert_eq!(checker.unique_state_count(), 23_217);
+    assert_eq!(checker.unique_state_count(), 16_668);
 }
 
 fn main() -> Result<(), pico_args::Error> {
