@@ -264,11 +264,21 @@ pub trait Actor: Sized {
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State;
 
     /// Indicates the next state and commands when a message is received. See [`Out::send`].
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>);
+    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+        // no-op by default
+        let _ = id;
+        let _ = state;
+        let _ = src;
+        let _ = msg;
+        let _ = o;
+    }
 
     /// Indicates the next state and commands when a timeout is encountered. See [`Out::set_timer`].
-    fn on_timeout(&self, _id: Id, _state: &mut Cow<Self::State>, _o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
         // no-op by default
+        let _ = id;
+        let _ = state;
+        let _ = o;
     }
 }
 
