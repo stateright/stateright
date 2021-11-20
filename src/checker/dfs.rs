@@ -343,7 +343,7 @@ mod test {
         let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_dfs().join();
         assert_eq!(checker.is_done(), true);
         checker.assert_no_discovery("solvable");
-        assert_eq!(checker.generated_count(), 256 * 256);
+        assert_eq!(checker.unique_state_count(), 256 * 256);
     }
 
     #[test]
