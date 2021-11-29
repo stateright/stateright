@@ -243,6 +243,7 @@ where M: Model,
 mod test {
     use super::*;
     use crate::test_util::binary_clock::*;
+    use lazy_static::lazy_static;
 
     #[test]
     fn can_init() {
@@ -285,9 +286,8 @@ mod test {
 
     #[test]
     fn smoke_test_states() {
-        use crate::actor::{ActorModelState, DuplicatingNetwork, Envelope, Id, LossyNetwork};
+        use crate::actor::{ActorModelState, DuplicatingNetwork, Envelope, Id, LossyNetwork, Network};
         use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
-        use crate::util::HashableHashSet;
         use std::iter::FromIterator;
 
         let checker = Arc::new(
@@ -310,7 +310,7 @@ mod test {
                         actor_states: vec![Arc::new(0), Arc::new(0)],
                         history: (0, 1),
                         is_timer_set: vec![],
-                        network: HashableHashSet::from_iter(vec![
+                        network: Network::from_iter(vec![
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                         ]),
                     }),
@@ -318,20 +318,21 @@ mod test {
                 },
             ]);
 
-        // To regenerate the path if the fingerprint changes:
-        // ```
-        // use crate::actor::actor_test_util::ping_pong::{PingPongActor, PingPongHistory};
-        // let fp = fingerprint(&ActorModelState::<PingPongActor, PingPongHistory> {
-        //     actor_states: vec![Arc::new(0), Arc::new(0)],
-        //     history: (0, 1),
-        //     is_timer_set: vec![],
-        //     network: HashableHashSet::from_iter(vec![
-        //         Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-        //     ]),
-        // });
-        // println!("New path name is: /{}", fp);
-        // ```
-        let states = get_states(Arc::clone(&checker), "/2298670378538534683").unwrap();
+        lazy_static! {
+            static ref PATH: String = {
+                use crate::actor::actor_test_util::ping_pong::{PingPongActor, PingPongHistory};
+                let fp = fingerprint(&ActorModelState::<PingPongActor, PingPongHistory> {
+                    actor_states: vec![Arc::new(0), Arc::new(0)],
+                    history: (0, 1),
+                    is_timer_set: vec![],
+                    network: Network::from_iter(vec![
+                        Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
+                    ]),
+                });
+                format!("/{}", fp)
+            };
+        }
+        let states = get_states(Arc::clone(&checker), PATH.as_ref()).unwrap();
         assert_eq!(states.len(), 2);
         assert_eq!(
             states[0],
@@ -342,7 +343,7 @@ mod test {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     is_timer_set: vec![],
-                    network: HashableHashSet::new(),
+                    network: Network::new(),
                 }),
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n</svg>\n".to_string()),
             });
@@ -358,7 +359,7 @@ mod test {
                     ],
                     history: (1, 2),
                     is_timer_set: vec![],
-                    network: HashableHashSet::from_iter(vec![
+                    network: Network::from_iter(vec![
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     ]),
                 }),
@@ -390,23 +391,27 @@ mod test {
                  stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>");
         assert_eq!(status.state_count, 5);
         assert_eq!(status.unique_state_count, 5);
-        assert_eq!(status.properties, vec![
-            (Expectation::Always, "delta within 1".to_string(), None),
-            (Expectation::Sometimes, "can reach max".to_string(), Some(
-                    "2298670378538534683\
-                    /6952966106190701737\
-                    /713954962230533912\
-                    /13964153056603498260".to_string())),
-            (Expectation::Eventually, "must reach max".to_string(), None),
-            (Expectation::Eventually, "must exceed max".to_string(), Some(
-                    "2298670378538534683\
-                    /6952966106190701737\
-                    /713954962230533912\
-                    /13964153056603498260\
-                    /8719175338738027539".to_string())),
-            (Expectation::Always, "#in <= #out".to_string(), None),
-            (Expectation::Eventually, "#out <= #in + 1".to_string(), None)
-        ]);
+        let assert_discovery =
+            |status: &StatusView,
+             expectation: Expectation,
+             name: &'static str,
+             has_discovery: bool|
+        {
+            let match_found = status.properties.iter()
+                .any(|(e, n, d)| {
+                    e == &expectation && n == name && d.is_some() == has_discovery
+                });
+            if !match_found {
+                panic!("Not found. expectation={:?}, name={:?}, has_discovery={:?}, properties={:#?}",
+                       expectation, name, has_discovery, status.properties);
+            }
+        };
+        assert_discovery(&status, Expectation::Always,     "delta within 1",  false);
+        assert_discovery(&status, Expectation::Sometimes,  "can reach max",   true);
+        assert_discovery(&status, Expectation::Eventually, "must reach max",  false);
+        assert_discovery(&status, Expectation::Eventually, "must exceed max", true);
+        assert_discovery(&status, Expectation::Always,     "#in <= #out",     false);
+        assert_discovery(&status, Expectation::Eventually, "#out <= #in + 1", false);
         assert!(status.recent_path.unwrap().starts_with("["));
     }
 
