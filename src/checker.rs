@@ -1,8 +1,9 @@
 //! Private module for selective re-export.
 
 mod bfs;
-use crate::{Expectation, Model};
+use crate::{Expectation, Model, Symmetric};
 mod dfs;
+mod sym;
 mod explorer;
 mod path;
 mod visitor;
@@ -132,6 +133,19 @@ impl<M: Model> CheckerBuilder<M> {
           M::State: Hash + Send + Sync + 'static,
     {
         dfs::DfsChecker::spawn(self)
+    }
+
+    /// Spawns a symmetry aware dfs search model checker.
+    /// 
+    /// This call does not block the current thread. Call [`Checker::join`] to block until
+    /// checking completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join() or report(...), for example."]
+    pub fn spawn_sym(self) -> impl Checker<M>
+    where M: Model + Send + Sync + 'static,
+          M::State: Hash + Send + Sync + Symmetric + 'static,
+    {
+        sym::SymChecker::spawn(self)
     }
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons

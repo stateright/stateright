@@ -41,6 +41,7 @@
               })
               cargo-edit
               crate2nix
+	      rust-analyzer
 
               rnix-lsp
               nixpkgs-fmt

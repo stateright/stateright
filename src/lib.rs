@@ -145,6 +145,14 @@ pub use checker::*;
 pub mod semantics;
 pub mod util;
 
+pub trait Symmetric: {
+    type Permutation;
+
+    fn permute(&self, pi: &Self::Permutation) -> Self;
+
+    fn get_permutations(&self) -> Vec<Self::Permutation>;
+}
+
 /// This is the primary abstraction for Stateright. Implementations model a
 /// nondeterministic system's evolution. If you are using Stateright's actor framework,
 /// then you do not need to implement this interface and can instead leverage
