@@ -137,26 +137,19 @@ impl State {
 
 }
 
-type Permutation = Vec<usize>;
-
 impl Symmetric for State {
-    type Permutation = Permutation;
-
-    fn permute(&self, pi : &Permutation) -> Self {
-        let tsp = pi.iter().map(|&i| self.ts[i]).collect();
-        let pcsp = pi.iter().map(|&i| self.pcs[i]).collect();
-
-        Self {
-            i : self.i,
-            ts : tsp,
-            pcs : pcsp,
-        }
-    }
-
-    fn get_permutations(&self) -> Vec<Permutation> {
-        (0..self.ts.len())
+    fn permutations(&self) -> Box<dyn Iterator<Item = Self>> {
+        let this = self.clone();
+        Box::new((0..self.ts.len())
             .permutations(self.ts.len())
-            .collect()
+            .map(move |pi| {
+                let this = &this;
+                Self {
+                    i : this.i,
+                    ts : pi.iter().map(|&i| this.ts[i]).collect(),
+                    pcs : pi.iter().map(|&i| this.pcs[i]).collect(),
+                }
+            }))
     }
 }
 
