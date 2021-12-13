@@ -58,54 +58,43 @@ impl Model for State {
         vec![self.clone()]
     }
 
-    fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
-        actions.extend(&mut (0..self.pcs.len()).map(Action::Lock));
-        actions.extend(&mut (0..self.pcs.len()).map(Action::Read));
-        actions.extend(&mut (0..self.pcs.len()).map(Action::Write));
-        actions.extend(&mut (0..self.pcs.len()).map(Action::Release));
+    fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+        for thread_id in 0..self.pcs.len() {
+            match state.pcs[thread_id] {
+                0 if !state.lock => actions.push(Action::Lock(thread_id)),
+                1 => actions.push(Action::Read(thread_id)),
+                2 => actions.push(Action::Write(thread_id)),
+                3 if state.lock => actions.push(Action::Release(thread_id)),
+                _ => {}
+            }
+        }
     }
 
     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
         match action {
             Action::Lock(n) => {
-                if last_state.pcs[n] == 0 && !last_state.lock {
-                    let mut state = last_state.clone();
-                    state.pcs[n] = 1;
-                    state.lock = true;
-                    Some(state)
-                } else {
-                    None
-                }
+                let mut state = last_state.clone();
+                state.pcs[n] = 1;
+                state.lock = true;
+                Some(state)
             }
             Action::Read(n) => {
-                if last_state.pcs[n] == 1 {
-                    let mut state = last_state.clone();
-                    state.ts[n] = last_state.i;
-                    state.pcs[n] = 2;
-                    Some(state)
-                } else {
-                    None
-                }
+                let mut state = last_state.clone();
+                state.pcs[n] = 2;
+                state.ts[n] = last_state.i;
+                Some(state)
             }
             Action::Write(n) => {
-                if last_state.pcs[n] == 2 {
-                    let mut state = last_state.clone();
-                    state.pcs[n] = 3;
-                    state.i = last_state.ts[n] + 1;
-                    Some(state)
-                } else {
-                    None
-                }
+                let mut state = last_state.clone();
+                state.pcs[n] = 3;
+                state.i = last_state.ts[n] + 1;
+                Some(state)
             }
             Action::Release(n) => {
-                if last_state.pcs[n] == 3 && last_state.lock {
-                    let mut state = last_state.clone();
-                    state.pcs[n] = 4;
-                    state.lock = false;
-                    Some(state)
-                } else {
-                    None
-                }
+                let mut state = last_state.clone();
+                state.pcs[n] = 4;
+                state.lock = false;
+                Some(state)
             }
         }
     }
