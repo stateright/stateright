@@ -1,7 +1,7 @@
 //! Private module for selective re-export.
 
 mod bfs;
-use crate::{Expectation, Model, Symmetric};
+use crate::{Expectation, Model, Symmetric, Strategy};
 mod dfs;
 mod sym;
 mod explorer;
@@ -141,11 +141,11 @@ impl<M: Model> CheckerBuilder<M> {
     /// checking completes.
     #[must_use = "Checkers run on background threads. \
                   Consider calling join() or report(...), for example."]
-    pub fn spawn_sym(self) -> impl Checker<M>
+    pub fn spawn_sym(self, strategy: Strategy) -> impl Checker<M>
     where M: Model + Send + Sync + 'static,
           M::State: Hash + Send + Sync + Symmetric + 'static,
     {
-        sym::SymChecker::spawn(self)
+        sym::SymChecker::spawn(self, strategy)
     }
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons

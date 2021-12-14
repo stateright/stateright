@@ -37,38 +37,38 @@
 //!
 //! ```
 //! // 1. The system has a deterministic initial state.
-//! State { i: 0, ts: [0, 0], pcs: [1, 1] }
+//! State { i: 0, s: [{t: 0, pc: 1}, {t: 0, pc: 1}]}
 //!
 //! // 2. Next one of the threads reads from shared memory, resulting in two possible states.
-//! State { i: 0, ts: [0, 0], pcs: [2, 1] }
-//! State { i: 0, ts: [0, 0], pcs: [1, 2] }
+//! State { i: 0, s: [{t: 0, pc: 2}, {t: 0, pc: 1}]}
+//! State { i: 0, s: [{t: 0, pc: 1}, {t: 0, pc: 2}]}
 //!
 //! // 3a. Then either the same thread writes to shared memory...
-//! State { i: 1, ts: [0, 0], pcs: [3, 1] }
-//! State { i: 1, ts: [0, 0], pcs: [1, 3] }
+//! State { i: 1, s: [{t: 0, pc: 1}, {t: 0, pc: 3}]}
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 1}]}
 //!
 //! // 3b. ... or the other thread catches up by also reading from shared memory.
-//! State { i: 0, ts: [0, 0], pcs: [2, 2] }
+//! State { i: 0, s: [{t: 0, pc: 2}, {t: 0, pc: 2}]}
 //!
 //! // 4a. In the case where the same thread wrote to shared memory, the other thread must observe
 //! //     that write and will then must persist the increment, maintaining the invariant.
 //! //
 //! //     The read:
-//! State { i: 1, ts: [1, 0], pcs: [2, 3] }
-//! State { i: 1, ts: [0, 1], pcs: [3, 2] }
+//! State { i: 1, s: [{t: 1, pc: 2}, {t: 0, pc: 3}]}
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 1, pc: 2}]}
 //! //     The write:
-//! State { i: 2, ts: [1, 0], pcs: [3, 3] }
-//! State { i: 2, ts: [0, 1], pcs: [3, 3] }
+//! State { i: 2, s: [{t: 1, pc: 3}, {t: 0, pc: 3}]}
+//! State { i: 2, s: [{t: 0, pc: 3}, {t: 1, pc: 3}]}
 //!
 //! // 4b. Otherwise (in the case where both threads read the original shared memory), one writes
 //! //     the increment (maintaining the invariant) before the other writes the stale increment
 //! //     (breaking the invariant).
 //! //
 //! //     First write:
-//! State { i: 1, ts: [0, 0], pcs: [2, 3] }
-//! State { i: 1, ts: [0, 0], pcs: [3, 2] }
+//! State { i: 1, s: [{t: 0, pc: 2}, {t: 0, pc: 3}]}
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 2}]}
 //! //     Second write:
-//! State { i: 1, ts: [0, 0], pcs: [3, 3] }
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 3}]}
 //! ```
 //!
 //! # State Space With Symmetry Reduction
@@ -78,34 +78,34 @@
 //!
 //! ```
 //! // 1. Same as without symmetry reduction.
-//! State { i: 0, ts: [0, 0], pcs: [1, 1] }
+//! State { i: 0, s: [{t: 0, pc: 1}, {t: 0, pc: 1}]}
 //!
 //! // 2. Reduction eliminates 1 state.
-//! State { i: 0, ts: [0, 0], pcs: [2, 1] }
+//! State { i: 0, s: [{t: 0, pc: 2}, {t: 0, pc: 1}]}
 //!
 //! // 3a. Reduction eliminates 1 state.
-//! State { i: 1, ts: [0, 0], pcs: [3, 1] }
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 1}]}
 //!
 //! // 3b. Same as without symmetry reduction.
-//! State { i: 0, ts: [0, 0], pcs: [2, 2] }
+//! State { i: 1, s: [{t: 0, pc: 2}, {t: 0, pc: 2}]}
 //!
 //! // 4a. Reduction eliminates 2 states.
 //! //
 //! //     Read:
-//! State { i: 1, ts: [0, 1], pcs: [3, 2] }
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 1, pc: 2}]}
 //! //     Write:
-//! State { i: 2, ts: [0, 1], pcs: [3, 3] }
+//! State { i: 2, s: [{t: 0, pc: 3}, {t: 1, pc: 3}]}
 //!
 //! // 4b. Reduction eliminates 1 state.
 //! //
 //! //     First write:
-//! State { i: 1, ts: [0, 0], pcs: [3, 2] }
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 2}]}
 //! //     Second write:
-//! State { i: 1, ts: [0, 0], pcs: [3, 3] }
+//! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 3}]}
 //! ```
 
-use stateright::*;
 use itertools::*;
+use stateright::*;
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -115,14 +115,20 @@ pub enum Action {
     Write(usize),
 }
 
+#[derive(Debug, Clone, Default, Hash, Eq, Ord, PartialEq, PartialOrd)]
+struct ProcState {
+    /// Thread_local state.
+    t: u8,
+    /// Program counter.
+    pc: u8,
+}
+
 #[derive(Debug, Clone, Default, Hash)]
 pub struct State {
     /// The shared global state.
     i: u8,
-    /// Each thread's internal "thread local" state.
-    ts: Vec<u8>,
-    /// Each thread's program counter.
-    pcs: Vec<u8>,
+    /// Each thread's internal state.
+    s: Vec<ProcState>
 }
 
 
@@ -130,8 +136,7 @@ impl State {
     pub fn new(n: usize) -> Self {
         Self {
             i: 0,
-            ts: vec![0; n],
-            pcs: vec![1; n],
+            s: vec![ProcState {t:0,pc:1}; n],
         }
     }
 
@@ -140,16 +145,24 @@ impl State {
 impl Symmetric for State {
     fn permutations(&self) -> Box<dyn Iterator<Item = Self>> {
         let this = self.clone();
-        Box::new((0..self.ts.len())
-            .permutations(self.ts.len())
+        Box::new((0..self.s.len())
+            .permutations(self.s.len())
             .map(move |pi| {
                 let this = &this;
                 Self {
                     i : this.i,
-                    ts : pi.iter().map(|&i| this.ts[i]).collect(),
-                    pcs : pi.iter().map(|&i| this.pcs[i]).collect(),
+                    s : pi.iter().map(|&i| this.s[i].clone()).collect(),
                 }
             }))
+    }
+
+    fn a_sorted_permutation(&self) -> Self {
+        let mut main_array = self.s.clone();
+        main_array.sort();
+        Self {
+            i : self.i,
+            s : main_array,
+        }
     }
 }
 
@@ -163,8 +176,8 @@ impl Model for State {
     }
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-        for thread_id in 0..self.pcs.len() {
-            match state.pcs[thread_id] {
+        for thread_id in 0..self.s.len() {
+            match state.s[thread_id].pc {
                 1 => actions.push(Action::Read(thread_id)),
                 2 => actions.push(Action::Write(thread_id)),
                 _ => {}
@@ -177,15 +190,14 @@ impl Model for State {
             Action::Read(n) => {
                 // Read the shared state into the specified thread's local state.
                 let mut state = last_state.clone();
-                state.pcs[n] = 2;
-                state.ts[n] = last_state.i;
+                state.s[n] = ProcState {pc : 2, t : last_state.i};
                 Some(state)
             }
             Action::Write(n) => {
                 // Write the increment of the specified thread's local state to the shared state.
                 let mut state = last_state.clone();
-                state.pcs[n] = 3;
-                state.i = last_state.ts[n] + 1;
+                state.s[n].pc = 3;
+                state.i = last_state.s[n].t + 1;
                 Some(state)
             }
         }
@@ -193,7 +205,7 @@ impl Model for State {
 
     fn properties(&self) -> Vec<Property<Self>> {
         vec![Property::<Self>::always("fin", |_, state| {
-            state.pcs.iter().filter(|&pc| *pc == (3 as u8)).count() as u8 == state.i
+            state.s.iter().filter(|&s| s.pc == (3 as u8)).count() as u8 == state.i
         })]
     }
 }
@@ -215,14 +227,20 @@ fn main() -> Result<(), pico_args::Error> {
                 .spawn_dfs().report(&mut std::io::stdout());
         }
         Some("check-sym") => {
-            let thread_count = args.opt_free_from_str()?
-                .unwrap_or(3);
-            println!("Symmetrical model checking increment with {} threads.",
-                     thread_count);
+            let thread_count = args.opt_free_from_str()?.unwrap_or(3);
+            let strategy = args.opt_free_from_fn(parse_strategy)?.unwrap_or(Strategy::Full);
+            println!(
+                "Symmetrical model checking using {:?} increment with {} threads.",
+                strategy,
+                thread_count
+            );
+
 
             State::new(thread_count)
-                .checker().threads(num_cpus::get())
-                .spawn_sym().report(&mut std::io::stdout());
+                .checker()
+                .threads(num_cpus::get())
+                .spawn_sym(strategy)
+                .report(&mut std::io::stdout());
         }
         Some("explore") => {
             let thread_count = args.opt_free_from_str()?
@@ -243,4 +261,13 @@ fn main() -> Result<(), pico_args::Error> {
     }
 
     Ok(())
+}
+
+fn parse_strategy(s : &str) -> Result<Strategy, &'static str> {
+   print!("{}", s);
+   match s {
+       "full" => Ok(Strategy::Full),
+       "sorted" => Ok(Strategy::Sorted),
+       _ => Err("Only valid for full/sorted")
+   }
 }

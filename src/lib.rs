@@ -146,8 +146,18 @@ pub use checker::*;
 pub mod semantics;
 pub mod util;
 
+#[derive(Debug, Clone, Copy)]
+pub enum Strategy {
+    Full,
+    Sorted,
+}
+
 pub trait Symmetric {
+    /// Symmetric permutations of the state
     fn permutations(&self) -> Box<dyn Iterator<Item = Self> + '_>;
+
+    /// A single permutation which sorts some part of the state
+    fn a_sorted_permutation(&self) -> Self;
 }
 
 /// This is the primary abstraction for Stateright. Implementations model a
