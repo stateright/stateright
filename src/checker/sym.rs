@@ -1,6 +1,6 @@
 //! Private module for selective re-export.
 
-use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property, Symmetric};
+use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property, Symmetric, Strategy};
 use crate::checker::{Checker, EventuallyBits, Expectation, Path};
 use dashmap::{DashMap, DashSet};
 use nohash_hasher::NoHashHasher;
@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 // While this file is currently quite similar to bfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
+
 
 pub(crate) struct SymChecker<M: Model> {
     // Immutable state.
@@ -32,7 +33,7 @@ impl<M> SymChecker<M>
 where M: Model + Send + Sync + 'static,
       M::State: Hash + Send + Symmetric + 'static,
 {
-    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
+    pub(crate) fn spawn(options: CheckerBuilder<M>, strategy: Strategy) -> Self {
         let model = Arc::new(options.model);
         let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
@@ -116,6 +117,7 @@ where M: Model + Send + Sync + 'static,
                         &mut pending,
                         &*discoveries,
                         &*visitor,
+                        strategy,
                         1500);
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
@@ -168,6 +170,7 @@ where M: Model + Send + Sync + 'static,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
+        strategy: Strategy,
         mut max_count: usize)
     {
         let properties = model.properties();
@@ -238,16 +241,39 @@ where M: Model + Send + Sync + 'static,
                 // Skip if any symmetric permutation has already been generated.
                 //
                 // FIXME: eventually properties
-                if next_state.permutations()
-                    .any(|s| generated.contains(&fingerprint(&s))) {
+
+                let sym_fingerprint_exists = match strategy {
+                    Strategy::Full => {
+                        let b = next_state.permutations()
+                            .any(|s| generated.contains(&fingerprint(&s)));
+                        if !b { 
+                            generated.insert(fingerprint(&next_state)) ;
+                        }
+                        b
+                    }
+                    Strategy::Sorted => {
+                        let rep = next_state.a_sorted_permutation();
+                        !generated.insert(fingerprint(&rep))
+                    }
+                    // TODO
+                    // The benefit is that each representative is canonical
+                    // The choose function is likely non-trivial to implement,
+                    // probably requires sorting the permutations
+                    // Strategy::Segmented => {
+                    //     let ss = next_state.sorted_permutations();
+                    //     let rep = choose(ss);
+                    //     !generated.insert(fingerprint(&rep))
+                    // }
+                };
+
+                if sym_fingerprint_exists {
                         is_terminal = false;
                         continue
                 }
-                let next_fingerprint = fingerprint(&next_state);
-                generated.insert(next_fingerprint);
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
+                let next_fingerprint = fingerprint(&next_state);
                 let mut next_fingerprints = Vec::with_capacity(1 + fingerprints.len());
                 for f in &fingerprints { next_fingerprints.push(*f); }
                 next_fingerprints.push(next_fingerprint);
