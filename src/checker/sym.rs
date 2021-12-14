@@ -14,6 +14,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // behavior is being postponed until DPOR is implemented.
 
 
+// Symmetry reduction strategies used here are
+// presented in Symmetric Spin 
+// by Dragan Bošnački, Dennis Dams, Leszek Holenderski
+
 pub(crate) struct SymChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
