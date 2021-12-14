@@ -137,6 +137,7 @@
 mod checker;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+
 #[cfg(test)]
 mod test_util;
 
@@ -145,12 +146,8 @@ pub use checker::*;
 pub mod semantics;
 pub mod util;
 
-pub trait Symmetric: {
-    type Permutation;
-
-    fn permute(&self, pi: &Self::Permutation) -> Self;
-
-    fn get_permutations(&self) -> Vec<Self::Permutation>;
+pub trait Symmetric {
+    fn permutations(&self) -> Box<dyn Iterator<Item = Self> + '_>;
 }
 
 /// This is the primary abstraction for Stateright. Implementations model a

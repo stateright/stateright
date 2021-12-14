@@ -235,21 +235,15 @@ where M: Model + Send + Sync + 'static,
                 if !model.within_boundary(&next_state) { continue }
                 state_count.fetch_add(1, Ordering::Relaxed);
 
-                // If there exists a fingerprint where there exists a permutation
-                // If there is a permutataion of the symmetric values who's fingerprint 
-                // exists the skip
-                // FIXME same semantics as DFS and BFS regarding eventually properties (not sure
-                // about these)
-                if next_state.get_permutations()
-                    .iter()
-                    .map(|pi| next_state.permute(pi))
+                // Skip if any symmetric permutation has already been generated.
+                //
+                // FIXME: eventually properties
+                if next_state.permutations()
                     .any(|s| generated.contains(&fingerprint(&s))) {
                         is_terminal = false;
                         continue
                 }
-
                 let next_fingerprint = fingerprint(&next_state);
-
                 generated.insert(next_fingerprint);
 
                 // Otherwise further checking is applicable.
