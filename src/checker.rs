@@ -6,6 +6,7 @@ mod dfs;
 mod sym;
 mod explorer;
 mod path;
+mod rewrite;
 mod visitor;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -13,6 +14,7 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
+pub use rewrite::*;
 pub use path::*;
 pub use visitor::*;
 
