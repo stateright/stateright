@@ -145,7 +145,6 @@ fn main() -> Result<(), pico_args::Error> {
                 thread_count
             );
 
-
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())
@@ -168,8 +167,9 @@ fn main() -> Result<(), pico_args::Error> {
         }
         _ => {
             println!("USAGE:");
-            println!("  ./increment check [THREAD_COUNT]");
-            println!("  ./general_increment explore [THREAD_COUNT] [ADDRESS]");
+            println!("  ./increment_lock check [THREAD_COUNT]");
+            println!("  ./increment_lock check-sym [THREAD_COUNT] [full|sorted]");
+            println!("  ./increment_lock explore [THREAD_COUNT] [ADDRESS]");
         }
     }
 
