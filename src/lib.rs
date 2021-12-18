@@ -137,6 +137,7 @@
 mod checker;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 
 #[cfg(test)]
 mod test_util;
@@ -156,6 +157,16 @@ pub enum Strategy {
     /// When model checking, generate a canonical representation of a state by sorting its contents
     /// via [`Symmetric::a_sorted_permutation`], and see if that has been visited.
     Sorted,
+}
+impl FromStr for Strategy {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "full" => Ok(Strategy::Full),
+            "sorted" => Ok(Strategy::Sorted),
+            _ => Err(format!("Invalid strategy: {}. Options: full / sorted", s)),
+        }
+    }
 }
 
 /// Indicates that a model checker can leverage symmetry reduction.
