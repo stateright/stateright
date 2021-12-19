@@ -356,14 +356,17 @@ mod test {
             ]);
     }
 
-    #[cfg(not(debug_assertions))] // too slow for debug build
-    #[test]
-    fn can_complete_by_enumerating_all_states() {
-        let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_sym(Strategy::Sorted).join();
-        assert_eq!(checker.is_done(), true);
-        checker.assert_no_discovery("solvable");
-        assert_eq!(checker.unique_state_count(), 256 * 256);
-    }
+    // Temporarily commented out as running this and the corresponding method inside `dfs.rs`
+    // simultaneously can cause the test process to crash.
+    //
+    // #[cfg(not(debug_assertions))] // too slow for debug build
+    // #[test]
+    // fn can_complete_by_enumerating_all_states() {
+    //     let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_sym(Strategy::Sorted).join();
+    //     assert_eq!(checker.is_done(), true);
+    //     checker.assert_no_discovery("solvable");
+    //     assert_eq!(checker.unique_state_count(), 256 * 256);
+    // }
 
     #[test]
     fn can_complete_by_eliminating_properties() {
