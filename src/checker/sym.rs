@@ -345,7 +345,7 @@ mod test {
         let (recorder, accessor) = StateRecorder::new_with_accessor();
         LinearEquation { a: 2, b: 10, c: 14 }.checker()
             .visitor(recorder)
-            .spawn_sym().join();
+            .spawn_sym(Strategy::Sorted).join();
         assert_eq!(
             accessor(),
             vec![
@@ -359,7 +359,7 @@ mod test {
     #[cfg(not(debug_assertions))] // too slow for debug build
     #[test]
     fn can_complete_by_enumerating_all_states() {
-        let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_sym().join();
+        let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_sym(Strategy::Sorted).join();
         assert_eq!(checker.is_done(), true);
         checker.assert_no_discovery("solvable");
         assert_eq!(checker.unique_state_count(), 256 * 256);
@@ -367,7 +367,7 @@ mod test {
 
     #[test]
     fn can_complete_by_eliminating_properties() {
-        let checker = LinearEquation { a: 2, b: 10, c: 14 }.checker().spawn_sym().join();
+        let checker = LinearEquation { a: 2, b: 10, c: 14 }.checker().spawn_sym(Strategy::Sorted).join();
         checker.assert_properties();
         assert_eq!(checker.unique_state_count(), 55);
 
@@ -381,5 +381,17 @@ mod test {
             Guess::IncreaseY,
             Guess::IncreaseX,
         ]);
+    }
+
+    // We cannot leverage symmetry reduction for the linear equation model, so this is a
+    // "degenerate" implementation of Symmetric, which provides no reduction.
+    impl Symmetric for (u8, u8) {
+        fn permutations(&self) -> Box<dyn Iterator<Item=Self> + '_> {
+            Box::new(vec![*self].into_iter())
+        }
+
+        fn a_sorted_permutation(&self) -> Self {
+            *self
+        }
     }
 }
