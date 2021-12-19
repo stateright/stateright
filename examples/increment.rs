@@ -228,7 +228,7 @@ fn main() -> Result<(), pico_args::Error> {
         }
         Some("check-sym") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            let strategy = args.opt_free_from_str()?.unwrap_or(Strategy::Full);
+            let strategy = args.opt_free_from_str()?.unwrap_or(Strategy::Sorted);
             println!(
                 "Symmetrical model checking using {:?} increment with {} threads.",
                 strategy,
