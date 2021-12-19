@@ -2,7 +2,7 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use stateright::{Checker, Model, Property};
+use stateright::{Checker, Model, Property, Reindex, Strategy, Symmetric};
 use std::collections::BTreeSet;
 use std::hash::Hash;
 use std::ops::Range;
@@ -23,7 +23,7 @@ struct TwoPhaseState {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum Message { Prepared { rm: R }, Commit, Abort }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum RmState { Working, Prepared, Committed, Aborted }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -120,6 +120,41 @@ impl Model for TwoPhaseSys {
     }
 }
 
+// Implementing this trait enables symmetry reduction to speed up model checking (optional).
+impl Symmetric for TwoPhaseState {
+    fn permutations(&self) -> Box<dyn Iterator<Item = Self>> {
+        unimplemented!()
+    }
+
+    fn a_sorted_permutation(&self) -> Self {
+        // This implementation canonicalizes the resource manager states by sorting them. It then
+        // rewrites resource manager identifiers accordingly.
+        let mut combined = self.rm_state.iter()
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .collect::<Vec<_>>();
+        combined.sort_unstable();
+
+        let mapping: Vec<usize> = combined.iter()
+            .map(|(_, i)| combined[*i].1)
+            .collect();
+        Self {
+            rm_state: combined.into_iter()
+                .map(|(s, _)| s.clone())
+                .collect(),
+            tm_state: self.tm_state.clone(),
+            tm_prepared: self.tm_prepared.reindex(&mapping),
+            msgs: self.msgs.iter().map(|m| {
+                match m {
+                    Message::Prepared { rm } => Message::Prepared { rm: mapping[*rm] },
+                    Message::Commit => Message::Commit,
+                    Message::Abort => Message::Abort,
+                }
+            }).collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn can_model_2pc() {
@@ -131,6 +166,11 @@ fn can_model_2pc() {
     // for slightly larger state space (using DFS this time)
     let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_dfs().join();
     assert_eq!(checker.unique_state_count(), 8_832);
+    checker.assert_properties();
+
+    // reverify the larger state space with symmetry reduction
+    let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_sym(Strategy::Sorted).join();
+    assert_eq!(checker.unique_state_count(), 3_131);
     checker.assert_properties();
 }
 
@@ -148,6 +188,14 @@ fn main() -> Result<(), pico_args::Error> {
                 .threads(num_cpus::get()).spawn_dfs()
                 .report(&mut std::io::stdout());
         }
+        Some("check-sym") => {
+            let rm_count = args.opt_free_from_str()?
+                .unwrap_or(2);
+            println!("Checking two phase commit with {} resource managers using symmetry reduction.", rm_count);
+            TwoPhaseSys { rms: 0..rm_count }.checker()
+                .threads(num_cpus::get()).spawn_sym(Strategy::Sorted)
+                .report(&mut std::io::stdout());
+        }
         Some("explore") => {
             let rm_count = args.opt_free_from_str()?
                 .unwrap_or(2);
@@ -161,6 +209,7 @@ fn main() -> Result<(), pico_args::Error> {
         _ => {
             println!("USAGE:");
             println!("  ./2pc check [RESOURCE_MANAGER_COUNT]");
+            println!("  ./2pc check-sym [RESOURCE_MANAGER_COUNT]");
             println!("  ./2pc explore [RESOURCE_MANAGER_COUNT] [ADDRESS]");
         }
     }
