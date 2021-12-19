@@ -1,6 +1,6 @@
 //! Private module for selective re-export.
 
-use crate::{Rewrite, Symmetric};
+use crate::{Reindex, Rewrite, Symmetric};
 use crate::actor::{Actor, Id, Network};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -47,16 +47,16 @@ where A: Actor,
             .collect::<Vec<_>>();
         combined.sort_unstable();
 
-        let rewrites = combined.iter()
+        let mapping = combined.iter()
             .map(|(_, i)| Id::from(combined[*i].1))
             .collect();
         Self {
             actor_states: combined.into_iter()
-                .map(|(s, _)| Arc::new(s.rewrite(&rewrites)))
+                .map(|(s, _)| Arc::new(s.rewrite(&mapping)))
                 .collect(),
-            network: self.network.rewrite(&rewrites),
-            is_timer_set: self.is_timer_set.rewrite(&rewrites),
-            history: self.history.rewrite(&rewrites),
+            network: self.network.rewrite(&mapping),
+            is_timer_set: self.is_timer_set.reindex(&mapping),
+            history: self.history.rewrite(&mapping),
         }
     }
 }
@@ -172,7 +172,7 @@ mod test {
             },
         };
         let canonical_state = state.a_sorted_permutation();
-        // Chosen "rewrites" data structure is [Id(2), Id(0), Id(1)].
+        // Chosen "mapping" data structure is [Id(2), Id(0), Id(1)].
         // i.e. Id(0) becomes Id(2), Id(1) becomes Id(0), and Id(2) becomes Id(1).
         assert_eq!(canonical_state, ActorModelState {
             actor_states: vec![
@@ -220,16 +220,16 @@ mod test {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct ActorState { acks: Vec<Id> }
     impl Rewrite<Vec<Id>> for ActorState {
-        fn rewrite(&self, rewrites: &Vec<Id>) -> Self {
-            Self { acks: self.acks.rewrite(rewrites) }
+        fn rewrite(&self, mapping: &Vec<Id>) -> Self {
+            Self { acks: self.acks.rewrite(mapping) }
         }
     }
 
     #[derive(Debug, PartialEq)]
     struct History { send_sequence: Vec<Id> }
     impl Rewrite<Vec<Id>> for History {
-        fn rewrite(&self, rewrites: &Vec<Id>) -> Self {
-            Self { send_sequence: self.send_sequence.rewrite(rewrites) }
+        fn rewrite(&self, mapping: &Vec<Id>) -> Self {
+            Self { send_sequence: self.send_sequence.rewrite(mapping) }
         }
     }
 }
