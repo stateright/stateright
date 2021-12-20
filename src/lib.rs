@@ -137,7 +137,6 @@
 mod checker;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-use std::str::FromStr;
 
 #[cfg(test)]
 mod test_util;
@@ -146,39 +145,6 @@ pub mod actor;
 pub use checker::*;
 pub mod semantics;
 pub mod util;
-
-/// Indicates a symmetry reduction algorithm for reducing the state space for a [`Model`] whose
-/// [`Model::State`] implements [`Symmetric`] when checked with [`CheckerBuilder::spawn_sym`].
-#[derive(Debug, Clone, Copy)]
-pub enum Strategy {
-    /// When model checking, generate all permutations for a state via [`Symmetric::permutations`],
-    /// and see if any have been visited.
-    Full,
-    /// When model checking, generate a canonical representation of a state by sorting its contents
-    /// via [`Symmetric::a_sorted_permutation`], and see if that has been visited.
-    Sorted,
-}
-impl FromStr for Strategy {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "full" => Ok(Strategy::Full),
-            "sorted" => Ok(Strategy::Sorted),
-            _ => Err(format!("Invalid strategy: {}. Options: full / sorted", s)),
-        }
-    }
-}
-
-/// Indicates that a model checker can leverage symmetry reduction.
-///
-/// See also: [`CheckerBuilder::spawn_sym`]
-pub trait Symmetric {
-    /// Symmetric permutations of the state for use by [`Strategy::Full`].
-    fn permutations(&self) -> Box<dyn Iterator<Item = Self> + '_>;
-
-    /// A single permutation which sorts some part of the state for use by [`Strategy::Sorted`].
-    fn a_sorted_permutation(&self) -> Self;
-}
 
 /// This is the primary abstraction for Stateright. Implementations model a
 /// nondeterministic system's evolution. If you are using Stateright's actor framework,

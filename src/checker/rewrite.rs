@@ -4,12 +4,13 @@ use std::hash::Hash;
 use crate::actor::{Envelope, Id, Network};
 
 /// Implementations can rewrite a data structure based on a mapping from old values to new values.
-/// This is used for symmetry reduction when a [`Model::State`] is [`Symmetric`].
+/// This is used for symmetry reduction when a [`Model::State`] implements [`Representative`].
 ///
 /// See [`Reindex`] to use a mapping to revise indices for a collection.
 ///
 /// [`Model::State`]: crate::Model::State
-/// [`Symmetric`]:    crate::Symmetric
+/// [`Representative`]: crate::Representative
+/// [`Reindex`]: crate::Reindex
 pub trait Rewrite<T> {
     /// Generates a corresponding instance with values revised based on `mapping`.
     fn rewrite(&self, mapping: &T) -> Self;
@@ -25,6 +26,14 @@ impl Rewrite<Vec<Id>> for Vec<Id> {
     fn rewrite(&self, mapping: &Vec<Id>) -> Self {
         self.iter()
             .map(|id| mapping[usize::from(*id)])
+            .collect()
+    }
+}
+
+impl Rewrite<Vec<usize>> for Vec<usize> {
+    fn rewrite(&self, mapping: &Vec<usize>) -> Self {
+        self.iter()
+            .map(|i| mapping[*i])
             .collect()
     }
 }

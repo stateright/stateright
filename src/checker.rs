@@ -1,14 +1,16 @@
 //! Private module for selective re-export.
 
 mod bfs;
-use crate::{Expectation, Model, Symmetric, Strategy};
+use crate::{Expectation, Model};
 mod dfs;
 mod sym;
 mod explorer;
 mod path;
 mod reindex;
+mod representative;
 mod rewrite;
 mod visitor;
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -18,6 +20,7 @@ use std::time::Instant;
 pub use reindex::*;
 pub use rewrite::*;
 pub use path::*;
+pub use representative::*;
 pub use visitor::*;
 
 /// A [`Model`] [`Checker`] builder. Instantiable via the [`Model::checker`] method.
@@ -139,17 +142,17 @@ impl<M: Model> CheckerBuilder<M> {
         dfs::DfsChecker::spawn(self)
     }
 
-    /// Spawns a symmetry aware dfs search model checker.
+    /// Spawns a symmetry aware DFS model checker.
     /// 
     /// This call does not block the current thread. Call [`Checker::join`] to block until
     /// checking completes.
     #[must_use = "Checkers run on background threads. \
                   Consider calling join() or report(...), for example."]
-    pub fn spawn_sym(self, strategy: Strategy) -> impl Checker<M>
+    pub fn spawn_sym(self) -> impl Checker<M>
     where M: Model + Send + Sync + 'static,
-          M::State: Hash + Send + Sync + Symmetric + 'static,
+          M::State: Hash + Send + Sync + Representative + 'static,
     {
-        sym::SymChecker::spawn(self, strategy)
+        sym::SymChecker::spawn(self)
     }
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons

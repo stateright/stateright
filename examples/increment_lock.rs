@@ -1,4 +1,3 @@
-use itertools::*;
 use stateright::*;
 
 #[derive(Debug, Clone)]
@@ -34,22 +33,8 @@ impl State {
     }
 }
 
-impl Symmetric for State {
-    fn permutations(&self) -> Box<dyn Iterator<Item = Self>> {
-        let this = self.clone();
-        Box::new((0..self.s.len())
-            .permutations(self.s.len())
-            .map(move |pi| {
-                let this = &this;
-                Self {
-                    i : this.i,
-                    lock : this.lock,
-                    s : pi.iter().map(|&i| this.s[i].clone()).collect(),
-                }
-            }))
-    }
-
-    fn a_sorted_permutation(&self) -> Self {
+impl Representative for State {
+    fn representative(&self) -> Self {
         let mut main_array = self.s.clone();
         main_array.sort();
         Self {
@@ -138,28 +123,23 @@ fn main() -> Result<(), pico_args::Error> {
         }
         Some("check-sym") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            let strategy = args.opt_free_from_str()?.unwrap_or(Strategy::Sorted);
             println!(
-                "Symmetrical model checking using {:?} increment with {} threads.",
-                strategy,
-                thread_count
-            );
+                "Model checking increment with {} threads using symmetry reduction.",
+                thread_count);
 
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())
-                .spawn_sym(strategy)
+                .spawn_sym()
                 .report(&mut std::io::stdout());
         }
         Some("explore") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            let address = args
-                .opt_free_from_str()?
+            let address = args.opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
             println!(
                 "Exploring the state space of increment with {} threads on {}.",
-                thread_count, address
-            );
+                thread_count, address);
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())

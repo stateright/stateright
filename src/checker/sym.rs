@@ -1,7 +1,7 @@
 //! Private module for selective re-export.
 
-use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property, Symmetric, Strategy};
-use crate::checker::{Checker, EventuallyBits, Expectation, Path};
+use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property};
+use crate::checker::{Checker, EventuallyBits, Expectation, Path, Representative};
 use dashmap::{DashMap, DashSet};
 use nohash_hasher::NoHashHasher;
 use parking_lot::{Condvar, Mutex};
@@ -35,9 +35,9 @@ type Job<State> = Vec<(State, Vec<Fingerprint>, EventuallyBits)>;
 
 impl<M> SymChecker<M>
 where M: Model + Send + Sync + 'static,
-      M::State: Hash + Send + Symmetric + 'static,
+      M::State: Hash + Send + Representative + 'static,
 {
-    pub(crate) fn spawn(options: CheckerBuilder<M>, strategy: Strategy) -> Self {
+    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
         let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
@@ -50,7 +50,7 @@ where M: Model + Send + Sync + 'static,
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let generated = Arc::new({
             let generated = DashSet::default();
-            for s in &init_states { generated.insert(fingerprint(s)); }
+            for s in &init_states { generated.insert(fingerprint(&s.representative())); }
             generated
         });
         let ebits = {
@@ -121,7 +121,6 @@ where M: Model + Send + Sync + 'static,
                         &mut pending,
                         &*discoveries,
                         &*visitor,
-                        strategy,
                         1500);
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
@@ -174,7 +173,6 @@ where M: Model + Send + Sync + 'static,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
-        strategy: Strategy,
         mut max_count: usize)
     {
         let properties = model.properties();
@@ -245,32 +243,7 @@ where M: Model + Send + Sync + 'static,
                 // Skip if any symmetric permutation has already been generated.
                 //
                 // FIXME: eventually properties
-
-                let sym_fingerprint_exists = match strategy {
-                    Strategy::Full => {
-                        let b = next_state.permutations()
-                            .any(|s| generated.contains(&fingerprint(&s)));
-                        if !b { 
-                            generated.insert(fingerprint(&next_state)) ;
-                        }
-                        b
-                    }
-                    Strategy::Sorted => {
-                        let rep = next_state.a_sorted_permutation();
-                        !generated.insert(fingerprint(&rep))
-                    }
-                    // TODO
-                    // The benefit is that each representative is canonical
-                    // The choose function is likely non-trivial to implement,
-                    // probably requires sorting the permutations
-                    // Strategy::Segmented => {
-                    //     let ss = next_state.sorted_permutations();
-                    //     let rep = choose(ss);
-                    //     !generated.insert(fingerprint(&rep))
-                    // }
-                };
-
-                if sym_fingerprint_exists {
+                if !generated.insert(fingerprint(&next_state.representative())) {
                         is_terminal = false;
                         continue
                 }
@@ -345,7 +318,7 @@ mod test {
         let (recorder, accessor) = StateRecorder::new_with_accessor();
         LinearEquation { a: 2, b: 10, c: 14 }.checker()
             .visitor(recorder)
-            .spawn_sym(Strategy::Sorted).join();
+            .spawn_sym().join();
         assert_eq!(
             accessor(),
             vec![
@@ -370,7 +343,7 @@ mod test {
 
     #[test]
     fn can_complete_by_eliminating_properties() {
-        let checker = LinearEquation { a: 2, b: 10, c: 14 }.checker().spawn_sym(Strategy::Sorted).join();
+        let checker = LinearEquation { a: 2, b: 10, c: 14 }.checker().spawn_sym().join();
         checker.assert_properties();
         assert_eq!(checker.unique_state_count(), 55);
 
@@ -387,13 +360,9 @@ mod test {
     }
 
     // We cannot leverage symmetry reduction for the linear equation model, so this is a
-    // "degenerate" implementation of Symmetric, which provides no reduction.
-    impl Symmetric for (u8, u8) {
-        fn permutations(&self) -> Box<dyn Iterator<Item=Self> + '_> {
-            Box::new(vec![*self].into_iter())
-        }
-
-        fn a_sorted_permutation(&self) -> Self {
+    // "degenerate" implementation of Representative, which provides no reduction.
+    impl Representative for (u8, u8) {
+        fn representative(&self) -> Self {
             *self
         }
     }

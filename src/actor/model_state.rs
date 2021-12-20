@@ -1,6 +1,6 @@
 //! Private module for selective re-export.
 
-use crate::{Reindex, Rewrite, Symmetric};
+use crate::{Reindex, Representative, Rewrite};
 use crate::actor::{Actor, Id, Network};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -30,17 +30,14 @@ where A: Actor,
         out.end()
     }
 }
-impl<A, H> Symmetric for ActorModelState<A, H>
+impl<A, H> Representative for ActorModelState<A, H>
 where A: Actor,
       A::State: Ord + Rewrite<Vec<Id>>,
       H: Rewrite<Vec<Id>>,
 {
-    fn permutations(&self) -> Box<dyn Iterator<Item=Self> + '_> {
-        unimplemented!()
-    }
-    fn a_sorted_permutation(&self) -> Self {
-        // This implementation canonicalizes the actor states by sorting them. It then rewrites IDs
-        // and information relating to IDs (such as indices) in every field accordingly.
+    fn representative(&self) -> Self {
+        // Sorts actor states, then revises IDs and information relating to IDs (such as indices)
+        // in every field accordingly.
         let mut combined = self.actor_states.iter()
             .enumerate()
             .map(|(i, s)| (s, i))
@@ -134,11 +131,11 @@ where A: Actor,
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use crate::{Rewrite, Representative};
     use crate::actor::{Actor, ActorModelState, Envelope, Id, Out};
-    use crate::{Rewrite, Symmetric};
 
     #[test]
-    fn can_canonicalize() {
+    fn can_find_representative_from_equivalence_class() {
         let state = ActorModelState::<A, History> {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![Id::from(1), Id::from(2)]}),
@@ -171,10 +168,10 @@ mod test {
                 ],
             },
         };
-        let canonical_state = state.a_sorted_permutation();
+        let representative_state = state.representative();
         // Chosen "mapping" data structure is [Id(2), Id(0), Id(1)].
         // i.e. Id(0) becomes Id(2), Id(1) becomes Id(0), and Id(2) becomes Id(1).
-        assert_eq!(canonical_state, ActorModelState {
+        assert_eq!(representative_state, ActorModelState {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![]}),
                 Arc::new(ActorState { acks: vec![Id::from(0)]}),

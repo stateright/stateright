@@ -4,12 +4,13 @@ use crate::actor::Id;
 use std::collections::BTreeMap;
 
 /// Implementations can reindex a collection based on a mapping from old indices to new indices.
-/// This is used for symmetry reduction when a [`Model::State`] is [`Symmetric`].
+/// This is used for symmetry reduction when a [`Model::State`] implements [`Representative`].
 ///
 /// See [`Rewrite`] to use a mapping to revise values for a data structure.
 ///
 /// [`Model::State`]: crate::Model::State
-/// [`Symmetric`]:    crate::Symmetric
+/// [`Representative`]: crate::Representative
+/// [`Rewrite`]: crate::Rewrite
 pub trait Reindex<M> {
     /// Generates a corresponding instance with indices revised based on `mapping`.
     fn reindex(&self, mapping: &M) -> Self;

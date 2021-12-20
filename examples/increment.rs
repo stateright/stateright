@@ -104,7 +104,6 @@
 //! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 3}]}
 //! ```
 
-use itertools::*;
 use stateright::*;
 
 #[derive(Debug, Clone)]
@@ -142,21 +141,8 @@ impl State {
 
 }
 
-impl Symmetric for State {
-    fn permutations(&self) -> Box<dyn Iterator<Item = Self>> {
-        let this = self.clone();
-        Box::new((0..self.s.len())
-            .permutations(self.s.len())
-            .map(move |pi| {
-                let this = &this;
-                Self {
-                    i : this.i,
-                    s : pi.iter().map(|&i| this.s[i].clone()).collect(),
-                }
-            }))
-    }
-
-    fn a_sorted_permutation(&self) -> Self {
+impl Representative for State {
+    fn representative(&self) -> Self {
         let mut main_array = self.s.clone();
         main_array.sort();
         Self {
@@ -211,45 +197,42 @@ impl Model for State {
 }
 
 fn main() -> Result<(), pico_args::Error> {
-    env_logger::init_from_env(env_logger::Env::default()
-        .default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
     let mut args = pico_args::Arguments::from_env();
     match args.subcommand()?.as_deref() {
         Some("check") => {
-            let thread_count = args.opt_free_from_str()?
-                .unwrap_or(3);
-            println!("Model checking increment with {} threads.",
-                     thread_count);
-
-            State::new(thread_count)
-                .checker().threads(num_cpus::get())
-                .spawn_dfs().report(&mut std::io::stdout());
-        }
-        Some("check-sym") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            let strategy = args.opt_free_from_str()?.unwrap_or(Strategy::Sorted);
-            println!(
-                "Symmetrical model checking using {:?} increment with {} threads.",
-                strategy,
-                thread_count
-            );
+            println!("Model checking increment_lock with {} threads.", thread_count);
 
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())
-                .spawn_sym(strategy)
+                .spawn_dfs()
+                .report(&mut std::io::stdout());
+        }
+        Some("check-sym") => {
+            let thread_count = args.opt_free_from_str()?.unwrap_or(3);
+            println!(
+                "Model checking increment_lock with {} threads using symmetry reduction.",
+                thread_count);
+
+            State::new(thread_count)
+                .checker()
+                .threads(num_cpus::get())
+                .spawn_sym()
                 .report(&mut std::io::stdout());
         }
         Some("explore") => {
-            let thread_count = args.opt_free_from_str()?
-                .unwrap_or(3);
+            let thread_count = args.opt_free_from_str()?.unwrap_or(3);
             let address = args.opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
-            println!("Exploring the state space of increment with {} threads on {}.",
+            println!(
+                "Exploring the state space of increment_lock with {} threads on {}.",
                 thread_count, address);
             State::new(thread_count)
-                .checker().threads(num_cpus::get())
+                .checker()
+                .threads(num_cpus::get())
                 .serve(address);
         }
         _ => {

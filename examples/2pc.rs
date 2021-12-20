@@ -2,7 +2,7 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use stateright::{Checker, Model, Property, Reindex, Strategy, Symmetric};
+use stateright::{Checker, Model, Property, Reindex, Representative};
 use std::collections::BTreeSet;
 use std::hash::Hash;
 use std::ops::Range;
@@ -121,14 +121,10 @@ impl Model for TwoPhaseSys {
 }
 
 // Implementing this trait enables symmetry reduction to speed up model checking (optional).
-impl Symmetric for TwoPhaseState {
-    fn permutations(&self) -> Box<dyn Iterator<Item = Self>> {
-        unimplemented!()
-    }
-
-    fn a_sorted_permutation(&self) -> Self {
-        // This implementation canonicalizes the resource manager states by sorting them. It then
-        // rewrites resource manager identifiers accordingly.
+impl Representative for TwoPhaseState {
+    fn representative(&self) -> Self {
+        // Sorts RM states, then revises RM IDs and information relating to them (such as indices)
+        // in every field accordingly.
         let mut combined = self.rm_state.iter()
             .enumerate()
             .map(|(i, s)| (s, i))
@@ -169,7 +165,7 @@ fn can_model_2pc() {
     checker.assert_properties();
 
     // reverify the larger state space with symmetry reduction
-    let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_sym(Strategy::Sorted).join();
+    let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_sym().join();
     assert_eq!(checker.unique_state_count(), 3_131);
     checker.assert_properties();
 }
@@ -193,7 +189,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or(2);
             println!("Checking two phase commit with {} resource managers using symmetry reduction.", rm_count);
             TwoPhaseSys { rms: 0..rm_count }.checker()
-                .threads(num_cpus::get()).spawn_sym(Strategy::Sorted)
+                .threads(num_cpus::get()).spawn_sym()
                 .report(&mut std::io::stdout());
         }
         Some("explore") => {
