@@ -79,11 +79,12 @@ Stateright contains a general purpose model checker offering:
 
 - Invariant checks via "always" properties.
 - Nontriviality checks via "sometimes" properties.
-- Liveness checks via "eventually" properties.
+- Liveness checks via "eventually" properties (experimental/incomplete).
 - A web browser UI for interactively exploring state space.
 - [Linearizability](https://en.wikipedia.org/wiki/Linearizability)
   and [sequential consistency](https://en.wikipedia.org/wiki/Sequential_consistency)
   testers.
+- Support for symmetry reduction to reduce state spaces.
 
 Stateright's actor system features include:
 
