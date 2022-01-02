@@ -1,6 +1,6 @@
 //! Private module for selective re-export.
 
-use crate::{Reindex, Representative, Rewrite};
+use crate::{Representative, Rewrite, RewritePlan};
 use crate::actor::{Actor, Id, Network};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -28,33 +28,6 @@ where A: Actor,
         out.serialize_field("is_timer_set", &self.is_timer_set)?;
         out.serialize_field("history", &self.history)?;
         out.end()
-    }
-}
-impl<A, H> Representative for ActorModelState<A, H>
-where A: Actor,
-      A::State: Ord + Rewrite<Vec<Id>>,
-      H: Rewrite<Vec<Id>>,
-{
-    fn representative(&self) -> Self {
-        // Sorts actor states, then revises IDs and information relating to IDs (such as indices)
-        // in every field accordingly.
-        let mut combined = self.actor_states.iter()
-            .enumerate()
-            .map(|(i, s)| (s, i))
-            .collect::<Vec<_>>();
-        combined.sort_unstable();
-
-        let mapping = combined.iter()
-            .map(|(_, i)| Id::from(combined[*i].1))
-            .collect();
-        Self {
-            actor_states: combined.into_iter()
-                .map(|(s, _)| Arc::new(s.rewrite(&mapping)))
-                .collect(),
-            network: self.network.rewrite(&mapping),
-            is_timer_set: self.is_timer_set.reindex(&mapping),
-            history: self.history.rewrite(&mapping),
-        }
     }
 }
 
@@ -127,12 +100,28 @@ where A: Actor,
     }
 }
 
+impl<A, H> Representative for ActorModelState<A, H>
+    where A: Actor,
+          A::Msg: Rewrite<Id>,
+          A::State: Ord + Rewrite<Id>,
+          H: Rewrite<Id>,
+{
+    fn representative(&self) -> Self {
+        let plan = RewritePlan::from_values_to_sort(&self.actor_states);
+        Self {
+            actor_states: plan.reindex(&self.actor_states),
+            network: self.network.rewrite(&plan),
+            is_timer_set: plan.reindex(&self.is_timer_set),
+            history: self.history.rewrite(&plan),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-    use crate::{Rewrite, Representative};
+    use crate::{Rewrite, Representative, RewritePlan};
     use crate::actor::{Actor, ActorModelState, Envelope, Id, Out};
+    use std::sync::Arc;
 
     #[test]
     fn can_find_representative_from_equivalence_class() {
@@ -169,8 +158,9 @@ mod test {
             },
         };
         let representative_state = state.representative();
-        // Chosen "mapping" data structure is [Id(2), Id(0), Id(1)].
-        // i.e. Id(0) becomes Id(2), Id(1) becomes Id(0), and Id(2) becomes Id(1).
+        // The chosen rewrite plan is:
+        // - reindexing: x[0] <- x[1], x[1] <- x[2], x[2] <- x[0]
+        // - rewriting:  Id(0) -> Id(2), Id(1) -> Id(0), Id(2) -> Id(1)
         assert_eq!(representative_state, ActorModelState {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![]}),
@@ -189,7 +179,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ].into_iter().collect(),
-            is_timer_set: vec![true, true, false],
+            is_timer_set: vec![false, true, true],
             history: History {
                 send_sequence: vec![
                     // Id(2) sends two writes
@@ -216,17 +206,17 @@ mod test {
 
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct ActorState { acks: Vec<Id> }
-    impl Rewrite<Vec<Id>> for ActorState {
-        fn rewrite(&self, mapping: &Vec<Id>) -> Self {
-            Self { acks: self.acks.rewrite(mapping) }
+    impl Rewrite<Id> for ActorState {
+        fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+            Self { acks: self.acks.rewrite(plan) }
         }
     }
 
     #[derive(Debug, PartialEq)]
     struct History { send_sequence: Vec<Id> }
-    impl Rewrite<Vec<Id>> for History {
-        fn rewrite(&self, mapping: &Vec<Id>) -> Self {
-            Self { send_sequence: self.send_sequence.rewrite(mapping) }
+    impl Rewrite<Id> for History {
+        fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+            Self { send_sequence: self.send_sequence.rewrite(plan) }
         }
     }
 }

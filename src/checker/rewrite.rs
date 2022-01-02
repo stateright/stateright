@@ -1,71 +1,138 @@
 //! Private module for selective re-export.
 
+use crate::RewritePlan;
+use crate::actor::{Envelope, Id};
+use crate::util::HashableHashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
-use crate::actor::{Envelope, Id, Network};
+use std::sync::Arc;
 
-/// Implementations can rewrite a data structure based on a mapping from old values to new values.
-/// This is used for symmetry reduction when a [`Model::State`] implements [`Representative`].
+/// Implementations can rewrite their instances of the "rewritten" type `R` based on a specified
+/// [`RewritePlan`].
 ///
-/// See [`Reindex`] to use a mapping to revise indices for a collection.
+/// This is used for symmetry reduction when a [`Model::State`] implements [`Representative`]. See
+/// the latter docs for an example.
 ///
 /// [`Model::State`]: crate::Model::State
 /// [`Representative`]: crate::Representative
-/// [`Reindex`]: crate::Reindex
-pub trait Rewrite<T> {
-    /// Generates a corresponding instance with values revised based on `mapping`.
-    fn rewrite(&self, mapping: &T) -> Self;
+pub trait Rewrite<R> {
+    /// Generates a corresponding instance with values revised based on a particular `RewritePlan`.
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self;
 }
 
-impl<T> Rewrite<T> for () {
-    fn rewrite(&self, _: &T) -> Self {
-        ()
-    }
-}
-
-impl Rewrite<Vec<Id>> for Vec<Id> {
-    fn rewrite(&self, mapping: &Vec<Id>) -> Self {
-        self.iter()
-            .map(|id| mapping[usize::from(*id)])
-            .collect()
-    }
-}
-
-impl Rewrite<Vec<usize>> for Vec<usize> {
-    fn rewrite(&self, mapping: &Vec<usize>) -> Self {
-        self.iter()
-            .map(|i| mapping[*i])
-            .collect()
-    }
-}
-
-impl<Msg> Rewrite<Vec<Id>> for Network<Msg>
-    where Msg: Clone + Eq + Hash,
-{
-    fn rewrite(&self, mapping: &Vec<Id>) -> Self {
-        self.iter().map(|e| {
-            Envelope {
-                src: mapping[usize::from(e.src)],
-                dst: mapping[usize::from(e.dst)],
-                msg: e.msg.clone(),
+// Built-in scalar types have blanket "no-op" implementations that simply clone.
+macro_rules! impl_noop_rewrite {
+    ( $( $t:ty ),* ) => {
+        $(
+            impl<R> crate::Rewrite<R> for $t {
+                #[inline(always)]
+                fn rewrite(&self, _: &RewritePlan<R>) -> Self { self.clone() }
             }
-        }).collect()
+        )*
+    }
+}
+impl_noop_rewrite![
+    // Primitive scalar types
+    (),
+    bool,
+    char,
+    f32, f64,
+    i8, i16, i32, i64, isize,
+    &'static str,
+    u8, u16, u32, u64, usize,
+
+    // Other non-container types
+    String
+];
+
+// Built-in container types delegate to their components.
+impl<R, T0, T1> Rewrite<R> for (T0, T1)
+where T0: Rewrite<R>,
+      T1: Rewrite<R>,
+{
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        (self.0.rewrite(plan), self.1.rewrite(plan))
+    }
+}
+impl<R, T> Rewrite<R> for Arc<T>
+where T: Rewrite<R>,
+{
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        Arc::new((**self).rewrite(&plan))
+    }
+}
+impl<R, K, V> Rewrite<R> for BTreeMap<K, V>
+where K: Ord + Rewrite<R>,
+      V: Rewrite<R>,
+{
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        self.iter()
+            .map(|(k, v)| (k.rewrite(plan), v.rewrite(plan)))
+            .collect()
+    }
+}
+impl<R, V> Rewrite<R> for BTreeSet<V> where V: Ord + Rewrite<R> {
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        self.iter().map(|x| x.rewrite(plan)).collect()
+    }
+}
+impl<R, V> Rewrite<R> for HashableHashSet<V> where V: Eq + Hash + Rewrite<R> {
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        self.iter().map(|x| x.rewrite(plan)).collect()
+    }
+}
+impl<R, T> Rewrite<R> for Option<T>
+where T: Rewrite<R>,
+{
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        self.as_ref().map(|v| v.rewrite(plan))
+    }
+}
+impl<R, V> Rewrite<R> for Vec<V> where V: Rewrite<R> {
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        self.iter().map(|x| x.rewrite(plan)).collect()
+    }
+}
+
+// Implementations for some of Stateright's types follow.
+impl Rewrite<Id> for Id {
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+        plan.rewrite(*self)
+    }
+}
+impl<Msg> Rewrite<Id> for Envelope<Msg>
+where Msg: Rewrite<Id>,
+{
+    fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+        Envelope {
+            src: self.src.rewrite(plan),
+            dst: self.dst.rewrite(plan),
+            msg: self.msg.rewrite(plan),
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::Rewrite;
+    use crate::{Rewrite, RewritePlan};
     use crate::actor::{Envelope, Id, Network};
 
     #[test]
     fn can_rewrite_id_vec() {
-        let original: Vec<Id> = vec![1.into(), 2.into(), 2.into()];
+        let original = Id::vec_from(vec![1, 2, 2]);
         assert_eq!(
-            original.rewrite(&vec![2.into(), 0.into(), 1.into()]),
-            vec![0.into(), 1.into(), 1.into()]);
+            original.rewrite(&RewritePlan::<Id>::from_values_to_sort(&vec![2, 0, 1])),
+            Id::vec_from(vec![0, 1, 1]));
         assert_eq!(
-            original.rewrite(&vec![0.into(), 2.into(), 1.into()]),
-            vec![2.into(), 1.into(), 1.into()]);
+            original.rewrite(&RewritePlan::<Id>::from_values_to_sort(&vec![0, 2, 1])),
+            Id::vec_from(vec![2, 1, 1]));
     }
 
     #[test]
@@ -83,7 +150,7 @@ mod test {
             Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
         ].into_iter().collect();
         assert_eq!(
-            original.rewrite(&vec![2.into(), 0.into(), 1.into()]),
+            original.rewrite(&RewritePlan::from_values_to_sort(&vec![2, 0, 1])),
             vec![
                 // Id(2) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 2.into(), dst: 0.into(), msg: "Write(X)" },
@@ -97,7 +164,7 @@ mod test {
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ].into_iter().collect());
         assert_eq!(
-            original.rewrite(&vec![0.into(), 2.into(), 1.into()]),
+            original.rewrite(&RewritePlan::from_values_to_sort(&vec![0, 2, 1])),
             vec![
                 // Id(0) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },

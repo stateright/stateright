@@ -6,7 +6,6 @@ mod dfs;
 mod sym;
 mod explorer;
 mod path;
-mod reindex;
 mod representative;
 mod rewrite;
 mod rewrite_plan;
@@ -18,7 +17,6 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
-pub use reindex::*;
 pub use rewrite::*;
 pub use path::*;
 pub use representative::*;

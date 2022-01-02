@@ -2,7 +2,7 @@
 //! ["Consensus on Transaction Commit"](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf)
 //! by Jim Gray and Leslie Lamport.
 
-use stateright::{Checker, Model, Property, Reindex, Representative};
+use stateright::{Checker, Model, Property, Representative, Rewrite, RewritePlan};
 use std::collections::BTreeSet;
 use std::hash::Hash;
 use std::ops::Range;
@@ -120,37 +120,6 @@ impl Model for TwoPhaseSys {
     }
 }
 
-// Implementing this trait enables symmetry reduction to speed up model checking (optional).
-impl Representative for TwoPhaseState {
-    fn representative(&self) -> Self {
-        // Sorts RM states, then revises RM IDs and information relating to them (such as indices)
-        // in every field accordingly.
-        let mut combined = self.rm_state.iter()
-            .enumerate()
-            .map(|(i, s)| (s, i))
-            .collect::<Vec<_>>();
-        combined.sort_unstable();
-
-        let mapping: Vec<usize> = combined.iter()
-            .map(|(_, i)| combined[*i].1)
-            .collect();
-        Self {
-            rm_state: combined.into_iter()
-                .map(|(s, _)| s.clone())
-                .collect(),
-            tm_state: self.tm_state.clone(),
-            tm_prepared: self.tm_prepared.reindex(&mapping),
-            msgs: self.msgs.iter().map(|m| {
-                match m {
-                    Message::Prepared { rm } => Message::Prepared { rm: mapping[*rm] },
-                    Message::Commit => Message::Commit,
-                    Message::Abort => Message::Abort,
-                }
-            }).collect(),
-        }
-    }
-}
-
 #[cfg(test)]
 #[test]
 fn can_model_2pc() {
@@ -166,7 +135,7 @@ fn can_model_2pc() {
 
     // reverify the larger state space with symmetry reduction
     let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_sym().join();
-    assert_eq!(checker.unique_state_count(), 3_131);
+    assert_eq!(checker.unique_state_count(), 665);
     checker.assert_properties();
 }
 
@@ -191,6 +160,31 @@ fn main() -> Result<(), pico_args::Error> {
             TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get()).spawn_sym()
                 .report(&mut std::io::stdout());
+
+            // Implementing this trait enables symmetry reduction to speed up model checking (optional).
+            impl Representative for TwoPhaseState {
+                fn representative(&self) -> Self {
+                    let plan = RewritePlan::from_values_to_sort(&self.rm_state);
+                    Self {
+                        rm_state: plan.reindex(&self.rm_state),
+                        tm_state: self.tm_state.clone(),
+                        tm_prepared: plan.reindex(&self.tm_prepared),
+                        msgs: self.msgs.iter().map(|m| {
+                            match m {
+                                Message::Prepared { rm } =>
+                                    Message::Prepared { rm: plan.rewrite(*rm) },
+                                Message::Commit => Message::Commit,
+                                Message::Abort => Message::Abort,
+                            }
+                        }).collect(),
+                    }
+                }
+            }
+            impl<T> Rewrite<T> for RmState {
+                fn rewrite(&self, _: &RewritePlan<T>) -> Self {
+                    self.clone()
+                }
+            }
         }
         Some("explore") => {
             let rm_count = args.opt_free_from_str()?

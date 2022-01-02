@@ -1,5 +1,6 @@
 //! Private module for selective re-export.
 
+use crate::{Rewrite, RewritePlan};
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
@@ -198,6 +199,22 @@ impl<K, V> IntoIterator for DenseNatMap<K, V> where K: From<usize> {
     }
 }
 
+impl<R, K, V> Rewrite<R> for DenseNatMap<K, V>
+where K: From<usize> + Rewrite<R>,
+      V: Rewrite<R>,
+      usize: From<K>,
+{
+    #[inline(always)]
+    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+        // FIXME: simply reindexing the keys (while still rewriting the values) would be more
+        //        efficient, but we need to vary behavior based on the key type (i.e. for
+        //        `DenseNatMap<R, _>`, `Rewrite<R>` would reindex, while `Rewrite<!R>` would not).
+        self.iter()
+            .map(|(k, v)| (k.rewrite(plan), v.rewrite(plan)))
+            .collect()
+    }
+}
+
 /// An iterator that moves out of a [`DenseNatMap`].
 pub struct IntoIter<K, V>(
     std::iter::Enumerate<std::vec::IntoIter<V>>,
@@ -214,7 +231,7 @@ impl<K, V> Iterator for IntoIter<K, V> where K: From<usize> {
 #[cfg(test)]
 mod test {
     use crate::actor::Id;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, BTreeMap};
     use super::*;
 
     #[test]
@@ -233,5 +250,73 @@ mod test {
     pub fn panics_on_out_of_order_insertion() {
         let mut m = DenseNatMap::new();
         m.insert(Id::from(1), "second");
+    }
+
+    #[test]
+    pub fn can_rewrite() {
+        // This test relies on having a second rewritten type besides `Id`, which we call `Id2`.
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        struct Id2(usize);
+        impl From<usize> for Id2 {
+            fn from(input: usize) -> Self { Id2(input) }
+        }
+        impl From<Id2> for usize {
+            fn from(input: Id2) -> Self { input.0 }
+        }
+        impl Rewrite<Id2> for Id2 {
+            fn rewrite(&self, plan: &RewritePlan<Id2>) -> Self {
+                plan.rewrite(*self)
+            }
+        }
+        impl Rewrite<Id2> for Id {
+            fn rewrite(&self, _: &RewritePlan<Id2>) -> Self { *self }
+        }
+        impl Rewrite<Id> for Id2 {
+            fn rewrite(&self, _: &RewritePlan<Id>) -> Self { *self }
+        }
+
+        // Now we simulate the fields of a data structure that needs to be rewritten. Most "fields"
+        // here leverage `Ids`, but the third field is indexed by `Id2`.
+        let f1 = DenseNatMap::<Id, _>::from_iter(['B', 'C', 'A', 'D']);
+        let f2 = DenseNatMap::<Id, _>::from_iter(['X', 'Y', 'W', 'Z']);
+        let f3 = DenseNatMap::<Id2, _>::from_iter(['X', 'Y', 'W', 'Z']);
+        let f4 = BTreeMap::from_iter([('!', Id::from(0))]);
+        let f5 = BTreeMap::from_iter([(Id::from(0), '!')]);
+
+        // Rewriting based on `Id` symmetry importantly does *not* reindex the third field.
+        let plan = RewritePlan::new(&f1);
+        assert_eq!(
+            f1.rewrite(&plan),
+            DenseNatMap::from_iter(['A', 'B', 'C', 'D']));
+        assert_eq!(
+            f2.rewrite(&plan),
+            DenseNatMap::from_iter(['W', 'X', 'Y', 'Z']));
+        assert_eq!(
+            f3.rewrite(&plan),
+            DenseNatMap::from_iter(['X', 'Y', 'W', 'Z'])); // *not* reindexed
+        assert_eq!(
+            f4.rewrite(&plan),
+            BTreeMap::from_iter([('!', Id::from(1))]));
+        assert_eq!(
+            f5.rewrite(&plan),
+            BTreeMap::from_iter([(Id::from(1), '!')]));
+
+        // Rewriting based on `Id2` on the other hand impacts *only* the third field.
+        let plan = RewritePlan::new(&f3);
+        assert_eq!(
+            f1.rewrite(&plan),
+            DenseNatMap::from_iter(['B', 'C', 'A', 'D'])); // *not* reindexed
+        assert_eq!(
+            f2.rewrite(&plan),
+            DenseNatMap::from_iter(['X', 'Y', 'W', 'Z'])); // *not* reindexed
+        assert_eq!(
+            f3.rewrite(&plan),
+            DenseNatMap::from_iter(['W', 'X', 'Y', 'Z']));
+        assert_eq!(
+            f4.rewrite(&plan),
+            BTreeMap::from_iter([('!', Id::from(0))])); // Id is *not* rewritten
+        assert_eq!(
+            f5.rewrite(&plan),
+            BTreeMap::from_iter([(Id::from(0), '!')])); // Id is *not* rewritten
     }
 }
