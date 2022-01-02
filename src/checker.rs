@@ -9,6 +9,7 @@ mod path;
 mod reindex;
 mod representative;
 mod rewrite;
+mod rewrite_plan;
 mod visitor;
 
 use std::collections::HashMap;
@@ -21,6 +22,7 @@ pub use reindex::*;
 pub use rewrite::*;
 pub use path::*;
 pub use representative::*;
+pub use rewrite_plan::*;
 pub use visitor::*;
 
 /// A [`Model`] [`Checker`] builder. Instantiable via the [`Model::checker`] method.
