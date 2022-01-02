@@ -51,6 +51,7 @@
 //! # let checker = MyModel.checker().spawn_bfs().join();
 //! ```
 
+mod densenatmap;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
@@ -59,6 +60,7 @@ use std::ops::{Deref, DerefMut};
 use std::iter::FromIterator;
 mod vector_clock;
 
+pub use densenatmap::DenseNatMap;
 pub use vector_clock::*;
 
 // Reuse a buffer to avoid temporary allocations.
