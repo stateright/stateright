@@ -220,7 +220,8 @@ fn main() -> Result<(), pico_args::Error> {
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())
-                .spawn_sym()
+                .symmetry()
+                .spawn_dfs()
                 .report(&mut std::io::stdout());
         }
         Some("explore") => {

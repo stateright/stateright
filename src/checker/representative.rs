@@ -1,7 +1,7 @@
 //! Private module for selective re-export.
 
 /// This trait is used to reduce the state space when checking a model with
-/// [`CheckerBuilder::spawn_sym`]. The trait indicates the ability to generate a representative
+/// [`CheckerBuilder::symmetry`]. The trait indicates the ability to generate a representative
 /// from a symmetry equivalence class for each state in [`Model::State`].
 ///
 /// Bošnački, Dams, and Holenderski provide a clarifying example in their paper
@@ -59,7 +59,7 @@
 /// }
 /// ```
 ///
-/// [`CheckerBuilder::spawn_sym`]: crate::CheckerBuilder::spawn_sym
+/// [`CheckerBuilder::symmetry`]: crate::CheckerBuilder::symmetry
 /// [`Model::State`]: crate::Model::State
 /// [`Rewrite`]: crate::Rewrite
 pub trait Representative {

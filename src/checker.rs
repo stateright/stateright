@@ -1,9 +1,7 @@
 //! Private module for selective re-export.
 
 mod bfs;
-use crate::{Expectation, Model};
 mod dfs;
-mod sym;
 mod explorer;
 mod path;
 mod representative;
@@ -11,6 +9,7 @@ mod rewrite;
 mod rewrite_plan;
 mod visitor;
 
+use crate::{Expectation, Model};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -35,6 +34,7 @@ pub use visitor::*;
               Consider calling spawn_bfs() or spawn_dfs()."]
 pub struct CheckerBuilder<M: Model> {
     model: M,
+    symmetry: Option<fn(&M::State) -> M::State>,
     target_state_count: Option<NonZeroUsize>,
     thread_count: usize,
     visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
@@ -44,6 +44,7 @@ impl<M: Model> CheckerBuilder<M> {
         Self {
             model,
             target_state_count: None,
+            symmetry: None,
             thread_count: 1,
             visitor: None,
         }
@@ -142,17 +143,13 @@ impl<M: Model> CheckerBuilder<M> {
         dfs::DfsChecker::spawn(self)
     }
 
-    /// Spawns a symmetry aware DFS model checker.
-    /// 
-    /// This call does not block the current thread. Call [`Checker::join`] to block until
-    /// checking completes.
-    #[must_use = "Checkers run on background threads. \
-                  Consider calling join() or report(...), for example."]
-    pub fn spawn_sym(self) -> impl Checker<M>
-    where M: Model + Send + Sync + 'static,
-          M::State: Hash + Send + Sync + Representative + 'static,
+    /// Enables symmetry reduction. Requires the [model state] to implement [`Representative`].
+    ///
+    /// [model state]: crate::Model::State
+    pub fn symmetry(self) -> Self
+    where M::State: Representative,
     {
-        sym::SymChecker::spawn(self)
+        Self { symmetry: Some(Representative::representative), .. self }
     }
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons

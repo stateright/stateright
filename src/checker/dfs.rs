@@ -34,6 +34,7 @@ where M: Model + Send + Sync + 'static,
 {
     pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
+        let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
@@ -45,7 +46,13 @@ where M: Model + Send + Sync + 'static,
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let generated = Arc::new({
             let generated = DashSet::default();
-            for s in &init_states { generated.insert(fingerprint(s)); }
+            for s in &init_states {
+                generated.insert(if let Some(representative) = symmetry {
+                    fingerprint(&representative(&s))
+                } else {
+                    fingerprint(s)
+                });
+            }
             generated
         });
         let ebits = {
@@ -59,7 +66,11 @@ where M: Model + Send + Sync + 'static,
         };
         let pending: Vec<_> = init_states.into_iter()
             .map(|s| {
-                let fs = vec![fingerprint(&s)];
+                let fs = vec![if let Some(representative) = symmetry {
+                    fingerprint(&representative(&s))
+                } else {
+                    fingerprint(&s)
+                }];
                 (s, fs, ebits.clone())
             })
             .collect();
@@ -116,7 +127,8 @@ where M: Model + Send + Sync + 'static,
                         &mut pending,
                         &*discoveries,
                         &*visitor,
-                        1500);
+                        1500,
+                        symmetry);
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
                         let mut job_market = job_market.lock();
@@ -168,8 +180,9 @@ where M: Model + Send + Sync + 'static,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
-        mut max_count: usize)
-    {
+        mut max_count: usize,
+        symmetry: Option<fn(&M::State) -> M::State>,
+    ) {
         let properties = model.properties();
 
         let mut actions = Vec::new();
@@ -243,19 +256,28 @@ where M: Model + Send + Sync + 'static,
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = fingerprint(&next_state);
-                if !generated.insert(next_fingerprint) {
-                    // FIXME: arriving at an already-known state may be a loop (in which case it
-                    // could, in a fancier implementation, be considered a terminal state for
-                    // purposes of eventually-property checking) but it might also be a join in
-                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                    // some cost), but for now we just _don't_ treat them as terminal, and tell
-                    // users they need to explicitly ensure model path-acyclicality when they're
-                    // using eventually properties (using a boundary or empty actions or
-                    // whatever).
-                    is_terminal = false;
-                    continue
-                }
+                let next_fingerprint = if let Some(representative) = symmetry {
+                    if !generated.insert(fingerprint(&representative(&next_state))) {
+                        is_terminal = false;
+                        continue
+                    }
+                    fingerprint(&representative(&next_state))
+                } else {
+                    let next_fingerprint = fingerprint(&next_state);
+                    if !generated.insert(next_fingerprint) {
+                        // FIXME: arriving at an already-known state may be a loop (in which case it
+                        // could, in a fancier implementation, be considered a terminal state for
+                        // purposes of eventually-property checking) but it might also be a join in
+                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                        // some cost), but for now we just _don't_ treat them as terminal, and tell
+                        // users they need to explicitly ensure model path-acyclicality when they're
+                        // using eventually properties (using a boundary or empty actions or
+                        // whatever).
+                        is_terminal = false;
+                        continue
+                    }
+                    next_fingerprint
+                };
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
@@ -337,17 +359,14 @@ mod test {
             ]);
     }
 
-    // Temporarily commented out as running this and the corresponding method inside `sym.rs`
-    // simultaneously can cause the test process to crash.
-    //
-    // #[cfg(not(debug_assertions))] // too slow for debug build
-    // #[test]
-    // fn can_complete_by_enumerating_all_states() {
-    //     let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_dfs().join();
-    //     assert_eq!(checker.is_done(), true);
-    //     checker.assert_no_discovery("solvable");
-    //     assert_eq!(checker.unique_state_count(), 256 * 256);
-    // }
+    #[cfg(not(debug_assertions))] // too slow for debug build
+    #[test]
+    fn can_complete_by_enumerating_all_states() {
+        let checker = LinearEquation { a: 2, b: 4, c: 7 }.checker().spawn_dfs().join();
+        assert_eq!(checker.is_done(), true);
+        checker.assert_no_discovery("solvable");
+        assert_eq!(checker.unique_state_count(), 256 * 256);
+    }
 
     #[test]
     fn can_complete_by_eliminating_properties() {

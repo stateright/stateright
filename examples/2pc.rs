@@ -134,7 +134,7 @@ fn can_model_2pc() {
     checker.assert_properties();
 
     // reverify the larger state space with symmetry reduction
-    let checker = TwoPhaseSys { rms: 0..5 }.checker().spawn_sym().join();
+    let checker = TwoPhaseSys { rms: 0..5 }.checker().symmetry().spawn_dfs().join();
     assert_eq!(checker.unique_state_count(), 665);
     checker.assert_properties();
 }
@@ -158,7 +158,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or(2);
             println!("Checking two phase commit with {} resource managers using symmetry reduction.", rm_count);
             TwoPhaseSys { rms: 0..rm_count }.checker()
-                .threads(num_cpus::get()).spawn_sym()
+                .threads(num_cpus::get()).symmetry().spawn_dfs()
                 .report(&mut std::io::stdout());
 
             // Implementing this trait enables symmetry reduction to speed up model checking (optional).
