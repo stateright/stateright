@@ -35,12 +35,20 @@ where M: Model + Send + Sync + 'static,
 {
     pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
+        let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
 
         let init_states: Vec<_> = model.init_states().into_iter()
+            .map(|s| {
+                if let Some(representative) = symmetry {
+                    representative(&s)
+                } else {
+                    s
+                }
+            })
             .filter(|s| model.within_boundary(&s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
@@ -117,7 +125,8 @@ where M: Model + Send + Sync + 'static,
                         &mut pending,
                         &*discoveries,
                         &*visitor,
-                        1500);
+                        1500,
+                        symmetry);
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
                         let mut job_market = job_market.lock();
@@ -169,8 +178,9 @@ where M: Model + Send + Sync + 'static,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
-        mut max_count: usize)
-    {
+        mut max_count: usize,
+        symmetry: Option<fn(&M::State) -> M::State>,
+    ) {
         let properties = model.properties();
 
         let mut actions = Vec::new();
@@ -228,8 +238,18 @@ where M: Model + Send + Sync + 'static,
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
-            for next_state in next_states {
+            for action in actions.drain(..) {
+                let next_state = match model.next_state(&state, action) {
+                    None => continue,
+                    Some(next_state) => {
+                        if let Some(representative) = symmetry {
+                            representative(&next_state)
+                        } else {
+                            next_state
+                        }
+                    }
+                };
+
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) { continue }
                 state_count.fetch_add(1, Ordering::Relaxed);
