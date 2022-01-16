@@ -149,7 +149,14 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn symmetry(self) -> Self
     where M::State: Representative,
     {
-        Self { symmetry: Some(Representative::representative), .. self }
+        self.symmetry_fn(Representative::representative)
+    }
+
+    /// Enables symmetry reduction based on a representative function.
+    ///
+    /// [model state]: crate::Model::State
+    pub fn symmetry_fn(self, representative: fn(&M::State) -> M::State) -> Self {
+        Self { symmetry: Some(representative), .. self }
     }
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons
