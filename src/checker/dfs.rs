@@ -41,17 +41,20 @@ where M: Model + Send + Sync + 'static,
         let property_count = model.properties().len();
 
         let init_states: Vec<_> = model.init_states().into_iter()
+            .map(|s| {
+                if let Some(representative) = symmetry {
+                    representative(&s)
+                } else {
+                    s
+                }
+            })
             .filter(|s| model.within_boundary(&s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let generated = Arc::new({
             let generated = DashSet::default();
             for s in &init_states {
-                generated.insert(if let Some(representative) = symmetry {
-                    fingerprint(&representative(&s))
-                } else {
-                    fingerprint(s)
-                });
+                generated.insert(fingerprint(s));
             }
             generated
         });
@@ -66,12 +69,8 @@ where M: Model + Send + Sync + 'static,
         };
         let pending: Vec<_> = init_states.into_iter()
             .map(|s| {
-                let fs = vec![if let Some(representative) = symmetry {
-                    fingerprint(&representative(&s))
-                } else {
-                    fingerprint(&s)
-                }];
-                (s, fs, ebits.clone())
+                let fp = fingerprint(&s);
+                (s, vec![fp], ebits.clone())
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -242,8 +241,18 @@ where M: Model + Send + Sync + 'static,
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
-            for next_state in next_states {
+            for action in actions.drain(..) {
+                let next_state = match model.next_state(&state, action) {
+                    None => continue,
+                    Some(next_state) => {
+                        if let Some(representative) = symmetry {
+                            representative(&next_state)
+                        } else {
+                            next_state
+                        }
+                    }
+                };
+
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) { continue }
                 state_count.fetch_add(1, Ordering::Relaxed);
@@ -256,28 +265,19 @@ where M: Model + Send + Sync + 'static,
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = if let Some(representative) = symmetry {
-                    if !generated.insert(fingerprint(&representative(&next_state))) {
-                        is_terminal = false;
-                        continue
-                    }
-                    fingerprint(&representative(&next_state))
-                } else {
-                    let next_fingerprint = fingerprint(&next_state);
-                    if !generated.insert(next_fingerprint) {
-                        // FIXME: arriving at an already-known state may be a loop (in which case it
-                        // could, in a fancier implementation, be considered a terminal state for
-                        // purposes of eventually-property checking) but it might also be a join in
-                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                        // some cost), but for now we just _don't_ treat them as terminal, and tell
-                        // users they need to explicitly ensure model path-acyclicality when they're
-                        // using eventually properties (using a boundary or empty actions or
-                        // whatever).
-                        is_terminal = false;
-                        continue
-                    }
-                    next_fingerprint
-                };
+                let next_fingerprint = fingerprint(&next_state);
+                if !generated.insert(next_fingerprint) {
+                    // FIXME: arriving at an already-known state may be a loop (in which case it
+                    // could, in a fancier implementation, be considered a terminal state for
+                    // purposes of eventually-property checking) but it might also be a join in
+                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                    // some cost), but for now we just _don't_ treat them as terminal, and tell
+                    // users they need to explicitly ensure model path-acyclicality when they're
+                    // using eventually properties (using a boundary or empty actions or
+                    // whatever).
+                    is_terminal = false;
+                    continue
+                }
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;

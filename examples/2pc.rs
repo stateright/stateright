@@ -135,7 +135,7 @@ fn can_model_2pc() {
 
     // reverify the larger state space with symmetry reduction
     let checker = TwoPhaseSys { rms: 0..5 }.checker().symmetry().spawn_dfs().join();
-    assert_eq!(checker.unique_state_count(), 665);
+    assert_eq!(checker.unique_state_count(), 1092);
     checker.assert_properties();
 }
 
