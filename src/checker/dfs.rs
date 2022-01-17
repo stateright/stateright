@@ -385,4 +385,95 @@ mod test {
             Guess::IncreaseX,
         ]);
     }
+
+    #[test]
+    fn can_apply_symmetry_reduction() {
+        use crate::actor::Id;
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+        struct Sys;
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+        struct SysState(Vec<ProcState>);
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        enum ProcState {
+            // A process advances from `Loading` to `Running` to cycling between `Paused` and
+            // `Running`. There is no way for a process to move from `Loading` to `Paused` or any
+            // non-`Loading` state to `Loading`, but a previous implementation of symmetry
+            // reduction would mistakenly collect a path with an invalid step because it would
+            // enqueue the representative of a state rather than the original state.
+            //
+            // Here is an example of the steps that would manifest that bug:
+            //
+            // 1. System starts: `[Loading, Loading]`
+            // 2. Second process advances: `[Loading, Running]`
+            // 3. Second process advances: `[Loading, Paused]`
+            //
+            // But in the third state above, the representative function swaps the process order
+            // because `Paused < Loading`, so the collected path becomes:
+            //
+            // 1. `[Loading, Loading]`
+            // 2. `[Loading, Running]`
+            // 3. `[Paused, Loading]`
+            //
+            // Both `Loading -> Loading -> Paused` (process 0) and `Loading -> Running -> Loading`
+            // (process 1) are invalid.
+            Paused,
+            Loading,
+            Running,
+        }
+        impl Model for Sys {
+            type Action = Id;
+            type State = SysState;
+            fn init_states(&self) -> Vec<SysState> {
+                vec![SysState(vec![ProcState::Loading, ProcState::Loading])]
+            }
+            fn actions(&self, _: &Self::State, actions: &mut Vec<Self::Action>) {
+                // Either process can run next.
+                actions.push(Id::from(0));
+                actions.push(Id::from(1));
+            }
+            fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
+                let i = usize::from(action);
+                let mut state = state.clone();
+                match state.0[i]  {
+                    ProcState::Loading => state.0[i] = ProcState::Running,
+                    ProcState::Running => state.0[i] = ProcState::Paused,
+                    ProcState::Paused => state.0[i] = ProcState::Running,
+                }
+                Some(state)
+            }
+            fn properties(&self) -> Vec<Property<Self>> {
+                vec![
+                    Property::<Self>::always(
+                        "visit all states",
+                        |_, _| true),
+                    Property::<Self>::sometimes(
+                        "a process pauses",
+                        |_, s| s.0[0] == ProcState::Paused || s.0[1] == ProcState::Paused),
+                ]
+            }
+        }
+        impl Representative for SysState {
+            fn representative(&self) -> Self {
+                let plan = RewritePlan::<Id>::from_values_to_sort(&self.0);
+                SysState(plan.reindex(&self.0))
+            }
+        }
+        impl Rewrite<Id> for ProcState {
+            fn rewrite(&self, _: &RewritePlan<Id>) -> Self {
+                self.clone()
+            }
+        }
+
+        // 9 states without symmetry reduction.
+        let checker = Sys.checker().spawn_dfs().join();
+        assert_eq!(checker.unique_state_count(), 9);
+        let checker = Sys.checker().spawn_bfs().join();
+        assert_eq!(checker.unique_state_count(), 9);
+
+        // 6 states with symmetry reduction. `PathRecorder` panics upon encountering an invalid
+        // path, and this was observed in a previous implementation with a bug.
+        let (visitor, _) = PathRecorder::new_with_accessor();
+        let checker = Sys.checker().symmetry().visitor(visitor).spawn_dfs().join();
+        assert_eq!(checker.unique_state_count(), 6);
+    }
 }
