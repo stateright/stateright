@@ -41,20 +41,17 @@ where M: Model + Send + Sync + 'static,
         let property_count = model.properties().len();
 
         let init_states: Vec<_> = model.init_states().into_iter()
-            .map(|s| {
-                if let Some(representative) = symmetry {
-                    representative(&s)
-                } else {
-                    s
-                }
-            })
             .filter(|s| model.within_boundary(&s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let generated = Arc::new({
             let generated = DashSet::default();
             for s in &init_states {
-                generated.insert(fingerprint(s));
+                if let Some(representative) = symmetry {
+                    generated.insert(fingerprint(&representative(s)));
+                } else {
+                    generated.insert(fingerprint(s));
+                }
             }
             generated
         });
@@ -234,7 +231,6 @@ where M: Model + Send + Sync + 'static,
                         }
                     }
                 }
-
             }
             if !is_awaiting_discoveries { return }
 
@@ -244,13 +240,7 @@ where M: Model + Send + Sync + 'static,
             for action in actions.drain(..) {
                 let next_state = match model.next_state(&state, action) {
                     None => continue,
-                    Some(next_state) => {
-                        if let Some(representative) = symmetry {
-                            representative(&next_state)
-                        } else {
-                            next_state
-                        }
-                    }
+                    Some(next_state) => next_state,
                 };
 
                 // Skip if outside boundary.
@@ -265,19 +255,32 @@ where M: Model + Send + Sync + 'static,
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = fingerprint(&next_state);
-                if !generated.insert(next_fingerprint) {
-                    // FIXME: arriving at an already-known state may be a loop (in which case it
-                    // could, in a fancier implementation, be considered a terminal state for
-                    // purposes of eventually-property checking) but it might also be a join in
-                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                    // some cost), but for now we just _don't_ treat them as terminal, and tell
-                    // users they need to explicitly ensure model path-acyclicality when they're
-                    // using eventually properties (using a boundary or empty actions or
-                    // whatever).
-                    is_terminal = false;
-                    continue
-                }
+                let next_fingerprint = if let Some(representative) = symmetry {
+                    let representative_fingerprint = fingerprint(&representative(&next_state));
+                    if !generated.insert(representative_fingerprint) {
+                        is_terminal = false;
+                        continue
+                    }
+                    // IMPORTANT: continue the path with the pre-canonicalized state/fingerprint to
+                    // avoid jumping to another part of the state space for which there may not be
+                    // a path extension from the previously collected path.
+                    fingerprint(&next_state)
+                } else {
+                    let next_fingerprint = fingerprint(&next_state);
+                    if !generated.insert(next_fingerprint) {
+                        // FIXME: arriving at an already-known state may be a loop (in which case it
+                        // could, in a fancier implementation, be considered a terminal state for
+                        // purposes of eventually-property checking) but it might also be a join in
+                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                        // some cost), but for now we just _don't_ treat them as terminal, and tell
+                        // users they need to explicitly ensure model path-acyclicality when they're
+                        // using eventually properties (using a boundary or empty actions or
+                        // whatever).
+                        is_terminal = false;
+                        continue
+                    }
+                    next_fingerprint
+                };
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
