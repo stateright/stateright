@@ -457,12 +457,12 @@ mod test {
         }
         impl Representative for SysState {
             fn representative(&self) -> Self {
-                let plan = RewritePlan::<Id>::from_values_to_sort(&self.0);
+                let plan = RewritePlan::from_values_to_sort(&self.0);
                 SysState(plan.reindex(&self.0))
             }
         }
         impl Rewrite<Id> for ProcState {
-            fn rewrite(&self, _: &RewritePlan<Id>) -> Self {
+            fn rewrite<S>(&self, _: &RewritePlan<Id, S>) -> Self {
                 self.clone()
             }
         }

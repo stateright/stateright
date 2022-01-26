@@ -2,7 +2,7 @@
 
 use crate::RewritePlan;
 use crate::actor::{Envelope, Id};
-use crate::util::HashableHashSet;
+use crate::util::{HashableHashSet, HashableHashMap};
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// [`Representative`]: crate::Representative
 pub trait Rewrite<R> {
     /// Generates a corresponding instance with values revised based on a particular `RewritePlan`.
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self;
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self;
 }
 
 // Built-in scalar types have blanket "no-op" implementations that simply clone.
@@ -26,7 +26,7 @@ macro_rules! impl_noop_rewrite {
         $(
             impl<R> crate::Rewrite<R> for $t {
                 #[inline(always)]
-                fn rewrite(&self, _: &RewritePlan<R>) -> Self { self.clone() }
+                fn rewrite<S>(&self, _: &RewritePlan<R,S>) -> Self { self.clone() }
             }
         )*
     }
@@ -51,14 +51,14 @@ where T0: Rewrite<R>,
       T1: Rewrite<R>,
 {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         (self.0.rewrite(plan), self.1.rewrite(plan))
     }
 }
 impl<R, T> Rewrite<R> for Arc<T>
 where T: Rewrite<R>,
 {
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         Arc::new((**self).rewrite(&plan))
     }
 }
@@ -67,7 +67,7 @@ where K: Ord + Rewrite<R>,
       V: Rewrite<R>,
 {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         self.iter()
             .map(|(k, v)| (k.rewrite(plan), v.rewrite(plan)))
             .collect()
@@ -75,27 +75,36 @@ where K: Ord + Rewrite<R>,
 }
 impl<R, V> Rewrite<R> for BTreeSet<V> where V: Ord + Rewrite<R> {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         self.iter().map(|x| x.rewrite(plan)).collect()
     }
 }
 impl<R, V> Rewrite<R> for HashableHashSet<V> where V: Eq + Hash + Rewrite<R> {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         self.iter().map(|x| x.rewrite(plan)).collect()
+    }
+}
+impl<R, K, V> Rewrite<R> for HashableHashMap<K,V> 
+where V: Eq + Hash + Rewrite<R>,
+      K: Eq + Hash + Rewrite<R>,
+      {
+    #[inline(always)]
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
+        self.iter().map(|(k,v)| (k.rewrite(plan), v.rewrite(plan)) ).collect()
     }
 }
 impl<R, T> Rewrite<R> for Option<T>
 where T: Rewrite<R>,
 {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         self.as_ref().map(|v| v.rewrite(plan))
     }
 }
 impl<R, V> Rewrite<R> for Vec<V> where V: Rewrite<R> {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         self.iter().map(|x| x.rewrite(plan)).collect()
     }
 }
@@ -103,14 +112,14 @@ impl<R, V> Rewrite<R> for Vec<V> where V: Rewrite<R> {
 // Implementations for some of Stateright's types follow.
 impl Rewrite<Id> for Id {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
-        plan.rewrite(*self)
+    fn rewrite<S>(&self, plan: &RewritePlan<Id,S>) -> Self {
+        plan.rewrite(self)
     }
 }
 impl<Msg> Rewrite<Id> for Envelope<Msg>
 where Msg: Rewrite<Id>,
 {
-    fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<Id,S>) -> Self {
         Envelope {
             src: self.src.rewrite(plan),
             dst: self.dst.rewrite(plan),
@@ -128,10 +137,10 @@ mod test {
     fn can_rewrite_id_vec() {
         let original = Id::vec_from(vec![1, 2, 2]);
         assert_eq!(
-            original.rewrite(&RewritePlan::<Id>::from_values_to_sort(&vec![2, 0, 1])),
+            original.rewrite(&RewritePlan::<Id,_>::from_values_to_sort(&vec![2, 0, 1])),
             Id::vec_from(vec![0, 1, 1]));
         assert_eq!(
-            original.rewrite(&RewritePlan::<Id>::from_values_to_sort(&vec![0, 2, 1])),
+            original.rewrite(&RewritePlan::<Id,_>::from_values_to_sort(&vec![0, 2, 1])),
             Id::vec_from(vec![2, 1, 1]));
     }
 

@@ -205,7 +205,7 @@ where K: From<usize> + Rewrite<R>,
       usize: From<K>,
 {
     #[inline(always)]
-    fn rewrite(&self, plan: &RewritePlan<R>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R, S>) -> Self {
         // FIXME: simply reindexing the keys (while still rewriting the values) would be more
         //        efficient, but we need to vary behavior based on the key type (i.e. for
         //        `DenseNatMap<R, _>`, `Rewrite<R>` would reindex, while `Rewrite<!R>` would not).
@@ -264,15 +264,15 @@ mod test {
             fn from(input: Id2) -> Self { input.0 }
         }
         impl Rewrite<Id2> for Id2 {
-            fn rewrite(&self, plan: &RewritePlan<Id2>) -> Self {
-                plan.rewrite(*self)
+            fn rewrite<S>(&self, plan: &RewritePlan<Id2, S>) -> Self {
+                plan.rewrite(self)
             }
         }
         impl Rewrite<Id2> for Id {
-            fn rewrite(&self, _: &RewritePlan<Id2>) -> Self { *self }
+            fn rewrite<S>(&self, _: &RewritePlan<Id2, S>) -> Self { *self }
         }
         impl Rewrite<Id> for Id2 {
-            fn rewrite(&self, _: &RewritePlan<Id>) -> Self { *self }
+            fn rewrite<S>(&self, _: &RewritePlan<Id, S>) -> Self { *self }
         }
 
         // Now we simulate the fields of a data structure that needs to be rewritten. Most "fields"
@@ -284,7 +284,7 @@ mod test {
         let f5 = BTreeMap::from_iter([(Id::from(0), '!')]);
 
         // Rewriting based on `Id` symmetry importantly does *not* reindex the third field.
-        let plan = RewritePlan::new(&f1);
+        let plan = RewritePlan::from(&f1);
         assert_eq!(
             f1.rewrite(&plan),
             DenseNatMap::from_iter(['A', 'B', 'C', 'D']));
@@ -302,7 +302,7 @@ mod test {
             BTreeMap::from_iter([(Id::from(1), '!')]));
 
         // Rewriting based on `Id2` on the other hand impacts *only* the third field.
-        let plan = RewritePlan::new(&f3);
+        let plan = RewritePlan::from(&f3);
         assert_eq!(
             f1.rewrite(&plan),
             DenseNatMap::from_iter(['B', 'C', 'A', 'D'])); // *not* reindexed
