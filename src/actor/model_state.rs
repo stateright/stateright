@@ -207,7 +207,7 @@ mod test {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct ActorState { acks: Vec<Id> }
     impl Rewrite<Id> for ActorState {
-        fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+        fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
             Self { acks: self.acks.rewrite(plan) }
         }
     }
@@ -215,7 +215,7 @@ mod test {
     #[derive(Debug, PartialEq)]
     struct History { send_sequence: Vec<Id> }
     impl Rewrite<Id> for History {
-        fn rewrite(&self, plan: &RewritePlan<Id>) -> Self {
+        fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
             Self { send_sequence: self.send_sequence.rewrite(plan) }
         }
     }

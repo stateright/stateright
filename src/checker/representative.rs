@@ -31,7 +31,7 @@
 /// }
 /// impl Representative for SystemState {
 ///     fn representative(&self) -> Self {
-///         let plan = RewritePlan::new(&self.process_states);
+///         let plan = (&self.process_states).into();
 ///         Self {
 ///             process_states: self.process_states.rewrite(&plan),
 ///             time_slice_sequence: self.time_slice_sequence.rewrite(&plan),
@@ -49,7 +49,7 @@
 ///     // ... etc ...
 /// }
 /// impl Rewrite<Pid> for ProcessState {
-///     fn rewrite(&self, plan: &RewritePlan<Pid>) -> Self {
+///     fn rewrite<S>(&self, plan: &RewritePlan<Pid,S>) -> Self {
 ///         Self {
 ///             program_counter: self.program_counter.rewrite(plan), // no-op (cannot contain `Pid`)
 ///             parent: self.parent.rewrite(plan),

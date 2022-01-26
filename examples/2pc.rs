@@ -172,7 +172,7 @@ fn main() -> Result<(), pico_args::Error> {
                         msgs: self.msgs.iter().map(|m| {
                             match m {
                                 Message::Prepared { rm } =>
-                                    Message::Prepared { rm: plan.rewrite(*rm) },
+                                    Message::Prepared { rm: plan.rewrite(rm) },
                                 Message::Commit => Message::Commit,
                                 Message::Abort => Message::Abort,
                             }
@@ -181,7 +181,7 @@ fn main() -> Result<(), pico_args::Error> {
                 }
             }
             impl<T> Rewrite<T> for RmState {
-                fn rewrite(&self, _: &RewritePlan<T>) -> Self {
+                fn rewrite<S>(&self, _: &RewritePlan<T,S>) -> Self {
                     self.clone()
                 }
             }
