@@ -53,11 +53,12 @@
 
 mod densenatmap;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher, BuildHasher};
 use std::ops::{Deref, DerefMut};
 use std::iter::FromIterator;
+use std::cmp::Ordering;
 mod vector_clock;
 
 pub use densenatmap::DenseNatMap;
@@ -143,6 +144,24 @@ impl<V: Hash, S> Hash for HashableHashSet<V, S> {
     }
 }
 
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
+impl<V: Hash + Eq, S: BuildHasher> PartialOrd for HashableHashSet<V,S> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        calculate_hash(self).partial_cmp(&calculate_hash(other))
+    }
+}
+
+impl<V: Hash + Eq, S: BuildHasher> Ord for HashableHashSet<V,S> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        calculate_hash(self).cmp(&calculate_hash(other))
+    }
+}
+
 impl<'a, V, S> IntoIterator for &'a HashableHashSet<V, S> {
     type Item = &'a V;
     type IntoIter = std::collections::hash_set::Iter<'a, V>;
@@ -165,6 +184,18 @@ where V: Eq + Hash + serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         self.0.serialize(ser)
+    }
+}
+
+impl<'de, V, S> serde::Deserialize<'de> for HashableHashSet<V, S>
+where V: Eq + Hash + serde::Deserialize<'de>,
+      S: BuildHasher + Default,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+
+            HashSet::<V,S>::deserialize(deserializer).map(|r| HashableHashSet(r))
     }
 }
 
@@ -268,6 +299,18 @@ impl<K, V, S> DerefMut for HashableHashMap<K, V, S> {
 }
 
 impl<K: Eq + Hash, V: Eq, S: BuildHasher> Eq for HashableHashMap<K, V, S> {}
+
+impl<K: Eq + Hash, V: Hash + Eq, S: BuildHasher> PartialOrd for HashableHashMap<K, V, S> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        calculate_hash(self).partial_cmp(&calculate_hash(other))
+    }
+}
+
+impl<K: Eq + Hash, V: Hash + Eq, S: BuildHasher> Ord for HashableHashMap<K, V, S> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        calculate_hash(self).cmp(&calculate_hash(other))
+    }
+}
 
 impl<K: Eq + Hash, V, S: BuildHasher + Default> FromIterator<(K, V)> for HashableHashMap<K, V, S> {
     fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> Self {
