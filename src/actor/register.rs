@@ -214,5 +214,28 @@ where
             _ => {}
         }
     }
-}
 
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+        use RegisterActor as A;
+        use RegisterActorState as S;
+        match (self, &**state) {
+            (
+                A::Client { .. },
+                S::Client { .. }
+            ) => {},
+            (
+                A::Server(server_actor),
+                S::Server(server_state)
+            ) => {
+                let mut server_state = Cow::Borrowed(server_state);
+                let mut server_out = Out::new();
+                server_actor.on_timeout(id, &mut server_state, &mut server_out);
+                if let Cow::Owned(server_state) = server_state {
+                    *state = Cow::Owned(RegisterActorState::Server(server_state))
+                }
+                o.append(&mut server_out);
+            }
+            _ => {}
+        }
+    }
+}
