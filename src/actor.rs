@@ -97,6 +97,7 @@ pub use model::*;
 pub use model_state::*;
 pub mod ordered_reliable_link;
 pub mod register;
+pub mod write_once_register;
 pub use spawn::*;
 
 /// Uniquely identifies an [`Actor`]. Encodes the socket address for spawned

@@ -52,6 +52,7 @@ mod sequential_consistency;
 
 pub use consistency_tester::ConsistencyTester;
 pub mod register;
+pub mod write_once_register;
 pub use linearizability::LinearizabilityTester;
 pub use sequential_consistency::SequentialConsistencyTester;
 pub mod vec;
