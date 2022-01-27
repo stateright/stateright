@@ -213,7 +213,7 @@ where A: Actor,
         let mut init_sys_state = ActorModelState {
             actor_states: Vec::with_capacity(self.actors.len()),
             history: self.init_history.clone(),
-            is_timer_set: Vec::new(),
+            is_timer_set: vec![false; self.actors.len()],
             network: Network::with_hasher(
                 crate::stable::build_hasher()), // for consistent discoveries
         };
@@ -528,10 +528,11 @@ mod test {
 
         // helper to make the test more concise
         let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>| {
+            let is_timer_set = vec![false; states.len()];
             ActorModelState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::from_iter(envelopes),
-                is_timer_set: Vec::new(),
+                is_timer_set,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
             }
         };
