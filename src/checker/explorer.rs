@@ -309,7 +309,7 @@ mod test {
                     state: Some(ActorModelState {
                         actor_states: vec![Arc::new(0), Arc::new(0)],
                         history: (0, 1),
-                        is_timer_set: vec![],
+                        is_timer_set: vec![false,false],
                         network: Network::from_iter(vec![
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                         ]),
@@ -324,7 +324,7 @@ mod test {
                 let fp = fingerprint(&ActorModelState::<PingPongActor, PingPongHistory> {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
-                    is_timer_set: vec![],
+                    is_timer_set: vec![false,false],
                     network: Network::from_iter(vec![
                         Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     ]),
@@ -342,7 +342,7 @@ mod test {
                 state: Some(ActorModelState {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
-                    is_timer_set: vec![],
+                    is_timer_set: vec![false,false],
                     network: Network::new(),
                 }),
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n</svg>\n".to_string()),
@@ -358,7 +358,7 @@ mod test {
                         Arc::new(1),
                     ],
                     history: (1, 2),
-                    is_timer_set: vec![],
+                    is_timer_set: vec![false,false],
                     network: Network::from_iter(vec![
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     ]),
