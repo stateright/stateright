@@ -1,4 +1,4 @@
-//! Implements [`SequentialSpec`] for [`WriteOnceRegister`] operational semantics.
+//! Implements [`SequentialSpec`] for "write-once register" operational semantics.
 
 use std::fmt::Debug;
 use super::SequentialSpec;
