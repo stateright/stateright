@@ -41,7 +41,7 @@ where M: Model + Send + Sync + 'static,
         let property_count = model.properties().len();
 
         let init_states: Vec<_> = model.init_states().into_iter()
-            .filter(|s| model.within_boundary(&s))
+            .filter(|s| model.within_boundary(s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let generated = Arc::new({
@@ -169,6 +169,8 @@ where M: Model + Send + Sync + 'static,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
     fn check_block(
         model: &M,
         state_count: &AtomicUsize,

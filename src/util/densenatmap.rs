@@ -120,6 +120,7 @@ impl<K, V> DenseNatMap<K, V> {
     }
 
     /// Returns the number of elements in the map.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize { self.values.len() }
 
     /// Returns an iterator over values in the map.
@@ -127,6 +128,12 @@ impl<K, V> DenseNatMap<K, V> {
     /// See also [`DenseNatMap::iter`].
     pub fn values(&self) -> impl Iterator<Item=&V> {
         self.values.iter()
+    }
+}
+
+impl<K, V> Default for DenseNatMap<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

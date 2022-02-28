@@ -59,7 +59,7 @@ impl<R, T> Rewrite<R> for Arc<T>
 where T: Rewrite<R>,
 {
     fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
-        Arc::new((**self).rewrite(&plan))
+        Arc::new((**self).rewrite(plan))
     }
 }
 impl<R, K, V> Rewrite<R> for BTreeMap<K, V>

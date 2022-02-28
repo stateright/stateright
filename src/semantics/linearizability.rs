@@ -197,7 +197,7 @@ where
                     .remove(thread_id).unwrap(); // `contains_key` above
                 let violation = cs.iter().any(|(peer_id, min_peer_time)| {
                     // Ensure all pre-req operations were completed by peers
-                    if let Some(ops) = remaining_history_by_thread.get(&peer_id) {
+                    if let Some(ops) = remaining_history_by_thread.get(peer_id) {
                         if let Some((next_peer_time, _)) = ops.iter().next() {
                             if next_peer_time <= min_peer_time { return true }
                         }
@@ -217,7 +217,7 @@ where
                     .pop_front().unwrap();       // `!is_empty()` above
                 let violation = cs.iter().any(|(peer_id, min_peer_time)| {
                     // Ensure all pre-req operations were completed by peers
-                    if let Some(ops) = remaining_history_by_thread.get(&peer_id) {
+                    if let Some(ops) = remaining_history_by_thread.get(peer_id) {
                         if let Some((next_peer_time, _)) = ops.iter().next() {
                             if next_peer_time <= min_peer_time { return true }
                         }

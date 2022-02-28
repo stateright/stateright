@@ -34,6 +34,7 @@ pub use visitor::*;
               Consider calling spawn_bfs() or spawn_dfs()."]
 pub struct CheckerBuilder<M: Model> {
     model: M,
+    #[allow(clippy::type_complexity)]
     symmetry: Option<fn(&M::State) -> M::State>,
     target_state_count: Option<NonZeroUsize>,
     thread_count: usize,
@@ -310,7 +311,7 @@ pub trait Checker<M: Model> {
                         });
                         let is_path_terminal = {
                             let mut actions = Vec::new();
-                            self.model().actions(&states.last().unwrap(), &mut actions);
+                            self.model().actions(states.last().unwrap(), &mut actions);
                             actions.is_empty()
                         };
                         if !is_liveness_satisfied && is_path_terminal { return }

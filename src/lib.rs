@@ -193,11 +193,11 @@ pub trait Model: Sized {
         // Must generate the actions twice because they are consumed by `next_state`.
         let mut actions1 = Vec::new();
         let mut actions2 = Vec::new();
-        self.actions(&last_state, &mut actions1);
-        self.actions(&last_state, &mut actions2);
+        self.actions(last_state, &mut actions1);
+        self.actions(last_state, &mut actions2);
         actions1.into_iter().zip(actions2)
             .filter_map(|(action1, action2)|
-                self.next_state(&last_state, action1).map(|state| (action2, state)))
+                self.next_state(last_state, action1).map(|state| (action2, state)))
             .collect()
     }
 
@@ -205,9 +205,9 @@ pub trait Model: Sized {
     /// [`Model::next_steps`] and projecting out the states.
     fn next_states(&self, last_state: &Self::State) -> Vec<Self::State> {
         let mut actions = Vec::new();
-        self.actions(&last_state, &mut actions);
+        self.actions(last_state, &mut actions);
         actions.into_iter()
-            .filter_map(|action| self.next_state(&last_state, action))
+            .filter_map(|action| self.next_state(last_state, action))
             .collect()
     }
 

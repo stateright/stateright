@@ -42,6 +42,7 @@ where M: Model,
 /// model.checker().visitor(recorder).spawn_dfs().join();
 /// assert_eq!(accessor(), expected_paths);
 /// ```
+#[allow(clippy::type_complexity)]
 pub struct PathRecorder<M: Model>(Arc<Mutex<HashSet<Path<M::State, M::Action>>>>);
 impl<M> CheckerVisitor<M> for PathRecorder<M>
 where M: Model,

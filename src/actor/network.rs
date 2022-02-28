@@ -90,7 +90,7 @@ where Msg: Eq + Hash,
     }
 
     /// Returns an iterator over all envelopes in the network.
-    pub fn iter<'a>(&'a self) -> NetworkIter<'a, Msg> {
+    pub fn iter(&self) -> NetworkIter<Msg> {
         match self {
             Network::Unordered(set) => {
                 NetworkIter::Unordered(set.iter())
@@ -106,6 +106,7 @@ where Msg: Eq + Hash,
     }
 
     /// Returns the number of messages in the network.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
             Network::Unordered(set) => set.len(),
@@ -121,7 +122,7 @@ where Msg: Eq + Hash,
             }
             Network::Ordered(map) => {
                 map.entry((envelope.src, envelope.dst))
-                    .or_insert(VecDeque::with_capacity(1))
+                    .or_insert_with(|| VecDeque::with_capacity(1))
                     .push_back(envelope.msg);
             }
         }

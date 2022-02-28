@@ -87,7 +87,7 @@ impl PartialOrd for VectorClock {
             let ordering = {
                 let lhs_elem = self.0.get(i).unwrap_or(&0);
                 let rhs_elem = rhs.0.get(i).unwrap_or(&0);
-                lhs_elem.cmp(&rhs_elem)
+                lhs_elem.cmp(rhs_elem)
             };
 
             // The algorithm starts by expecting the vectors to be equal. Once it finds a

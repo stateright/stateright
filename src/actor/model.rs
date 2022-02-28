@@ -131,6 +131,7 @@ where A: Actor,
     }
 
     /// Adds a [`Property`] to this model.
+    #[allow(clippy::type_complexity)]
     pub fn property(mut self, expectation: Expectation, name: &'static str,
                      condition: fn(&ActorModel<A, C, H>, &ActorModelState<A, H>) -> bool) -> Self {
         self.properties.push(Property { expectation, name, condition });
