@@ -1,9 +1,18 @@
-//! An ordered reliable link (ORL) based loosely on the "perfect link" described
-//! in "Introduction to Reliable and Secure Distributed Programming" by Cachin,
-//! Guerraoui, and Rodrigues (with enhancements to provide ordering).
+//! An ordered reliable link (ORL) based loosely on the "perfect link" described in "[Introduction
+//! to Reliable and Secure Distributed
+//! Programming](https://link.springer.com/book/10.1007/978-3-642-15260-3)" by Cachin, Guerraoui,
+//! and Rodrigues (with enhancements to provide ordering).
 //!
-//! Order is maintained for messages between a source/destination pair. Order
-//! is not maintained between different destinations or different sources.
+//! Order is maintained for messages between a source/destination pair. Order is not maintained
+//! between different destinations or different sources.
+//!
+//! The implementation assumes that actors cannot restart. A later version could persist sequencer
+//! information to properly handle actor restarts.
+//!
+//! # See Also
+//!
+//! [`Network::new_ordered`] can be used to reduce the state space of models that will use this
+//! abstraction.
 
 use crate::actor::*;
 use crate::util::HashableHashMap;
@@ -24,7 +33,7 @@ pub struct ActorWrapper<A: Actor> {
 }
 
 /// An envelope for ORL messages.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum MsgWrapper<Msg> {
     Deliver(Sequencer, Msg),
@@ -152,7 +161,7 @@ mod test {
     }
     #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     pub struct Received(Vec<(Id, TestMsg)>);
-    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct TestMsg(u64);
 
     impl Actor for TestActor {
@@ -201,7 +210,7 @@ mod test {
                 ]
             })
             .within_boundary(|_, state| {
-                state.actor_states.iter().all(|s| s.wrapped_state.0.len() < 4)
+                state.network.len() < 4
             })
     }
 

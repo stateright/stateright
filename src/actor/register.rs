@@ -11,7 +11,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Defines an interface for a register-like actor.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum RegisterMsg<RequestId, Value, InternalMsg> {
     /// A message specific to the register system's internal protocol.

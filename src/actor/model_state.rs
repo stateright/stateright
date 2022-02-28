@@ -120,7 +120,7 @@ impl<A, H> Representative for ActorModelState<A, H>
 #[cfg(test)]
 mod test {
     use crate::{Rewrite, Representative, RewritePlan};
-    use crate::actor::{Actor, ActorModelState, Envelope, Id, Out};
+    use crate::actor::{Actor, ActorModelState, Envelope, Id, Network, Out};
     use std::sync::Arc;
 
     #[test]
@@ -131,7 +131,7 @@ mod test {
                 Arc::new(ActorState { acks: vec![]}),
                 Arc::new(ActorState { acks: vec![Id::from(1)]}),
             ],
-            network: vec![
+            network: Network::new_unordered([
                 // Id(0) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },
                 Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
@@ -142,7 +142,7 @@ mod test {
                 Envelope { src: 2.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(Y)" },
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
-            ].into_iter().collect(),
+            ]),
             is_timer_set: vec![true, false, true],
             history: History {
                 send_sequence: vec![
@@ -167,7 +167,7 @@ mod test {
                 Arc::new(ActorState { acks: vec![Id::from(0)]}),
                 Arc::new(ActorState { acks: vec![Id::from(0), Id::from(1)]}),
             ],
-            network: vec![
+            network: Network::new_unordered([
                 // Id(2) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 2.into(), dst: 0.into(), msg: "Write(X)" },
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(X)" },
@@ -178,7 +178,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Write(Y)" },
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
-            ].into_iter().collect(),
+            ]),
             is_timer_set: vec![false, true, true],
             history: History {
                 send_sequence: vec![

@@ -83,6 +83,7 @@
 use choice::{Choice, Never};
 mod model;
 mod model_state;
+mod network;
 mod spawn;
 use std::borrow::Cow;
 use std::hash::Hash;
@@ -95,6 +96,7 @@ use std::ops::Range;
 pub mod actor_test_util;
 pub use model::*;
 pub use model_state::*;
+pub use network::*;
 pub mod ordered_reliable_link;
 pub mod register;
 pub mod write_once_register;
@@ -484,15 +486,22 @@ mod test {
             .visitor(recorder)
             .spawn_bfs()
             .join();
-        let messages_by_state: Vec<_> = accessor().into_iter().map(|s| {
+        let mut messages_by_state: Vec<_> = accessor().into_iter().map(|s| {
             let mut messages: Vec<_> = s.network
-                .into_iter()
-                .map(|e| e.msg)
+                .iter()
+                .map(|e| e.msg.clone())
                 .collect();
             messages.sort();
             messages
         }).collect();
-        assert_eq!(messages_by_state, vec![
+        messages_by_state.sort_by(|x, y| {
+            // Sort by length, then by content.
+            match x.len().cmp(&y.len()) {
+                std::cmp::Ordering::Equal => x.cmp(y),
+                order => order,
+            }
+        });
+        assert_eq!(messages_by_state, [
             vec!['A', 'C'],
             vec!['A', 'B', 'C'],
             vec!['A', 'C', 'D'],

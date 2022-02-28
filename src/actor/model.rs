@@ -5,11 +5,12 @@ use crate::actor::{
     Actor,
     ActorModelState,
     Command,
+    Envelope,
     is_no_op,
     Id,
+    Network,
     Out,
 };
-use crate::util::HashableHashSet;
 use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
@@ -22,6 +23,7 @@ use std::time::Duration;
 /// TLA](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html) for a thorough
 /// introduction to that concept. Use `()` if history is not needed to define the relevant
 /// properties of this system.
+#[derive(Clone)]
 pub struct ActorModel<A, C = (), H = ()>
 where A: Actor,
       H: Clone + Debug + Hash,
@@ -30,7 +32,7 @@ where A: Actor,
     pub cfg: C,
     pub duplicating_network: DuplicatingNetwork,
     pub init_history: H,
-    pub init_network: Vec<Envelope<A::Msg>>,
+    pub init_network: Network<A::Msg>,
     pub lossy_network: LossyNetwork,
     pub properties: Vec<Property<ActorModel<A, C, H>>>,
     pub record_msg_in: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
@@ -54,19 +56,11 @@ pub enum ActorModelAction<Msg> {
 #[derive(Copy, Clone, PartialEq)]
 pub enum DuplicatingNetwork { Yes, No }
 
-/// Indicates the source and destination for a message.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Serialize)]
-pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
-
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
 /// the network state, losing a message is indistinguishable from an unlimited delay, so in
 /// many cases you can improve model checking performance by not modeling message loss.
 #[derive(Copy, Clone, PartialEq)]
 pub enum LossyNetwork { Yes, No }
-
-/// Represents a network of messages.
-pub type Network<Msg> = HashableHashSet<Envelope<Msg>>;
 
 /// The specific timeout value is not relevant for model checking, so this helper can be used to
 /// generate an arbitrary timeout range. The specific value is subject to change, so this helper
@@ -95,7 +89,7 @@ where A: Actor,
             cfg,
             duplicating_network: DuplicatingNetwork::Yes,
             init_history,
-            init_network: Default::default(),
+            init_network: Network::new_unordered([]),
             lossy_network: LossyNetwork::No,
             properties: Default::default(),
             record_msg_in: |_, _, _| None,
@@ -125,7 +119,7 @@ where A: Actor,
     }
 
     /// Defines the initial network.
-    pub fn init_network(mut self, init_network: Vec<Envelope<A::Msg>>) -> Self {
+    pub fn init_network(mut self, init_network: Network<A::Msg>) -> Self {
         self.init_network = init_network;
         self
     }
@@ -185,7 +179,7 @@ where A: Actor,
                     {
                         state.history = history;
                     }
-                    state.network.insert(Envelope { src: id, dst, msg });
+                    state.network.send(Envelope { src: id, dst, msg });
                 },
                 Command::SetTimer(_) => {
                     // must use the index to infer how large as actor state may not be initialized yet
@@ -210,18 +204,20 @@ where A: Actor,
     type Action = ActorModelAction<A::Msg>;
 
     fn init_states(&self) -> Vec<Self::State> {
+        if self.duplicating_network == DuplicatingNetwork::Yes
+            && matches!(self.init_network, Network::Ordered(_))
+        {
+            // A future update will rule this out by not treating "duplicating" as an independent
+            // input from "ordered".
+            panic!("Ordered networks cannot be duplicating");
+        }
+
         let mut init_sys_state = ActorModelState {
             actor_states: Vec::with_capacity(self.actors.len()),
             history: self.init_history.clone(),
             is_timer_set: vec![false; self.actors.len()],
-            network: Network::with_hasher(
-                crate::stable::build_hasher()), // for consistent discoveries
+            network: self.init_network.clone(),
         };
-
-        // init the network
-        for e in self.init_network.clone() {
-            init_sys_state.network.insert(e);
-        }
 
         // init each actor
         for (index, actor) in self.actors.iter().enumerate() {
@@ -236,14 +232,20 @@ where A: Actor,
     }
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-        for env in &state.network {
+        let mut prev_channel = None; // Only deliver the head of a channel.
+        for env in state.network.iter() {
             // option 1: message is lost
             if self.lossy_network == LossyNetwork::Yes {
-                actions.push(ActorModelAction::Drop(env.clone()));
+                actions.push(ActorModelAction::Drop(env.to_cloned_msg()));
             }
 
             // option 2: message is delivered
-            if usize::from(env.dst) < self.actors.len() {
+            if usize::from(env.dst) < self.actors.len() { // ignored if recipient DNE
+                if matches!(self.init_network, Network::Ordered(_)) {
+                    let curr_channel = (env.src, env.dst);
+                    if prev_channel == Some(curr_channel) { continue; } // queued behind previous
+                    prev_channel = Some(curr_channel);
+                }
                 actions.push(ActorModelAction::Deliver { src: env.src, dst: env.dst, msg: env.msg.clone() });
             }
         }
@@ -531,7 +533,7 @@ mod test {
             let is_timer_set = vec![false; states.len()];
             ActorModelState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
-                network: Network::from_iter(envelopes),
+                network: Network::new_unordered(envelopes),
                 is_timer_set,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
             }
@@ -705,10 +707,79 @@ mod test {
             ActorModel::new((), ())
                 .actor(())
                 .property(Expectation::Always, "unused", |_, _| true) // force full traversal
-                .init_network(vec![Envelope { src: 0.into(), dst: 99.into(), msg: () }])
+                .init_network(Network::new_unordered([Envelope { src: 0.into(), dst: 99.into(), msg: () }]))
                 .checker().spawn_bfs().join()
                 .unique_state_count(),
             1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Ordered networks cannot be duplicating")]
+    fn panics_for_duplicating_ordered_network() {
+        ActorModel::new((), ())
+            .actors(vec![(), ()])
+            .property(Expectation::Always, "", |_, _| true)
+            .duplicating_network(DuplicatingNetwork::Yes)
+            .init_network(Network::new_ordered([]))
+            .checker().spawn_dfs().join();
+    }
+
+    #[test]
+    fn handles_ordered_network_flag() {
+        #[derive(Clone)]
+        struct OrderedNetworkActor;
+        impl Actor for OrderedNetworkActor {
+            type Msg = u8;
+            type State = Vec<u8>;
+            fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+                if id == 0.into() {
+                    // Count down.
+                    o.send(1.into(), 2);
+                    o.send(1.into(), 1);
+                }
+                Vec::new()
+            }
+            fn on_msg(&self, _: Id, state: &mut Cow<Self::State>,
+                      _: Id, msg: Self::Msg, _: &mut Out<Self>)
+            {
+                state.to_mut().push(msg);
+            }
+        }
+
+        let model = ActorModel::new((), ())
+            .actors(vec![OrderedNetworkActor, OrderedNetworkActor])
+            .property(Expectation::Always, "", |_, _| true)
+            .duplicating_network(DuplicatingNetwork::No);
+
+        // Fewer states if network is ordered.
+        let (recorder, accessor) = StateRecorder::new_with_accessor();
+        model.clone()
+            .init_network(Network::new_ordered([]))
+            .checker().visitor(recorder).spawn_bfs().join();
+        let recipient_states: Vec<Vec<u8>> = accessor().into_iter().map(|s| {
+            (*s.actor_states[1]).clone()
+        }).collect();
+        assert_eq!(recipient_states, vec![
+            vec![],
+            vec![2],
+            vec![2, 1],
+        ]);
+
+        // More states if network is not ordered.
+        let (recorder, accessor) = StateRecorder::new_with_accessor();
+        model.clone()
+            .init_network(Network::new_unordered([]))
+            .checker().visitor(recorder).spawn_bfs().join();
+        let recipient_states: Vec<Vec<u8>> = accessor().into_iter().map(|s| {
+            (*s.actor_states[1]).clone()
+        }).collect();
+        assert_eq!(recipient_states, vec![
+            vec![],
+            vec![2],
+            vec![1],
+            vec![2, 1],
+            vec![1, 2],
+        ]);
     }
 
     #[test]

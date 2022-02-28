@@ -216,9 +216,9 @@ impl AbdModelCfg {
                 state.history.serialized_history().is_some()
             })
             .property(Expectation::Sometimes, "value chosen", |_, state| {
-                for env in &state.network {
+                for env in state.network.iter() {
                     if let RegisterMsg::GetOk(_req_id, value) = env.msg {
-                        if value != Value::default() { return true; }
+                        if *value != Value::default() { return true; }
                     }
                 }
                 false

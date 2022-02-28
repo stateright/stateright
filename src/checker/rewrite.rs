@@ -3,7 +3,7 @@
 use crate::RewritePlan;
 use crate::actor::{Envelope, Id};
 use crate::util::{HashableHashSet, HashableHashMap};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -108,6 +108,12 @@ impl<R, V> Rewrite<R> for Vec<V> where V: Rewrite<R> {
         self.iter().map(|x| x.rewrite(plan)).collect()
     }
 }
+impl<R, V> Rewrite<R> for VecDeque<V> where V: Rewrite<R> {
+    #[inline(always)]
+    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
+        self.iter().map(|x| x.rewrite(plan)).collect()
+    }
+}
 
 // Implementations for some of Stateright's types follow.
 impl Rewrite<Id> for Id {
@@ -146,7 +152,7 @@ mod test {
 
     #[test]
     fn can_rewrite_network() {
-        let original: Network<_> = vec![
+        let original: Network<_> = Network::new_unordered([
             // Id(0) sends peers "Write(X)" and receives two acks.
             Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },
             Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
@@ -157,10 +163,10 @@ mod test {
             Envelope { src: 2.into(), dst: 0.into(), msg: "Write(Y)" },
             Envelope { src: 2.into(), dst: 1.into(), msg: "Write(Y)" },
             Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
-        ].into_iter().collect();
+        ]);
         assert_eq!(
             original.rewrite(&RewritePlan::from_values_to_sort(&vec![2, 0, 1])),
-            vec![
+            Network::new_unordered([
                 // Id(2) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 2.into(), dst: 0.into(), msg: "Write(X)" },
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(X)" },
@@ -171,10 +177,10 @@ mod test {
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Write(Y)" },
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
-            ].into_iter().collect());
+            ]));
         assert_eq!(
             original.rewrite(&RewritePlan::from_values_to_sort(&vec![0, 2, 1])),
-            vec![
+            Network::new_unordered([
                 // Id(0) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },
@@ -185,6 +191,6 @@ mod test {
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Write(Y)" },
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Ack(Y)" },
-            ].into_iter().collect());
+            ]));
     }
 }
