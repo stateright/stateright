@@ -488,7 +488,7 @@ mod test {
             .join();
         let mut messages_by_state: Vec<_> = accessor().into_iter().map(|s| {
             let mut messages: Vec<_> = s.network
-                .iter()
+                .iter_deliverable()
                 .map(|e| e.msg.clone())
                 .collect();
             messages.sort();

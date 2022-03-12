@@ -153,7 +153,7 @@ mod test {
     use crate::{Checker, Expectation, Model};
     use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
-    use crate::actor::{ActorModel, ActorModelAction, DuplicatingNetwork, LossyNetwork};
+    use crate::actor::{ActorModel, ActorModelAction, LossyNetwork, Network};
 
     pub enum TestActor {
         Sender { receiver_id: Id },
@@ -189,7 +189,7 @@ mod test {
             .actor(
                 ActorWrapper::with_default_timeout(
                     TestActor::Receiver))
-            .duplicating_network(DuplicatingNetwork::Yes)
+            .init_network(Network::new_unordered_duplicating([]))
             .lossy_network(LossyNetwork::Yes)
             .property(Expectation::Always, "no redelivery", |_, state| {
                 let received = &state.actor_states[1].wrapped_state.0;

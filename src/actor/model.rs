@@ -30,7 +30,6 @@ where A: Actor,
 {
     pub actors: Vec<A>,
     pub cfg: C,
-    pub duplicating_network: DuplicatingNetwork,
     pub init_history: H,
     pub init_network: Network<A::Msg>,
     pub lossy_network: LossyNetwork,
@@ -41,7 +40,7 @@ where A: Actor,
 }
 
 /// Indicates possible steps that an actor system can take as it evolves.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ActorModelAction<Msg> {
     /// A message can be delivered to an actor.
     Deliver { src: Id, dst: Id, msg: Msg },
@@ -50,11 +49,6 @@ pub enum ActorModelAction<Msg> {
     /// An actor can by notified after a timeout.
     Timeout(Id),
 }
-
-/// Indicates whether the network duplicates messages. If duplication is disabled, messages
-/// are forgotten once delivered, which can improve model checking performance.
-#[derive(Copy, Clone, PartialEq)]
-pub enum DuplicatingNetwork { Yes, No }
 
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
 /// the network state, losing a message is indistinguishable from an unlimited delay, so in
@@ -87,9 +81,8 @@ where A: Actor,
         ActorModel {
             actors: Vec::new(),
             cfg,
-            duplicating_network: DuplicatingNetwork::Yes,
             init_history,
-            init_network: Network::new_unordered([]),
+            init_network: Network::new_unordered_duplicating([]),
             lossy_network: LossyNetwork::No,
             properties: Default::default(),
             record_msg_in: |_, _, _| None,
@@ -109,12 +102,6 @@ where A: Actor,
         for actor in actors {
             self.actors.push(actor);
         }
-        self
-    }
-
-    /// Defines whether the network duplicates messages or not.
-    pub fn duplicating_network(mut self, duplicating_network: DuplicatingNetwork) -> Self {
-        self.duplicating_network = duplicating_network;
         self
     }
 
@@ -205,14 +192,6 @@ where A: Actor,
     type Action = ActorModelAction<A::Msg>;
 
     fn init_states(&self) -> Vec<Self::State> {
-        if self.duplicating_network == DuplicatingNetwork::Yes
-            && matches!(self.init_network, Network::Ordered(_))
-        {
-            // A future update will rule this out by not treating "duplicating" as an independent
-            // input from "ordered".
-            panic!("Ordered networks cannot be duplicating");
-        }
-
         let mut init_sys_state = ActorModelState {
             actor_states: Vec::with_capacity(self.actors.len()),
             history: self.init_history.clone(),
@@ -234,7 +213,7 @@ where A: Actor,
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
         let mut prev_channel = None; // Only deliver the head of a channel.
-        for env in state.network.iter() {
+        for env in state.network.iter_deliverable() {
             // option 1: message is lost
             if self.lossy_network == LossyNetwork::Yes {
                 actions.push(ActorModelAction::Drop(env.to_cloned_msg()));
@@ -263,7 +242,7 @@ where A: Actor,
         match action {
             ActorModelAction::Drop(env) => {
                 let mut next_state = last_sys_state.clone();
-                next_state.network.remove(&env);
+                next_state.network.on_drop(&env);
                 Some(next_state)
             },
             ActorModelAction::Deliver { src, dst: id, msg } => {
@@ -289,15 +268,14 @@ where A: Actor,
                 // - Swap out revised actor state.
                 // - Track message input history.
                 // - Handle effect of commands on timers, network, and message output history.
+                //
+                // Strictly speaking, this state should be updated regardless of whether the
+                // actor and history updates are a no-op. The current implementation is only
+                // safe if invariants do not relate to the existence of envelopes on the
+                // network.
                 let mut next_sys_state = last_sys_state.clone();
-                if self.duplicating_network == DuplicatingNetwork::No {
-                    // Strictly speaking, this state should be updated regardless of whether the
-                    // actor and history updates are a no-op. The current implementation is only
-                    // safe if invariants do not relate to the existence of envelopes on the
-                    // network.
-                    let env = Envelope { src, dst: id, msg };
-                    next_sys_state.network.remove(&env);
-                }
+                let env = Envelope { src, dst: id, msg };
+                next_sys_state.network.on_deliver(&env);
                 if let Cow::Owned(next_actor_state) = state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
@@ -518,7 +496,7 @@ where A: Actor,
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Checker, StateRecorder};
+    use crate::{Checker, PathRecorder, StateRecorder};
     use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
     use crate::actor::ActorModelAction::*;
     use std::collections::HashSet;
@@ -534,7 +512,7 @@ mod test {
             let is_timer_set = vec![false; states.len()];
             ActorModelState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
-                network: Network::new_unordered(envelopes),
+                network: Network::new_unordered_duplicating(envelopes),
                 is_timer_set,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
             }
@@ -658,7 +636,7 @@ mod test {
                 maintains_history: false,
             }
             .into_model()
-            .duplicating_network(DuplicatingNetwork::No)
+            .init_network(Network::new_unordered_nonduplicating([]))
             .lossy_network(LossyNetwork::No)
             .checker().spawn_bfs().join();
         assert_eq!(checker.unique_state_count(), 11);
@@ -691,7 +669,7 @@ mod test {
                 maintains_history: false,
             }
             .into_model()
-            .duplicating_network(DuplicatingNetwork::No)
+            .init_network(Network::new_unordered_nonduplicating([]))
             .lossy_network(LossyNetwork::No)
             .checker().spawn_bfs().join();
         assert_eq!(checker.unique_state_count(), 11);
@@ -708,21 +686,10 @@ mod test {
             ActorModel::new((), ())
                 .actor(())
                 .property(Expectation::Always, "unused", |_, _| true) // force full traversal
-                .init_network(Network::new_unordered([Envelope { src: 0.into(), dst: 99.into(), msg: () }]))
+                .init_network(Network::new_unordered_duplicating([Envelope { src: 0.into(), dst: 99.into(), msg: () }]))
                 .checker().spawn_bfs().join()
                 .unique_state_count(),
             1);
-    }
-
-    #[test]
-    #[should_panic(expected = "Ordered networks cannot be duplicating")]
-    fn panics_for_duplicating_ordered_network() {
-        ActorModel::new((), ())
-            .actors(vec![(), ()])
-            .property(Expectation::Always, "", |_, _| true)
-            .duplicating_network(DuplicatingNetwork::Yes)
-            .init_network(Network::new_ordered([]))
-            .checker().spawn_dfs().join();
     }
 
     #[test]
@@ -750,7 +717,7 @@ mod test {
         let model = ActorModel::new((), ())
             .actors(vec![OrderedNetworkActor, OrderedNetworkActor])
             .property(Expectation::Always, "", |_, _| true)
-            .duplicating_network(DuplicatingNetwork::No);
+            .init_network(Network::new_unordered_nonduplicating([]));
 
         // Fewer states if network is ordered.
         let (recorder, accessor) = StateRecorder::new_with_accessor();
@@ -769,7 +736,7 @@ mod test {
         // More states if network is not ordered.
         let (recorder, accessor) = StateRecorder::new_with_accessor();
         model.clone()
-            .init_network(Network::new_unordered([]))
+            .init_network(Network::new_unordered_nonduplicating([]))
             .checker().visitor(recorder).spawn_bfs().join();
         let recipient_states: Vec<Vec<u8>> = accessor().into_iter().map(|s| {
             (*s.actor_states[1]).clone()
@@ -781,6 +748,85 @@ mod test {
             vec![2, 1],
             vec![1, 2],
         ]);
+    }
+
+    #[test]
+    // FIXME: Imagine that actor 1 sends two copies of a message to actor 2. The current
+    //        implementation uses a set to track messages, so it cannot distinguish between
+    //        delivering 1 message vs multiple pending copies of the same message.
+    fn unordered_network_has_a_bug() {
+        fn enumerate_action_sequences(lossy: LossyNetwork, init_network: Network<()>) -> HashSet<Vec<ActorModelAction<()>>> {
+            // There are two actors, and the first sends the same two messages to the second, which
+            // counts them.
+            struct A;
+            impl Actor for A {
+                type Msg = ();
+                type State = usize; // receipt count
+
+                fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+                    if id == 0.into() {
+                        o.send(1.into(), ());
+                        o.send(1.into(), ());
+                    }
+                    0
+                }
+                fn on_msg(&self, _: Id, state: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {
+                    *state.to_mut() += 1;
+                }
+            }
+
+            // Return the actions taken for each path based on the specified network
+            // characteristics.
+            let (recorder, accessor) = PathRecorder::new_with_accessor();
+            ActorModel::new((), ())
+                .actors([A, A])
+                .init_network(init_network)
+                .lossy_network(lossy)
+                .property(Expectation::Always, "force visiting all states", |_, _| true)
+                .within_boundary(|_, s| *s.actor_states[1] < 4)
+                .checker()
+                .visitor(recorder)
+                .spawn_dfs()
+                .join();
+            accessor()
+                .into_iter()
+                .map(|p| p.into_actions())
+                .collect()
+        }
+
+        // The actions are named here for brevity. These implement `Copy`.
+        let deliver = ActorModelAction::<()>::Deliver { src: 0.into(), msg: (), dst: 1.into() };
+        let drop = ActorModelAction::<()>::Drop(Envelope { src: 0.into(), msg: (), dst: 1.into() });
+
+        // Ordered networks can deliver/drop both messages.
+        let ordered_lossless = enumerate_action_sequences(LossyNetwork::No, Network::new_ordered([]));
+        assert!(ordered_lossless.contains(&vec![deliver, deliver]));
+        assert!(!ordered_lossless.contains(&vec![deliver, deliver, deliver]));
+        let ordered_lossy = enumerate_action_sequences(LossyNetwork::Yes, Network::new_ordered([]));
+        assert!(ordered_lossy.contains(&vec![deliver, deliver]));
+        assert!(ordered_lossy.contains(&vec![deliver, drop])); // same state as "drop, deliver"
+        assert!(ordered_lossy.contains(&vec![drop, drop]));
+
+        // Unordered duplicating networks can deliver/drop duplicates.
+        let unord_dup_lossless = enumerate_action_sequences(
+            LossyNetwork::No, Network::new_unordered_duplicating([]));
+        assert!(unord_dup_lossless.contains(&vec![deliver, deliver, deliver]));
+        let unord_dup_lossy = enumerate_action_sequences(
+            LossyNetwork::Yes, Network::new_unordered_duplicating([]));
+        assert!(unord_dup_lossy.contains(&vec![deliver, deliver, deliver]));
+        assert!(unord_dup_lossy.contains(&vec![deliver, deliver, drop]));
+        assert!(unord_dup_lossy.contains(&vec![deliver, drop]));
+        assert!(unord_dup_lossy.contains(&vec![drop]));
+        assert!(!unord_dup_lossy.contains(&vec![drop, deliver])); // b/c drop means "never deliver again"
+
+        // Unordered nonduplicating networks can deliver/drop both messages.
+        let unord_nondup_lossless = enumerate_action_sequences(
+            LossyNetwork::No, Network::new_unordered_nonduplicating([]));
+        assert!(!unord_nondup_lossless.contains(&vec![deliver, deliver])); // FIXME
+        let unord_nondup_lossy = enumerate_action_sequences(
+            LossyNetwork::Yes, Network::new_unordered_nonduplicating([]));
+        assert!(!unord_nondup_lossy.contains(&vec![deliver, drop])); // FIXME
+        assert!(!unord_nondup_lossy.contains(&vec![drop, drop])); // FIXME
     }
 
     #[test]
@@ -811,7 +857,6 @@ mod test {
 mod choice_test {
     use choice::Choice;
     use crate::{Checker, Model, StateRecorder};
-    use crate::actor::DuplicatingNetwork;
     use super::*;
 
     #[derive(Clone)]
@@ -867,7 +912,7 @@ mod choice_test {
             .actor(Choice::new(A { b: Id::from(1) }))
             .actor(Choice::new(B { c: Id::from(2) }).or())
             .actor(Choice::new(C { a: Id::from(0) }).or().or())
-            .duplicating_network(DuplicatingNetwork::No)
+            .init_network(Network::new_unordered_nonduplicating([]))
             .record_msg_out(|_, out_count, _| Some(out_count + 1))
             .property(Expectation::Always, "true", |_, _| true)
             .within_boundary(|_, state| state.history < 8);

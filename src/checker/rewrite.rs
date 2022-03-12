@@ -152,7 +152,7 @@ mod test {
 
     #[test]
     fn can_rewrite_network() {
-        let original: Network<_> = Network::new_unordered([
+        let original: Network<_> = Network::new_unordered_duplicating([
             // Id(0) sends peers "Write(X)" and receives two acks.
             Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },
             Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
@@ -166,7 +166,7 @@ mod test {
         ]);
         assert_eq!(
             original.rewrite(&RewritePlan::from_values_to_sort(&vec![2, 0, 1])),
-            Network::new_unordered([
+            Network::new_unordered_duplicating([
                 // Id(2) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 2.into(), dst: 0.into(), msg: "Write(X)" },
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(X)" },
@@ -180,7 +180,7 @@ mod test {
             ]));
         assert_eq!(
             original.rewrite(&RewritePlan::from_values_to_sort(&vec![0, 2, 1])),
-            Network::new_unordered([
+            Network::new_unordered_duplicating([
                 // Id(0) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },

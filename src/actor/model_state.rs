@@ -131,7 +131,7 @@ mod test {
                 Arc::new(ActorState { acks: vec![]}),
                 Arc::new(ActorState { acks: vec![Id::from(1)]}),
             ],
-            network: Network::new_unordered([
+            network: Network::new_unordered_duplicating([
                 // Id(0) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },
                 Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
@@ -167,7 +167,7 @@ mod test {
                 Arc::new(ActorState { acks: vec![Id::from(0)]}),
                 Arc::new(ActorState { acks: vec![Id::from(0), Id::from(1)]}),
             ],
-            network: Network::new_unordered([
+            network: Network::new_unordered_duplicating([
                 // Id(2) sends peers "Write(X)" and receives two acks.
                 Envelope { src: 2.into(), dst: 0.into(), msg: "Write(X)" },
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(X)" },

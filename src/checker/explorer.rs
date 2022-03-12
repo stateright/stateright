@@ -286,7 +286,7 @@ mod test {
 
     #[test]
     fn smoke_test_states() {
-        use crate::actor::{ActorModelState, DuplicatingNetwork, Envelope, Id, LossyNetwork, Network};
+        use crate::actor::{ActorModelState, Envelope, Id, LossyNetwork, Network};
         use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
 
         let checker = Arc::new(
@@ -295,7 +295,7 @@ mod test {
                 maintains_history: true,
             }
             .into_model()
-            .duplicating_network(DuplicatingNetwork::No)
+            .init_network(Network::new_unordered_nonduplicating([]))
             .lossy_network(LossyNetwork::Yes)
             .checker()
             .spawn_bfs());
@@ -309,7 +309,7 @@ mod test {
                         actor_states: vec![Arc::new(0), Arc::new(0)],
                         history: (0, 1),
                         is_timer_set: vec![false,false],
-                        network: Network::new_unordered([
+                        network: Network::new_unordered_nonduplicating([
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                         ]),
                     }),
@@ -324,7 +324,7 @@ mod test {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     is_timer_set: vec![false,false],
-                    network: Network::new_unordered([
+                    network: Network::new_unordered_nonduplicating([
                         Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     ]),
                 });
@@ -342,7 +342,7 @@ mod test {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     is_timer_set: vec![false,false],
-                    network: Network::new_unordered([]),
+                    network: Network::new_unordered_nonduplicating([]),
                 }),
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n</svg>\n".to_string()),
             });
@@ -358,7 +358,7 @@ mod test {
                     ],
                     history: (1, 2),
                     is_timer_set: vec![false,false],
-                    network: Network::new_unordered([
+                    network: Network::new_unordered_nonduplicating([
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     ]),
                 }),
@@ -368,7 +368,7 @@ mod test {
 
     #[test]
     fn smoke_test_status() {
-        use crate::actor::{DuplicatingNetwork, LossyNetwork};
+        use crate::actor::{LossyNetwork, Network};
         use crate::actor::actor_test_util::ping_pong::PingPongCfg;
 
         let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
@@ -377,7 +377,7 @@ mod test {
                 maintains_history: true,
             }
             .into_model()
-            .duplicating_network(DuplicatingNetwork::No)
+            .init_network(Network::new_unordered_nonduplicating([]))
             .lossy_network(LossyNetwork::No)
             .checker()
             .visitor(Arc::clone(&snapshot)).spawn_bfs().join();

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use stateright::{Checker, Expectation, Model};
 use stateright::actor::{
-    Actor, ActorModel, DuplicatingNetwork, Id, majority, model_peers, Out};
+    Actor, ActorModel, Id, majority, model_peers, Network, Out};
 use stateright::actor::register::{
     RegisterActor, RegisterMsg, RegisterMsg::*};
 use stateright::semantics::LinearizabilityTester;
@@ -211,12 +211,12 @@ impl AbdModelCfg {
                         put_count: 1,
                         server_count: self.server_count,
                     }))
-            .duplicating_network(DuplicatingNetwork::No)
+            .init_network(Network::new_unordered_nonduplicating([]))
             .property(Expectation::Always, "linearizable", |_, state| {
                 state.history.serialized_history().is_some()
             })
             .property(Expectation::Sometimes, "value chosen", |_, state| {
-                for env in state.network.iter() {
+                for env in state.network.iter_deliverable() {
                     if let RegisterMsg::GetOk(_req_id, value) = env.msg {
                         if *value != Value::default() { return true; }
                     }
