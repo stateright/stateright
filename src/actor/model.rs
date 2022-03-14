@@ -242,7 +242,7 @@ where A: Actor,
         match action {
             ActorModelAction::Drop(env) => {
                 let mut next_state = last_sys_state.clone();
-                next_state.network.on_drop(&env);
+                next_state.network.on_drop(env);
                 Some(next_state)
             },
             ActorModelAction::Deliver { src, dst: id, msg } => {
@@ -275,7 +275,7 @@ where A: Actor,
                 // network.
                 let mut next_sys_state = last_sys_state.clone();
                 let env = Envelope { src, dst: id, msg };
-                next_sys_state.network.on_deliver(&env);
+                next_sys_state.network.on_deliver(env);
                 if let Cow::Owned(next_actor_state) = state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
@@ -751,10 +751,12 @@ mod test {
     }
 
     #[test]
-    // FIXME: Imagine that actor 1 sends two copies of a message to actor 2. The current
-    //        implementation uses a set to track messages, so it cannot distinguish between
-    //        delivering 1 message vs multiple pending copies of the same message.
     fn unordered_network_has_a_bug() {
+        // Imagine that actor 1 sends two copies of a message to actor 2. An earlier implementation
+        // used a set to track envelopes in an unordered network even if it was lossy, and
+        // therefore could not distinguish between dropping/delivering 1 message vs multiple
+        // pending copies of the same message.
+
         fn enumerate_action_sequences(lossy: LossyNetwork, init_network: Network<()>) -> HashSet<Vec<ActorModelAction<()>>> {
             // There are two actors, and the first sends the same two messages to the second, which
             // counts them.
@@ -808,6 +810,10 @@ mod test {
         assert!(ordered_lossy.contains(&vec![drop, drop]));
 
         // Unordered duplicating networks can deliver/drop duplicates.
+        //
+        // IMPORTANT: in the context of a duplicating network, "dropping" must either entail:
+        //            (1) a no-op or (2) never deliving again. This implementation favors the
+        //            latter.
         let unord_dup_lossless = enumerate_action_sequences(
             LossyNetwork::No, Network::new_unordered_duplicating([]));
         assert!(unord_dup_lossless.contains(&vec![deliver, deliver, deliver]));
@@ -822,11 +828,11 @@ mod test {
         // Unordered nonduplicating networks can deliver/drop both messages.
         let unord_nondup_lossless = enumerate_action_sequences(
             LossyNetwork::No, Network::new_unordered_nonduplicating([]));
-        assert!(!unord_nondup_lossless.contains(&vec![deliver, deliver])); // FIXME
+        assert!(unord_nondup_lossless.contains(&vec![deliver, deliver]));
         let unord_nondup_lossy = enumerate_action_sequences(
             LossyNetwork::Yes, Network::new_unordered_nonduplicating([]));
-        assert!(!unord_nondup_lossy.contains(&vec![deliver, drop])); // FIXME
-        assert!(!unord_nondup_lossy.contains(&vec![drop, drop])); // FIXME
+        assert!(unord_nondup_lossy.contains(&vec![deliver, drop]));
+        assert!(unord_nondup_lossy.contains(&vec![drop, drop]));
     }
 
     #[test]

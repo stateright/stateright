@@ -166,7 +166,7 @@ where Msg: Eq + Hash,
         }
     }
 
-    pub(crate) fn on_deliver(&mut self, envelope: &Envelope<Msg>)
+    pub(crate) fn on_deliver(&mut self, envelope: Envelope<Msg>)
     where Msg: PartialEq,
     {
         match self {
@@ -174,7 +174,17 @@ where Msg: Eq + Hash,
                 // This is a no-op as the message can be redelivered.
             }
             Network::UnorderedNonDuplicating(multiset) => {
-                multiset.remove(envelope); // FIXME: reduce count
+                match multiset.entry(envelope) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        let value = *entry.get();
+                        assert!(value > 0);
+                        if value == 1 { entry.remove(); }
+                        else { *entry.get_mut() -= 1; }
+                    }
+                    std::collections::hash_map::Entry::Vacant(_) => {
+                        panic!("envelope not found");
+                    }
+                }
             }
             Network::Ordered(map) => {
                 // Find the flow, then find the message in the flow, and finally remove the message
@@ -195,15 +205,25 @@ where Msg: Eq + Hash,
         }
     }
 
-    pub(crate) fn on_drop(&mut self, envelope: &Envelope<Msg>)
+    pub(crate) fn on_drop(&mut self, envelope: Envelope<Msg>)
     where Msg: PartialEq,
     {
         match self {
             Network::UnorderedDuplicating(set) => {
-                set.remove(envelope);
+                set.remove(&envelope);
             }
             Network::UnorderedNonDuplicating(multiset) => {
-                multiset.remove(envelope); // FIXME: reduce count
+                match multiset.entry(envelope) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        let value = *entry.get();
+                        assert!(value > 0);
+                        if value == 1 { entry.remove(); }
+                        else { *entry.get_mut() -= 1; }
+                    }
+                    std::collections::hash_map::Entry::Vacant(_) => {
+                        panic!("envelope not found");
+                    }
+                }
             }
             Network::Ordered(map) => {
                 // Find the flow, then find the message in the flow, and finally remove the message
@@ -241,11 +261,11 @@ where Msg: Eq + Hash + Rewrite<Id>,
 pub enum NetworkIter<'a, Msg> {
     UnorderedDuplicating(hash_set::Iter<'a, Envelope<Msg>>),
     UnorderedNonDuplicating(
-        // active env/count to iterate over duplicates
+        // active env/count to iterate over repeated sends
         Option<(Envelope<&'a Msg>, usize)>, 
         std::collections::hash_map::Iter<'a, Envelope<Msg>, usize>),
     Ordered(
-        // active channel/cursor to iterate over next
+        // active channel/cursor to iterate over all messages of a channel
         Option<(Id, Id, &'a VecDeque<Msg>, usize)>,
         btree_map::Iter<'a, (Id, Id), VecDeque<Msg>>),
 }
