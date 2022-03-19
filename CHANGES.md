@@ -1,5 +1,15 @@
 # Changes
 
+## 0.29.0
+
+This release adds support for symmetry reduction, courtesy of Chris Jensen
+(`@Cjen1` on GitHub).  It also introduces the ability to choose network
+semantics, which can be helpful for reducing the state space. Options are:
+ordered, unordered duplicating, and unordered non-duplicating.
+`DuplicatingNetwork` was removed in favor of capturing that aspect via the new
+`Network` type, enabling the library to leverage the most efficient data
+structure for each particular use case.
+
 ## 0.28.0
 
 Stateright now distinguishes between the number of states (including
