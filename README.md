@@ -48,9 +48,9 @@ cargo run --release --example 2pc check 3
 cargo run --release --example paxos check 3
 # Single-copy (unreplicated) register with 3 clients.
 cargo run --release --example single-copy-register check 3
-# Linearizable distributed register (ABD algorithm) with 2 clients.
-# (please be patient with this one, as it takes longer to check)
-cargo run --release --example linearizable-register check 2
+# Linearizable distributed register (ABD algorithm) with 2 clients
+# assuming ordered channels between actors.
+cargo run --release --example linearizable-register check 2 ordered
 ```
 
 Passing an `explore` CLI argument causes each example to spin up the Stateright
@@ -94,6 +94,9 @@ Stateright's actor system features include:
   ability to capture actor message
   [history](https://lamport.azurewebsites.net/tla/auxiliary/auxiliary.html) to
   check an actor system against an expected consistency model.
+- Pluggable network semantics for model checking, allowing you to choose
+  between fewer assumptions (e.g. "lossy unordered duplicating") or more
+  assumptions (speeding up model checking; e.g. "lossless ordered").
 - An optional network adapter that provides a lossless non-duplicating ordered
   virtual channel for messages between a pair of actors.
 
