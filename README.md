@@ -73,6 +73,13 @@ cargo run --release --example single-copy-register spawn
 cargo run --release --example linearizable-register spawn
 ```
 
+The `bench.sh` script runs all the examples with various settings for
+benchmarking the performance impact of changes to the library.
+
+```sh
+./bench.sh
+```
+
 # Features
 
 Stateright contains a general purpose model checker offering:
