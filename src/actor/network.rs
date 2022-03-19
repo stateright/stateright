@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::collections::btree_map::Entry;
 use std::collections::{btree_map, hash_set, hash_map};
 use std::hash::Hash;
+use std::str::FromStr;
 
 /// Indicates the source and destination for a message.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -109,6 +110,35 @@ where Msg: Eq + Hash,
         this
     }
 
+    /// Returns a vector of names that can be parsed using [`FromStr`].
+    pub fn names() -> Vec<&'static str> {
+        struct IterStr<Msg: Eq + Hash>(Option<Network<Msg>>);
+        impl<Msg: Eq + Hash> Iterator for IterStr<Msg> {
+            type Item = &'static str;
+            fn next(&mut self) -> Option<Self::Item> {
+                if let Some(network) = &self.0 {
+                    match network {
+                        Network::Ordered(_) => {
+                            self.0 = Some(Network::UnorderedDuplicating(Default::default()));
+                            Some("ordered")
+                        }
+                        Network::UnorderedDuplicating(_) => {
+                            self.0 = Some(Network::UnorderedNonDuplicating(Default::default()));
+                            Some("unordered_duplicating")
+                        }
+                        Network::UnorderedNonDuplicating(_) => {
+                            self.0 = None;
+                            Some("unordered_nonduplicating")
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+        }
+        IterStr::<Msg>(Some(Network::Ordered(Default::default()))).collect()
+    }
+
     /// Returns an iterator over all envelopes in the network.
     pub fn iter_all(&self) -> NetworkIter<Msg> {
         match self {
@@ -175,13 +205,13 @@ where Msg: Eq + Hash,
             }
             Network::UnorderedNonDuplicating(multiset) => {
                 match multiset.entry(envelope) {
-                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    hash_map::Entry::Occupied(mut entry) => {
                         let value = *entry.get();
                         assert!(value > 0);
                         if value == 1 { entry.remove(); }
                         else { *entry.get_mut() -= 1; }
                     }
-                    std::collections::hash_map::Entry::Vacant(_) => {
+                    hash_map::Entry::Vacant(_) => {
                         panic!("envelope not found");
                     }
                 }
@@ -214,13 +244,13 @@ where Msg: Eq + Hash,
             }
             Network::UnorderedNonDuplicating(multiset) => {
                 match multiset.entry(envelope) {
-                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    hash_map::Entry::Occupied(mut entry) => {
                         let value = *entry.get();
                         assert!(value > 0);
                         if value == 1 { entry.remove(); }
                         else { *entry.get_mut() -= 1; }
                     }
-                    std::collections::hash_map::Entry::Vacant(_) => {
+                    hash_map::Entry::Vacant(_) => {
                         panic!("envelope not found");
                     }
                 }
@@ -241,6 +271,20 @@ where Msg: Eq + Hash,
                     flow_entry.remove();
                 }
             }
+        }
+    }
+}
+
+impl<Msg> FromStr for Network<Msg>
+where Msg: Eq + Hash,
+{
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ordered" => Ok(Self::new_ordered([])),
+            "unordered_duplicating" => Ok(Self::new_unordered_duplicating([])),
+            "unordered_nonduplicating" => Ok(Self::new_unordered_nonduplicating([])),
+            _ => Err(format!("unable to parse network name: {}", s)),
         }
     }
 }
@@ -350,5 +394,25 @@ impl<'a, Msg> Iterator for NetworkDeliverableIter<'a, Msg> {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::collections::BTreeSet;
+    #[test]
+    fn can_enumerate_and_parse_names() {
+        assert_eq!(
+            Network::<()>::names()
+                .into_iter()
+                .map(Network::<()>::from_str)
+                .map(Result::unwrap)
+                .collect::<BTreeSet<_>>(),
+            vec![
+                Network::new_ordered([]),
+                Network::new_unordered_duplicating([]),
+                Network::new_unordered_nonduplicating([]),
+            ].into_iter().collect());
     }
 }

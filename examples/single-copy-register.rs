@@ -41,6 +41,7 @@ impl Actor for SingleCopyActor {
 struct SingleCopyModelCfg {
     client_count: usize,
     server_count: usize,
+    network: Network<<SingleCopyActor as Actor>::Msg>,
 }
 
 impl SingleCopyModelCfg {
@@ -61,7 +62,7 @@ impl SingleCopyModelCfg {
                         put_count: 1,
                         server_count: self.server_count,
                     }))
-            .init_network(Network::new_unordered_nonduplicating([]))
+            .init_network(self.network)
             .property(Expectation::Always, "linearizable", |_, state| {
                 state.history.serialized_history().is_some()
             })
@@ -87,6 +88,7 @@ fn can_model_single_copy_register() {
     let checker = SingleCopyModelCfg {
             client_count: 2,
             server_count: 1,
+            network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
@@ -101,6 +103,7 @@ fn can_model_single_copy_register() {
     let checker = SingleCopyModelCfg {
             client_count: 2,
             server_count: 2,
+            network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_discovery("linearizable", vec![
@@ -130,11 +133,15 @@ fn main() -> Result<(), pico_args::Error> {
         Some("check") => {
             let client_count = args.opt_free_from_str()?
                 .unwrap_or(2);
+            let network = args.opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]))
+                .into();
             println!("Model checking a single-copy register with {} clients.",
                      client_count);
             SingleCopyModelCfg {
                     client_count,
                     server_count: 1,
+                    network,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .spawn_dfs().report(&mut std::io::stdout());
@@ -144,12 +151,16 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or(2);
             let address = args.opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
+            let network = args.opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]))
+                .into();
             println!(
                 "Exploring state space for single-copy register with {} clients on {}.",
                 client_count, address);
             SingleCopyModelCfg {
                     client_count,
                     server_count: 1,
+                    network,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .serve(address);
@@ -176,8 +187,9 @@ fn main() -> Result<(), pico_args::Error> {
         _ => {
             println!("USAGE:");
             println!("  ./single-copy-register check [CLIENT_COUNT]");
-            println!("  ./single-copy-register explore [CLIENT_COUNT] [ADDRESS]");
+            println!("  ./single-copy-register explore [CLIENT_COUNT] [ADDRESS] [NETWORK]");
             println!("  ./single-copy-register spawn");
+            println!("NETWORK: {}", Network::<<SingleCopyActor as Actor>::Msg>::names().join(" | "));
         }
     }
 

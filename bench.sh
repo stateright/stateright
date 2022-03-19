@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 
 set -e
 set -u
@@ -28,3 +28,7 @@ bench 2pc check 10
 bench paxos check 6
 bench single-copy-register check 4
 bench linearizable-register check 2
+if [[ "$FILTER" == '' ]]; then
+    # This test takes particularly long so it's only run when the filter is empty.
+    bench linearizable-register check 3 ordered
+fi

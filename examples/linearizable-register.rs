@@ -189,6 +189,7 @@ impl Actor for AbdActor {
 struct AbdModelCfg {
     client_count: usize,
     server_count: usize,
+    network: Network<<AbdActor as Actor>::Msg>,
 }
 
 impl AbdModelCfg {
@@ -211,7 +212,7 @@ impl AbdModelCfg {
                         put_count: 1,
                         server_count: self.server_count,
                     }))
-            .init_network(Network::new_unordered_nonduplicating([]))
+            .init_network(self.network)
             .property(Expectation::Always, "linearizable", |_, state| {
                 state.history.serialized_history().is_some()
             })
@@ -237,6 +238,7 @@ fn can_model_linearizable_register() {
     let checker = AbdModelCfg {
             client_count: 2,
             server_count: 2,
+            network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
@@ -259,6 +261,7 @@ fn can_model_linearizable_register() {
     let checker = AbdModelCfg {
             client_count: 2,
             server_count: 2,
+            network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
@@ -290,11 +293,15 @@ fn main() -> Result<(), pico_args::Error> {
         Some("check") => {
             let client_count = args.opt_free_from_str()?
                 .unwrap_or(2);
+            let network = args.opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]))
+                .into();
             println!("Model checking a linearizable register with {} clients.",
                      client_count);
             AbdModelCfg {
                     client_count,
                     server_count: 3,
+                    network,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .spawn_dfs().report(&mut std::io::stdout());
@@ -304,12 +311,16 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or(2);
             let address = args.opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
+            let network = args.opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]))
+                .into();
             println!(
                 "Exploring state space for linearizable register with {} clients on {}.",
                  client_count, address);
             AbdModelCfg {
                     client_count,
                     server_count: 3,
+                    network,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .serve(address);
@@ -338,9 +349,10 @@ fn main() -> Result<(), pico_args::Error> {
         }
         _ => {
             println!("USAGE:");
-            println!("  ./linearizable-register check [CLIENT_COUNT]");
-            println!("  ./linearizable-register explore [CLIENT_COUNT] [ADDRESS]");
+            println!("  ./linearizable-register check [CLIENT_COUNT] [NETWORK]");
+            println!("  ./linearizable-register explore [CLIENT_COUNT] [ADDRESS] [NETWORK]");
             println!("  ./linearizable-register spawn");
+            println!("NETWORK: {}", Network::<<AbdActor as Actor>::Msg>::names().join(" | "));
         }
     }
 

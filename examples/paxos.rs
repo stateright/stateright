@@ -225,6 +225,7 @@ impl Actor for PaxosActor {
 struct PaxosModelCfg {
     client_count: usize,
     server_count: usize,
+    network: Network<<PaxosActor as Actor>::Msg>,
 }
 
 impl PaxosModelCfg {
@@ -247,7 +248,7 @@ impl PaxosModelCfg {
                         put_count: 1,
                         server_count: self.server_count,
                     }))
-            .init_network(Network::new_unordered_nonduplicating([]))
+            .init_network(self.network)
             .property(Expectation::Always, "linearizable", |_, state| {
                 state.history.serialized_history().is_some()
             })
@@ -273,6 +274,7 @@ fn can_model_paxos() {
     let checker = PaxosModelCfg {
             client_count: 2,
             server_count: 3,
+            network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
@@ -292,6 +294,7 @@ fn can_model_paxos() {
     let checker = PaxosModelCfg {
             client_count: 2,
             server_count: 3,
+            network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
@@ -320,11 +323,15 @@ fn main() -> Result<(), pico_args::Error> {
         Some("check") => {
             let client_count = args.opt_free_from_str()?
                 .unwrap_or(2);
+            let network = args.opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]))
+                .into();
             println!("Model checking Single Decree Paxos with {} clients.",
                      client_count);
             PaxosModelCfg {
                     client_count,
                     server_count: 3,
+                    network,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .spawn_dfs().report(&mut std::io::stdout());
@@ -334,12 +341,16 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or(2);
             let address = args.opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
+            let network = args.opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]))
+                .into();
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address);
             PaxosModelCfg {
                     client_count,
                     server_count: 3,
+                    network,
                 }
                 .into_model().checker().threads(num_cpus::get())
                 .serve(address);
@@ -371,9 +382,10 @@ fn main() -> Result<(), pico_args::Error> {
         }
         _ => {
             println!("USAGE:");
-            println!("  ./paxos check [CLIENT_COUNT]");
-            println!("  ./paxos explore [CLIENT_COUNT] [ADDRESS]");
+            println!("  ./paxos check [CLIENT_COUNT] [NETWORK]");
+            println!("  ./paxos explore [CLIENT_COUNT] [ADDRESS] [NETWORK]");
             println!("  ./paxos spawn");
+            println!("NETWORK: {}", Network::<<PaxosActor as Actor>::Msg>::names().join(" | "));
         }
     }
 
