@@ -169,7 +169,10 @@ fn main() -> Result<(), pico_args::Error> {
             let port = 3000;
 
             println!("  A server that implements a single-copy register.");
-            println!("  You can interact with the server using netcat. Example:");
+            println!("  You can monitor and interact using tcpdump and netcat.");
+            println!("  Use `tcpdump -D` if you see error `lo0: No such device exists`.");
+            println!("Examples:");
+            println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
             println!("$ nc -u localhost {}", port);
             println!("{}", serde_json::to_string(&RegisterMsg::Put::<RequestId, Value, ()>(1, 'X')).unwrap());
             println!("{}", serde_json::to_string(&RegisterMsg::Get::<RequestId, Value, ()>(2)).unwrap());
