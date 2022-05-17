@@ -86,11 +86,11 @@ mod model_state;
 mod network;
 mod spawn;
 use std::borrow::Cow;
-use std::hash::Hash;
 use std::fmt::{Debug, Display, Formatter};
-use std::time::Duration;
+use std::hash::Hash;
 use std::net::SocketAddrV4;
 use std::ops::Range;
+use std::time::Duration;
 
 #[cfg(test)]
 pub mod actor_test_util;
@@ -104,8 +104,9 @@ pub use spawn::*;
 
 /// Uniquely identifies an [`Actor`]. Encodes the socket address for spawned
 /// actors. Encodes an index for model checked actors.
-#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct Id(u64);
 
 impl Debug for Id {
@@ -131,8 +132,9 @@ impl Id {
     /// use stateright::actor::Id;
     /// let ids = Id::vec_from(0..3);
     /// ```
-    pub fn vec_from<T>(ids: impl IntoIterator<Item=T>) -> Vec<Id>
-    where T: Into<Id>
+    pub fn vec_from<T>(ids: impl IntoIterator<Item = T>) -> Vec<Id>
+    where
+        T: Into<Id>,
     {
         ids.into_iter().map(Into::into).collect()
     }
@@ -151,8 +153,7 @@ impl From<usize> for Id {
 }
 
 /// Commands with which an actor can respond.
-#[derive(Debug)]
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub enum Command<Msg> {
     /// Cancel the timer if one is set.
     CancelTimer,
@@ -167,13 +168,14 @@ pub struct Out<A: Actor>(Vec<Command<A::Msg>>);
 
 impl<A: Actor> Out<A> {
     /// Constructs an empty `Out`.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self(Vec::new())
     }
 
     /// Moves all [`Command`]s of `other` into `Self`, leaving `other` empty.
-    fn append<B>(&mut self, other: &mut Out<B>)
-    where B: Actor<Msg = A::Msg>
+    pub fn append<B>(&mut self, other: &mut Out<B>)
+    where
+        B: Actor<Msg = A::Msg>,
     {
         self.0.append(&mut other.0)
     }
@@ -194,8 +196,9 @@ impl<A: Actor> Out<A> {
     }
 
     /// Records the need to send a message to multiple recipients. See [`Actor::on_msg`].
-    pub fn broadcast<'a>(&mut self, recipients: impl IntoIterator<Item=&'a Id>, msg: &A::Msg)
-    where A::Msg: Clone
+    pub fn broadcast<'a>(&mut self, recipients: impl IntoIterator<Item = &'a Id>, msg: &A::Msg)
+    where
+        A::Msg: Clone,
     {
         for recipient in recipients {
             self.send(*recipient, msg.clone());
@@ -267,7 +270,14 @@ pub trait Actor: Sized {
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State;
 
     /// Indicates the next state and commands when a message is received. See [`Out::send`].
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         // no-op by default
         let _ = id;
         let _ = state;
@@ -285,7 +295,10 @@ pub trait Actor: Sized {
     }
 }
 
-impl<A> Actor for Choice<A, Never> where A: Actor {
+impl<A> Actor for Choice<A, Never>
+where
+    A: Actor,
+{
     type Msg = A::Msg;
     type State = Choice<A::State, Never>;
 
@@ -298,9 +311,14 @@ impl<A> Actor for Choice<A, Never> where A: Actor {
         Choice::new(state)
     }
 
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>,
-              src: Id, msg: Self::Msg, o: &mut Out<Self>)
-    {
+    fn on_msg(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         let actor = self.get();
         let mut state_prime = Cow::Borrowed(state.get());
         let mut o_prime = Out::new();
@@ -326,9 +344,10 @@ impl<A> Actor for Choice<A, Never> where A: Actor {
 }
 
 impl<Msg, A1, A2> Actor for Choice<A1, A2>
-where Msg: Clone + Debug + Eq + Hash,
-      A1: Actor<Msg = Msg>,
-      A2: Actor<Msg = Msg>,
+where
+    Msg: Clone + Debug + Eq + Hash,
+    A1: Actor<Msg = Msg>,
+    A2: Actor<Msg = Msg>,
 {
     type Msg = Msg;
     type State = Choice<A1::State, A2::State>;
@@ -350,9 +369,14 @@ where Msg: Clone + Debug + Eq + Hash,
         }
     }
 
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>,
-              src: Id, msg: Self::Msg, o: &mut Out<Self>)
-    {
+    fn on_msg(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         match (self, &**state) {
             (Choice::L(actor), Choice::L(state_prime)) => {
                 let mut state_prime = Cow::Borrowed(state_prime);
@@ -414,7 +438,8 @@ impl Actor for () {
 /// Sends a series of messages in sequence to the associated actor [`Id`]s waiting for a message
 /// delivery between each. This is useful for testing actor systems.
 impl<Msg> Actor for Vec<(Id, Msg)>
-where Msg: Clone + Debug + Eq + Hash,
+where
+    Msg: Clone + Debug + Eq + Hash,
 {
     type Msg = Msg;
     type State = usize;
@@ -428,7 +453,14 @@ where Msg: Clone + Debug + Eq + Hash,
         }
     }
 
-    fn on_msg(&self, _id: Id, state: &mut Cow<Self::State>, _src: Id, _msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(
+        &self,
+        _id: Id,
+        state: &mut Cow<Self::State>,
+        _src: Id,
+        _msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         if let Some((dst, msg)) = self.get(**state) {
             o.send(*dst, msg.clone());
             *state.to_mut() += 1;
@@ -442,7 +474,10 @@ pub fn majority(cluster_size: usize) -> usize {
 }
 
 /// A helper to generate peer [`Id`]s.
-pub fn peer_ids<'a, Id: PartialEq + 'static>(self_id: Id, other_ids: impl IntoIterator<Item=&'a Id>) -> impl Iterator<Item=&'a Id> {
+pub fn peer_ids<'a, Id: PartialEq + 'static>(
+    self_id: Id,
+    other_ids: impl IntoIterator<Item = &'a Id>,
+) -> impl Iterator<Item = &'a Id> {
     other_ids.into_iter().filter(move |o_id| o_id != &&self_id)
 }
 
@@ -464,36 +499,35 @@ mod test {
         let ids: Vec<Id> = (0..3).into_iter().map(Id::from).collect();
         assert_eq!(
             peer_ids(ids[1], &ids).collect::<Vec<&Id>>(),
-            vec![&Id::from(0), &Id::from(2)]);
+            vec![&Id::from(0), &Id::from(2)]
+        );
     }
 
     #[test]
     fn vec_can_serve_as_actor() {
-        use crate::{Checker, Expectation, Model};
         use crate::StateRecorder;
+        use crate::{Checker, Expectation, Model};
         let (recorder, accessor) = StateRecorder::new_with_accessor();
         ActorModel::new((), ())
-            .actor(vec![
-               (1.into(), 'A'),
-               (1.into(), 'B'),
-            ])
-            .actor(vec![
-               (0.into(), 'C'),
-               (0.into(), 'D'),
-            ])
+            .actor(vec![(1.into(), 'A'), (1.into(), 'B')])
+            .actor(vec![(0.into(), 'C'), (0.into(), 'D')])
             .property(Expectation::Always, "", |_, _| true)
             .checker()
             .visitor(recorder)
             .spawn_bfs()
             .join();
-        let mut messages_by_state: Vec<_> = accessor().into_iter().map(|s| {
-            let mut messages: Vec<_> = s.network
-                .iter_deliverable()
-                .map(|e| e.msg.clone())
-                .collect();
-            messages.sort();
-            messages
-        }).collect();
+        let mut messages_by_state: Vec<_> = accessor()
+            .into_iter()
+            .map(|s| {
+                let mut messages: Vec<_> = s
+                    .network
+                    .iter_deliverable()
+                    .map(|e| e.msg.clone())
+                    .collect();
+                messages.sort();
+                messages
+            })
+            .collect();
         messages_by_state.sort_by(|x, y| {
             // Sort by length, then by content.
             match x.len().cmp(&y.len()) {
@@ -501,11 +535,14 @@ mod test {
                 order => order,
             }
         });
-        assert_eq!(messages_by_state, [
-            vec!['A', 'C'],
-            vec!['A', 'B', 'C'],
-            vec!['A', 'C', 'D'],
-            vec!['A', 'B', 'C', 'D'],
-        ]);
+        assert_eq!(
+            messages_by_state,
+            [
+                vec!['A', 'C'],
+                vec!['A', 'B', 'C'],
+                vec!['A', 'C', 'D'],
+                vec!['A', 'B', 'C', 'D'],
+            ]
+        );
     }
 }
