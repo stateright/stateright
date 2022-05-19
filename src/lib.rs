@@ -133,8 +133,8 @@
 
 #[warn(anonymous_parameters)]
 #[warn(missing_docs)]
-
 mod checker;
+pub mod report;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
