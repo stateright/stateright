@@ -16,9 +16,9 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
-pub use rewrite::*;
 pub use path::*;
 pub use representative::*;
+pub use rewrite::*;
 pub use rewrite_plan::*;
 pub use visitor::*;
 
@@ -106,9 +106,10 @@ impl<M: Model> CheckerBuilder<M> {
     ///    states and fingerprints.
     /// - `GET /.states/.../{invalid-fingerprint}` returns 404.
     pub fn serve(self, addresses: impl std::net::ToSocketAddrs) -> std::sync::Arc<impl Checker<M>>
-    where M: 'static + Model + Send + Sync,
-          M::Action: Debug + Send + Sync,
-          M::State: Debug + Hash + Send + Sync,
+    where
+        M: 'static + Model + Send + Sync,
+        M::Action: Debug + Send + Sync,
+        M::State: Debug + Hash + Send + Sync,
     {
         explorer::serve(self, addresses)
     }
@@ -123,8 +124,9 @@ impl<M: Model> CheckerBuilder<M> {
     #[must_use = "Checkers run on background threads. \
                   Consider calling join() or report(...), for example."]
     pub fn spawn_bfs(self) -> impl Checker<M>
-    where M: Model + Send + Sync + 'static,
-          M::State: Hash + Send + Sync + 'static,
+    where
+        M: Model + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + 'static,
     {
         bfs::BfsChecker::spawn(self)
     }
@@ -138,8 +140,9 @@ impl<M: Model> CheckerBuilder<M> {
     #[must_use = "Checkers run on background threads. \
                   Consider calling join() or report(...), for example."]
     pub fn spawn_dfs(self) -> impl Checker<M>
-    where M: Model + Send + Sync + 'static,
-          M::State: Hash + Send + Sync + 'static,
+    where
+        M: Model + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + 'static,
     {
         dfs::DfsChecker::spawn(self)
     }
@@ -148,7 +151,8 @@ impl<M: Model> CheckerBuilder<M> {
     ///
     /// [model state]: crate::Model::State
     pub fn symmetry(self) -> Self
-    where M::State: Representative,
+    where
+        M::State: Representative,
     {
         self.symmetry_fn(Representative::representative)
     }
@@ -157,24 +161,36 @@ impl<M: Model> CheckerBuilder<M> {
     ///
     /// [model state]: crate::Model::State
     pub fn symmetry_fn(self, representative: fn(&M::State) -> M::State) -> Self {
-        Self { symmetry: Some(representative), .. self }
+        Self {
+            symmetry: Some(representative),
+            ..self
+        }
     }
 
     /// Sets the number of states that the checker should aim to generate. For performance reasons
     /// the checker may exceed this number, but it will never generate fewer states if more exist.
     pub fn target_state_count(self, count: usize) -> Self {
-        Self { target_state_count: NonZeroUsize::new(count), .. self }
+        Self {
+            target_state_count: NonZeroUsize::new(count),
+            ..self
+        }
     }
 
     /// Sets the number of threads available for model checking. For maximum performance this
     /// should match the number of cores.
     pub fn threads(self, thread_count: usize) -> Self {
-        Self { thread_count, .. self }
+        Self {
+            thread_count,
+            ..self
+        }
     }
 
     /// Indicates a function to be run on each evaluated state.
     pub fn visitor(self, visitor: impl CheckerVisitor<M> + Send + Sync + 'static) -> Self {
-        Self { visitor: Some(Box::new(visitor)), .. self }
+        Self {
+            visitor: Some(Box::new(visitor)),
+            ..self
+        }
     }
 }
 
@@ -215,27 +231,39 @@ pub trait Checker<M: Model> {
 
     /// Periodically emits a status message.
     fn report(self, w: &mut impl std::io::Write) -> Self
-    where M::Action: Debug,
-          M::State: Debug,
-          Self: Sized,
+    where
+        M::Action: Debug,
+        M::State: Debug,
+        Self: Sized,
     {
         // Start with the checking status.
         let method_start = Instant::now();
         while !self.is_done() {
-            let _ = writeln!(w, "Checking. states={}, unique={}",
-                             self.state_count(),
-                             self.unique_state_count());
+            let _ = writeln!(
+                w,
+                "Checking. states={}, unique={}",
+                self.state_count(),
+                self.unique_state_count()
+            );
             std::thread::sleep(std::time::Duration::from_millis(1_000));
         }
-        let _ = writeln!(w, "Done. states={}, unique={}, sec={}",
-                         self.state_count(),
-                         self.unique_state_count(),
-                         method_start.elapsed().as_secs());
+        let _ = writeln!(
+            w,
+            "Done. states={}, unique={}, sec={}",
+            self.state_count(),
+            self.unique_state_count(),
+            method_start.elapsed().as_secs()
+        );
 
         // Finish with a discovery summary.
         for (name, path) in self.discoveries() {
-            let _ = write!(w, "Discovered \"{}\" {} {}",
-                           name, self.discovery_classification(name), path);
+            let _ = write!(
+                w,
+                "Discovered \"{}\" {} {}",
+                name,
+                self.discovery_classification(name),
+                path
+            );
         }
 
         self
@@ -254,45 +282,62 @@ pub trait Checker<M: Model> {
     /// A helper that verifies examples exist for all `sometimes` properties and no counterexamples
     /// exist for any `always`/`eventually` properties.
     fn assert_properties(&self)
-    where M::Action: Debug,
-          M::State: Debug,
+    where
+        M::Action: Debug,
+        M::State: Debug,
     {
         for p in self.model().properties() {
             match p.expectation {
                 Expectation::Always => self.assert_no_discovery(p.name),
                 Expectation::Eventually => self.assert_no_discovery(p.name),
-                Expectation::Sometimes => { self.assert_any_discovery(p.name); },
+                Expectation::Sometimes => {
+                    self.assert_any_discovery(p.name);
+                }
             }
         }
     }
 
     /// Panics if a particular discovery is not found.
     fn assert_any_discovery(&self, name: &'static str) -> Path<M::State, M::Action> {
-        if let Some(found) = self.discovery(name) { return found }
-        assert!(self.is_done(),
-                "Discovery for \"{}\" not found, but model checking is incomplete.", name);
+        if let Some(found) = self.discovery(name) {
+            return found;
+        }
+        assert!(
+            self.is_done(),
+            "Discovery for \"{}\" not found, but model checking is incomplete.",
+            name
+        );
         panic!("Discovery for \"{}\" not found.", name);
     }
 
     /// Panics if a particular discovery is found.
     fn assert_no_discovery(&self, name: &'static str)
-    where M::Action: Debug,
-          M::State: Debug,
+    where
+        M::Action: Debug,
+        M::State: Debug,
     {
         if let Some(found) = self.discovery(name) {
-            panic!("Unexpected \"{}\" {} {}Last state: {:?}\n",
-                   name, self.discovery_classification(name), found, found.last_state());
+            panic!(
+                "Unexpected \"{}\" {} {}Last state: {:?}\n",
+                name,
+                self.discovery_classification(name),
+                found,
+                found.last_state()
+            );
         }
-        assert!(self.is_done(),
-                "Discovery for \"{}\" not found, but model checking is incomplete.",
-                name);
+        assert!(
+            self.is_done(),
+            "Discovery for \"{}\" not found, but model checking is incomplete.",
+            name
+        );
     }
 
     /// Panics if the specified actions do not result in a discovery for the specified property
     /// name.
     fn assert_discovery(&self, name: &'static str, actions: Vec<M::Action>)
-    where M::State: Debug + PartialEq,
-          M::Action: Debug + PartialEq,
+    where
+        M::State: Debug + PartialEq,
+        M::Action: Debug + PartialEq,
     {
         let mut additional_info: Vec<&'static str> = Vec::new();
 
@@ -302,28 +347,34 @@ pub trait Checker<M: Model> {
                 let property = self.model().property(name);
                 match property.expectation {
                     Expectation::Always => {
-                        if !(property.condition)(self.model(), path.last_state()) { return }
+                        if !(property.condition)(self.model(), path.last_state()) {
+                            return;
+                        }
                     }
                     Expectation::Eventually => {
                         let states = path.into_states();
-                        let is_liveness_satisfied = states.iter().any(|s| {
-                            (property.condition)(self.model(), s)
-                        });
+                        let is_liveness_satisfied =
+                            states.iter().any(|s| (property.condition)(self.model(), s));
                         let is_path_terminal = {
                             let mut actions = Vec::new();
                             self.model().actions(states.last().unwrap(), &mut actions);
                             actions.is_empty()
                         };
-                        if !is_liveness_satisfied && is_path_terminal { return }
+                        if !is_liveness_satisfied && is_path_terminal {
+                            return;
+                        }
                         if is_liveness_satisfied {
-                            additional_info.push("incorrect counterexample satisfies eventually property");
+                            additional_info
+                                .push("incorrect counterexample satisfies eventually property");
                         }
                         if !is_path_terminal {
                             additional_info.push("incorrect counterexample is nonterminal");
                         }
                     }
                     Expectation::Sometimes => {
-                        if (property.condition)(self.model(), path.last_state()) { return }
+                        if (property.condition)(self.model(), path.last_state()) {
+                            return;
+                        }
                     }
                 }
             }
@@ -333,8 +384,12 @@ pub trait Checker<M: Model> {
         } else {
             format!(" ({})", additional_info.join("; "))
         };
-        panic!("Invalid discovery for \"{}\"{}, but a valid one was found. found={:?}",
-               name, additional_info, found.into_actions());
+        panic!(
+            "Invalid discovery for \"{}\"{}, but a valid one was found. found={:?}",
+            name,
+            additional_info,
+            found.into_actions()
+        );
     }
 }
 
@@ -349,8 +404,8 @@ type EventuallyBits = id_set::IdSet;
 
 #[cfg(test)]
 mod test_eventually_property_checker {
-    use crate::{Checker, Property};
     use crate::test_util::dgraph::DGraph;
+    use crate::{Checker, Property};
 
     fn eventually_odd() -> Property<DGraph> {
         Property::eventually("odd", |_, s| s % 2 == 1)
@@ -359,58 +414,85 @@ mod test_eventually_property_checker {
     #[test]
     fn can_validate() {
         DGraph::with_property(eventually_odd())
-            .with_path(vec![1])        // satisfied at terminal init
-            .with_path(vec![2, 3])     // satisfied at nonterminal init
-            .with_path(vec![2, 6, 7])  // satisfied at terminal next
+            .with_path(vec![1]) // satisfied at terminal init
+            .with_path(vec![2, 3]) // satisfied at nonterminal init
+            .with_path(vec![2, 6, 7]) // satisfied at terminal next
             .with_path(vec![4, 9, 10]) // satisfied at nonterminal next
-            .check().assert_properties();
+            .check()
+            .assert_properties();
         // Repeat with distinct state spaces since stateful checking skips visited states (which we
         // don't expect here, but this is defense in depth).
         DGraph::with_property(eventually_odd())
-            .with_path(vec![1]).check().assert_properties();
+            .with_path(vec![1])
+            .check()
+            .assert_properties();
         DGraph::with_property(eventually_odd())
-            .with_path(vec![2, 3]).check().assert_properties();
+            .with_path(vec![2, 3])
+            .check()
+            .assert_properties();
         DGraph::with_property(eventually_odd())
-            .with_path(vec![2, 6, 7]).check().assert_properties();
+            .with_path(vec![2, 6, 7])
+            .check()
+            .assert_properties();
         DGraph::with_property(eventually_odd())
-            .with_path(vec![4, 9, 10]).check().assert_properties();
+            .with_path(vec![4, 9, 10])
+            .check()
+            .assert_properties();
     }
 
     #[test]
-    fn can_discover_counterexample() { // i.e. can falsify
+    fn can_discover_counterexample() {
+        // i.e. can falsify
         assert_eq!(
             DGraph::with_property(eventually_odd())
                 .with_path(vec![0, 1])
                 .with_path(vec![0, 2])
-                .check().discovery("odd").unwrap().into_states(),
-            vec![0, 2]);
+                .check()
+                .discovery("odd")
+                .unwrap()
+                .into_states(),
+            vec![0, 2]
+        );
         assert_eq!(
             DGraph::with_property(eventually_odd())
                 .with_path(vec![0, 1])
                 .with_path(vec![2, 4])
-                .check().discovery("odd").unwrap().into_states(),
-            vec![2, 4]);
+                .check()
+                .discovery("odd")
+                .unwrap()
+                .into_states(),
+            vec![2, 4]
+        );
         assert_eq!(
             DGraph::with_property(eventually_odd())
                 .with_path(vec![0, 1, 4, 6])
                 .with_path(vec![2, 4, 8])
-                .check().discovery("odd").unwrap().into_states(),
-            vec![2, 4, 6]);
+                .check()
+                .discovery("odd")
+                .unwrap()
+                .into_states(),
+            vec![2, 4, 6]
+        );
     }
 
     #[test]
-    fn fixme_can_miss_counterexample_when_revisiting_a_state() { // i.e. incorrectly verify
+    fn fixme_can_miss_counterexample_when_revisiting_a_state() {
+        // i.e. incorrectly verify
         assert_eq!(
             DGraph::with_property(eventually_odd())
                 .with_path(vec![0, 2, 4, 2]) // cycle
-                .check().discovery("odd"),
-            None); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 2]
+                .check()
+                .discovery("odd"),
+            None
+        ); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 2]
         assert_eq!(
             DGraph::with_property(eventually_odd())
                 .with_path(vec![0, 2, 4])
                 .with_path(vec![1, 4, 6]) // revisiting 4
-                .check().discovery("odd"),
-            None); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 6]
+                .check()
+                .discovery("odd"),
+            None
+        ); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 6]
     }
 }
 
@@ -432,12 +514,11 @@ mod test_path {
             fp(2, 1), // final state
         ]);
         let path = Path::from_fingerprints(&model, fingerprints.clone());
+        assert_eq!(path.last_state(), &(2, 1));
         assert_eq!(
             path.last_state(),
-            &(2,1));
-        assert_eq!(
-            path.last_state(),
-            &Path::final_state(&model, fingerprints).unwrap());
+            &Path::final_state(&model, fingerprints).unwrap()
+        );
     }
 }
 
@@ -452,34 +533,51 @@ mod test_report {
 
         // BFS
         let mut written: Vec<u8> = Vec::new();
-        LinearEquation { a: 2, b: 10, c: 14 }.checker()
-            .spawn_bfs().report(&mut written);
+        LinearEquation { a: 2, b: 10, c: 14 }
+            .checker()
+            .spawn_bfs()
+            .report(&mut written);
         let output = String::from_utf8(written).unwrap();
         assert!(
-            output.starts_with("\
+            output.starts_with(
+                "\
                 Checking. states=1, unique=1\n\
-                Done. states=15, unique=12, sec="),
-            "Output did not start as expected (see test). output={:?}`", output);
+                Done. states=15, unique=12, sec="
+            ),
+            "Output did not start as expected (see test). output={:?}`",
+            output
+        );
         assert!(
-            output.ends_with("\
+            output.ends_with(
+                "\
                 Discovered \"solvable\" example Path[3]:\n\
                 - IncreaseX\n\
                 - IncreaseX\n\
-                - IncreaseY\n"),
-            "Output did not end as expected (see test). output={:?}`", output);
+                - IncreaseY\n"
+            ),
+            "Output did not end as expected (see test). output={:?}`",
+            output
+        );
 
         // DFS
         let mut written: Vec<u8> = Vec::new();
-        LinearEquation { a: 2, b: 10, c: 14 }.checker()
-            .spawn_dfs().report(&mut written);
+        LinearEquation { a: 2, b: 10, c: 14 }
+            .checker()
+            .spawn_dfs()
+            .report(&mut written);
         let output = String::from_utf8(written).unwrap();
         assert!(
-            output.starts_with("\
+            output.starts_with(
+                "\
                 Checking. states=1, unique=1\n\
-                Done. states=55, unique=55, sec="),
-            "Output did not start as expected (see test). output={:?}`", output);
+                Done. states=55, unique=55, sec="
+            ),
+            "Output did not start as expected (see test). output={:?}`",
+            output
+        );
         assert!(
-            output.ends_with("\
+            output.ends_with(
+                "\
                 Discovered \"solvable\" example Path[27]:\n\
                 - IncreaseY\n\
                 - IncreaseY\n\
@@ -507,7 +605,10 @@ mod test_report {
                 - IncreaseY\n\
                 - IncreaseY\n\
                 - IncreaseY\n\
-                - IncreaseY\n"),
-            "Output did not end as expected (see test). output={:?}`", output);
+                - IncreaseY\n"
+            ),
+            "Output did not end as expected (see test). output={:?}`",
+            output
+        );
     }
 }

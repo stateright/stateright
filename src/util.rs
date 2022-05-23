@@ -53,12 +53,12 @@
 
 mod densenatmap;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
-use std::fmt::{self, Debug, Formatter};
-use std::hash::{Hash, Hasher, BuildHasher};
-use std::ops::{Deref, DerefMut};
-use std::iter::FromIterator;
 use std::cmp::Ordering;
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::fmt::{self, Debug, Formatter};
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::iter::FromIterator;
+use std::ops::{Deref, DerefMut};
 mod vector_clock;
 
 pub use densenatmap::DenseNatMap;
@@ -116,7 +116,7 @@ impl<V, S> DerefMut for HashableHashSet<V, S> {
 impl<V: Hash + Eq, S: BuildHasher> Eq for HashableHashSet<V, S> {}
 
 impl<V: Eq + Hash, S: BuildHasher + Default> FromIterator<V> for HashableHashSet<V, S> {
-    fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
+    fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
         HashableHashSet(HashSet::from_iter(iter))
     }
 }
@@ -128,7 +128,8 @@ impl<V: Hash, S> Hash for HashableHashSet<V, S> {
             // algorithm reverts to a fallback as needed.
             let fallback = RefCell::new(Vec::new());
 
-            let mut buffer = buffer.try_borrow_mut()
+            let mut buffer = buffer
+                .try_borrow_mut()
                 .unwrap_or_else(|_| fallback.borrow_mut());
             buffer.clear();
             buffer.extend(self.0.iter().map(|v| {
@@ -150,13 +151,13 @@ fn calculate_hash<T: Hash>(t: &T) -> u64 {
     s.finish()
 }
 
-impl<V: Hash + Eq, S: BuildHasher> PartialOrd for HashableHashSet<V,S> {
+impl<V: Hash + Eq, S: BuildHasher> PartialOrd for HashableHashSet<V, S> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         calculate_hash(self).partial_cmp(&calculate_hash(other))
     }
 }
 
-impl<V: Hash + Eq, S: BuildHasher> Ord for HashableHashSet<V,S> {
+impl<V: Hash + Eq, S: BuildHasher> Ord for HashableHashSet<V, S> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         calculate_hash(self).cmp(&calculate_hash(other))
     }
@@ -179,8 +180,9 @@ impl<V: Hash + Eq, S: BuildHasher> PartialEq for HashableHashSet<V, S> {
 }
 
 impl<V, S> serde::Serialize for HashableHashSet<V, S>
-where V: Eq + Hash + serde::Serialize,
-      S: BuildHasher,
+where
+    V: Eq + Hash + serde::Serialize,
+    S: BuildHasher,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         self.0.serialize(ser)
@@ -188,21 +190,22 @@ where V: Eq + Hash + serde::Serialize,
 }
 
 impl<'de, V, S> serde::Deserialize<'de> for HashableHashSet<V, S>
-where V: Eq + Hash + serde::Deserialize<'de>,
-      S: BuildHasher + Default,
+where
+    V: Eq + Hash + serde::Deserialize<'de>,
+    S: BuildHasher + Default,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de> {
-
-            HashSet::<V,S>::deserialize(deserializer).map(|r| HashableHashSet(r))
+        D: serde::Deserializer<'de>,
+    {
+        HashSet::<V, S>::deserialize(deserializer).map(|r| HashableHashSet(r))
     }
 }
 
 #[cfg(test)]
 mod hashable_hash_set_test {
-    use crate::util::HashableHashSet;
     use crate::fingerprint;
+    use crate::util::HashableHashSet;
 
     #[test]
     fn different_hash_if_items_differ() {
@@ -283,7 +286,6 @@ impl<K, V, S: Default> Default for HashableHashMap<K, V, S> {
     }
 }
 
-
 impl<K, V, S> Deref for HashableHashMap<K, V, S> {
     type Target = HashMap<K, V, S>;
 
@@ -313,7 +315,7 @@ impl<K: Eq + Hash, V: Hash + Eq, S: BuildHasher> Ord for HashableHashMap<K, V, S
 }
 
 impl<K: Eq + Hash, V, S: BuildHasher + Default> FromIterator<(K, V)> for HashableHashMap<K, V, S> {
-    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> Self {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         HashableHashMap(HashMap::from_iter(iter))
     }
 }
@@ -325,7 +327,8 @@ impl<K: Hash, V: Hash, S> Hash for HashableHashMap<K, V, S> {
             // algorithm reverts to a fallback as needed.
             let fallback = RefCell::new(Vec::new());
 
-            let mut buffer = buffer.try_borrow_mut()
+            let mut buffer = buffer
+                .try_borrow_mut()
                 .unwrap_or_else(|_| fallback.borrow_mut());
             buffer.clear();
             buffer.extend(self.0.iter().map(|(k, v)| {
@@ -359,9 +362,10 @@ impl<K: Hash + Eq, V: PartialEq, S: BuildHasher> PartialEq for HashableHashMap<K
 }
 
 impl<K, V, S> serde::Serialize for HashableHashMap<K, V, S>
-where K: Eq + Hash + serde::Serialize,
-      V: serde::Serialize,
-      S: BuildHasher,
+where
+    K: Eq + Hash + serde::Serialize,
+    V: serde::Serialize,
+    S: BuildHasher,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         self.0.serialize(ser)
@@ -370,8 +374,8 @@ where K: Eq + Hash + serde::Serialize,
 
 #[cfg(test)]
 mod hashable_hash_map_test {
-    use crate::util::HashableHashMap;
     use crate::fingerprint;
+    use crate::util::HashableHashMap;
 
     #[test]
     fn different_hash_if_items_differ() {

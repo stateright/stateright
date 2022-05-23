@@ -4,16 +4,15 @@
 #[cfg(doc)]
 use crate::actor::ActorModel;
 use crate::actor::{Actor, Envelope, Id, Out};
-use crate::semantics::ConsistencyTester;
-use crate::semantics::write_once_register::{WORegister, WORegisterOp, WORegisterRet};
 use crate::checker::{Rewrite, RewritePlan};
+use crate::semantics::write_once_register::{WORegister, WORegisterOp, WORegisterRet};
+use crate::semantics::ConsistencyTester;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Defines an interface for a register-like actor.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum WORegisterMsg<RequestId, Value, InternalMsg> {
     /// A message specific to the register system's internal protocol.
     Internal(InternalMsg),
@@ -40,10 +39,11 @@ impl<RequestId, Value, InternalMsg> WORegisterMsg<RequestId, Value, InternalMsg>
     pub fn record_invocations<C, H>(
         _cfg: &C,
         history: &H,
-        env: Envelope<&WORegisterMsg<RequestId, Value, InternalMsg>>)
-        -> Option<H>
-    where H: Clone + ConsistencyTester<Id, WORegister<Value>>,
-          Value: Clone + Debug + PartialEq,
+        env: Envelope<&WORegisterMsg<RequestId, Value, InternalMsg>>,
+    ) -> Option<H>
+    where
+        H: Clone + ConsistencyTester<Id, WORegister<Value>>,
+        Value: Clone + Debug + PartialEq,
     {
         // Currently throws away useful information about invalid histories. Ideally
         // checking would continue, but the property would be labeled with an error.
@@ -67,10 +67,11 @@ impl<RequestId, Value, InternalMsg> WORegisterMsg<RequestId, Value, InternalMsg>
     pub fn record_returns<C, H>(
         _cfg: &C,
         history: &H,
-        env: Envelope<&WORegisterMsg<RequestId, Value, InternalMsg>>)
-        -> Option<H>
-    where H: Clone + ConsistencyTester<Id, WORegister<Value>>,
-          Value: Clone + Debug + PartialEq,
+        env: Envelope<&WORegisterMsg<RequestId, Value, InternalMsg>>,
+    ) -> Option<H>
+    where
+        H: Clone + ConsistencyTester<Id, WORegister<Value>>,
+        Value: Clone + Debug + PartialEq,
     {
         // Currently throws away useful information about invalid histories. Ideally
         // checking would continue, but the property would be labeled with an error.
@@ -90,7 +91,7 @@ impl<RequestId, Value, InternalMsg> WORegisterMsg<RequestId, Value, InternalMsg>
                 let _ = history.on_return(env.dst, WORegisterRet::WriteFail);
                 Some(history)
             }
-            _ => None
+            _ => None,
         }
     }
 }
@@ -108,8 +109,7 @@ pub enum WORegisterActor<ServerActor> {
     Server(ServerActor),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-#[derive(serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize)]
 pub enum WORegisterActorState<ServerState, RequestId> {
     /// A client that sends a sequence of [`WORegisterMsg::Put`] messages before sending a
     /// [`WORegisterMsg::Get`].
@@ -135,7 +135,10 @@ where
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
-            WORegisterActor::Client { put_count, server_count } => {
+            WORegisterActor::Client {
+                put_count,
+                server_count,
+            } => {
                 let server_count = *server_count as u64;
 
                 let index = id.0;
@@ -153,7 +156,8 @@ where
                     let value = (b'A' + (index - server_count) as u8) as char;
                     o.send(
                         Id((index + 0) % server_count),
-                        Put(unique_request_id, value));
+                        Put(unique_request_id, value),
+                    );
                     WORegisterActorState::Client {
                         awaiting: Some(unique_request_id),
                         op_count: 1,
@@ -162,7 +166,8 @@ where
             }
             WORegisterActor::Server(server_actor) => {
                 let mut server_out = Out::new();
-                let state = WORegisterActorState::Server(server_actor.on_start(id, &mut server_out));
+                let state =
+                    WORegisterActorState::Server(server_actor.on_start(id, &mut server_out));
                 o.append(&mut server_out);
                 state
             }
@@ -173,14 +178,8 @@ where
         use WORegisterActor as A;
         use WORegisterActorState as S;
         match (self, &**state) {
-            (
-                A::Client { .. },
-                S::Client { .. }
-            ) => {},
-            (
-                A::Server(server_actor),
-                S::Server(server_state)
-            ) => {
+            (A::Client { .. }, S::Client { .. }) => {}
+            (A::Server(server_actor), S::Server(server_state)) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
                 server_actor.on_timeout(id, &mut server_state, &mut server_out);
@@ -193,14 +192,27 @@ where
         }
     }
 
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         use WORegisterActor as A;
         use WORegisterActorState as S;
 
         match (self, &**state) {
             (
-                A::Client { put_count, server_count },
-                S::Client { awaiting: Some(awaiting), op_count },
+                A::Client {
+                    put_count,
+                    server_count,
+                },
+                S::Client {
+                    awaiting: Some(awaiting),
+                    op_count,
+                },
             ) => {
                 let server_count = *server_count as u64;
                 match msg {
@@ -211,11 +223,13 @@ where
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
                                 Id((index + op_count) % server_count),
-                                Put(unique_request_id, value));
+                                Put(unique_request_id, value),
+                            );
                         } else {
                             o.send(
                                 Id((index + op_count) % server_count),
-                                Get(unique_request_id));
+                                Get(unique_request_id),
+                            );
                         }
                         *state = Cow::Owned(WORegisterActorState::Client {
                             awaiting: Some(unique_request_id),
@@ -229,11 +243,13 @@ where
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
                                 Id((index + op_count) % server_count),
-                                Put(unique_request_id, value));
+                                Put(unique_request_id, value),
+                            );
                         } else {
                             o.send(
                                 Id((index + op_count) % server_count),
-                                Get(unique_request_id));
+                                Get(unique_request_id),
+                            );
                         }
                         *state = Cow::Owned(WORegisterActorState::Client {
                             awaiting: Some(unique_request_id),
@@ -249,10 +265,7 @@ where
                     _ => {}
                 }
             }
-            (
-                A::Server(server_actor),
-                S::Server(server_state),
-            ) => {
+            (A::Server(server_actor), S::Server(server_state)) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
                 server_actor.on_msg(id, &mut server_state, src, msg, &mut server_out);
@@ -267,25 +280,27 @@ where
 }
 
 impl<R, ServerState, RequestId> Rewrite<R> for WORegisterActorState<ServerState, RequestId>
-where ServerState : Rewrite<R> + Clone,
-      RequestId : Clone,
+where
+    ServerState: Rewrite<R> + Clone,
+    RequestId: Clone,
 {
-    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R, S>) -> Self {
         match self {
-            WORegisterActorState::Client{..} => { (*self).clone() }
-            WORegisterActorState::Server(server_state) => { 
-                WORegisterActorState::Server(server_state.rewrite(plan)) 
+            WORegisterActorState::Client { .. } => (*self).clone(),
+            WORegisterActorState::Server(server_state) => {
+                WORegisterActorState::Server(server_state.rewrite(plan))
             }
         }
-   }
+    }
 }
 
 impl<R, RequestId, Value, InternalMsg> Rewrite<R> for WORegisterMsg<RequestId, Value, InternalMsg>
-where InternalMsg : Rewrite<R>,
-      RequestId : Clone,
-      Value : Rewrite<R>,
+where
+    InternalMsg: Rewrite<R>,
+    RequestId: Clone,
+    Value: Rewrite<R>,
 {
-    fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<R, S>) -> Self {
         match self {
             Internal(msg) => Internal(msg.rewrite(plan)),
             Put(rid, v) => Put(rid.clone(), v.rewrite(plan)),
@@ -293,9 +308,7 @@ where InternalMsg : Rewrite<R>,
 
             PutOk(rid) => PutOk(rid.clone()),
             PutFail(rid) => PutFail(rid.clone()),
-            GetOk(rid, v) => GetOk(rid.clone(), v.rewrite(plan))
+            GetOk(rid, v) => GetOk(rid.clone(), v.rewrite(plan)),
         }
-   }
+    }
 }
-
-

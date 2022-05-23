@@ -133,7 +133,6 @@
 
 #[warn(anonymous_parameters)]
 #[warn(missing_docs)]
-
 mod checker;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -171,14 +170,16 @@ pub trait Model: Sized {
 
     /// Converts an action of this model to a more intuitive representation (e.g. for Explorer).
     fn format_action(&self, action: &Self::Action) -> String
-    where Self::Action: Debug
+    where
+        Self::Action: Debug,
     {
         format!("{:?}", action)
     }
 
     /// Converts a step of this model to a more intuitive representation (e.g. for Explorer).
     fn format_step(&self, last_state: &Self::State, action: Self::Action) -> Option<String>
-    where Self::State: Debug
+    where
+        Self::State: Debug,
     {
         self.next_state(last_state, action)
             .map(|next_state| format!("{:#?}", next_state))
@@ -186,7 +187,9 @@ pub trait Model: Sized {
 
     /// Returns an [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) representation of a
     /// [`Path`] for this model.
-    fn as_svg(&self, _path: Path<Self::State, Self::Action>) -> Option<String> { None }
+    fn as_svg(&self, _path: Path<Self::State, Self::Action>) -> Option<String> {
+        None
+    }
 
     /// Indicates the steps (action-state pairs) that follow a particular state.
     fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)> {
@@ -195,9 +198,13 @@ pub trait Model: Sized {
         let mut actions2 = Vec::new();
         self.actions(last_state, &mut actions1);
         self.actions(last_state, &mut actions2);
-        actions1.into_iter().zip(actions2)
-            .filter_map(|(action1, action2)|
-                self.next_state(last_state, action1).map(|state| (action2, state)))
+        actions1
+            .into_iter()
+            .zip(actions2)
+            .filter_map(|(action1, action2)| {
+                self.next_state(last_state, action1)
+                    .map(|state| (action2, state))
+            })
             .collect()
     }
 
@@ -206,13 +213,16 @@ pub trait Model: Sized {
     fn next_states(&self, last_state: &Self::State) -> Vec<Self::State> {
         let mut actions = Vec::new();
         self.actions(last_state, &mut actions);
-        actions.into_iter()
+        actions
+            .into_iter()
             .filter_map(|action| self.next_state(last_state, action))
             .collect()
     }
 
     /// Generates the expected properties for this model.
-    fn properties(&self) -> Vec<Property<Self>> { Vec::new() }
+    fn properties(&self) -> Vec<Property<Self>> {
+        Vec::new()
+    }
 
     /// Looks up a property by name. Panics if the property does not exist.
     fn property(&self, name: &'static str) -> Property<Self> {
@@ -220,17 +230,23 @@ pub trait Model: Sized {
             p
         } else {
             let available: Vec<_> = self.properties().iter().map(|p| p.name).collect();
-            panic!("Unknown property. requested={}, available={:?}", name, available);
+            panic!(
+                "Unknown property. requested={}, available={:?}",
+                name, available
+            );
         }
     }
 
     /// Indicates whether a state is within the state space that should be model checked.
-    fn within_boundary(&self, _state: &Self::State) -> bool { true }
+    fn within_boundary(&self, _state: &Self::State) -> bool {
+        true
+    }
 
     /// Instantiates a [`CheckerBuilder`] for this model.
     fn checker(self) -> CheckerBuilder<Self>
-    where Self: Send + Sync + 'static,
-          Self::State: Hash + Send + Sync,
+    where
+        Self: Send + Sync + 'static,
+        Self::State: Hash + Send + Sync,
     {
         CheckerBuilder::new(self)
     }
@@ -250,9 +266,12 @@ impl<M: Model> Property<M> {
     /// An invariant that defines a [safety
     /// property](https://en.wikipedia.org/wiki/Safety_property). The model checker will try to
     /// discover a counterexample.
-    pub fn always(name: &'static str, condition: fn(&M, &M::State) -> bool)
-                  -> Property<M> {
-        Property { expectation: Expectation::Always, name, condition }
+    pub fn always(name: &'static str, condition: fn(&M, &M::State) -> bool) -> Property<M> {
+        Property {
+            expectation: Expectation::Always,
+            name,
+            condition,
+        }
     }
 
     /// An invariant that defines a [liveness
@@ -265,16 +284,22 @@ impl<M: Model> Property<M> {
     /// ending in a cycle is not viewed as _terminating_ in that cycle, as the checker does not
     /// differentiate cycles from DAG joins, and so an `eventually` property that has not been met
     /// by the cycle-closing edge will ignored -- a false negative.
-    pub fn eventually(name: &'static str, condition: fn(&M, &M::State) -> bool)
-                      -> Property<M> {
-        Property { expectation: Expectation::Eventually, name, condition }
+    pub fn eventually(name: &'static str, condition: fn(&M, &M::State) -> bool) -> Property<M> {
+        Property {
+            expectation: Expectation::Eventually,
+            name,
+            condition,
+        }
     }
 
     /// Something that should be possible in the model. The model checker will try to discover an
     /// example.
-    pub fn sometimes(name: &'static str, condition: fn(&M, &M::State) -> bool)
-                     -> Property<M> {
-        Property { expectation: Expectation::Sometimes, name, condition }
+    pub fn sometimes(name: &'static str, condition: fn(&M, &M::State) -> bool) -> Property<M> {
+        Property {
+            expectation: Expectation::Sometimes,
+            name,
+            condition,
+        }
     }
 }
 impl<M: Model> Clone for Property<M> {
@@ -288,8 +313,7 @@ impl<M: Model> Clone for Property<M> {
 }
 
 /// Indicates whether a property is always, eventually, or sometimes true.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub enum Expectation {
     /// The property is true for all reachable states.
     Always,

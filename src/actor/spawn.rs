@@ -63,7 +63,7 @@ fn practically_never() -> Instant {
 pub fn spawn<A, E: Debug + 'static>(
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     deserialize: fn(&[u8]) -> Result<A::Msg, E>,
-    actors: Vec<(impl Into<Id>, A)>
+    actors: Vec<(impl Into<Id>, A)>,
 ) -> Result<(), Box<dyn std::any::Any + Send + 'static>>
 where
     A: 'static + Send + Actor,
@@ -145,61 +145,67 @@ fn on_command<A, E>(
     command: Command<A::Msg>,
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     socket: &UdpSocket,
-    next_interrupt: &mut Instant)
-where A: Actor,
-      A::Msg: Debug,
-      E: Debug,
+    next_interrupt: &mut Instant,
+) where
+    A: Actor,
+    A::Msg: Debug,
+    E: Debug,
 {
     match command {
         Command::Send(dst, msg) => {
             let dst_addr = SocketAddrV4::from(dst);
             match serialize(&msg) {
                 Err(e) => {
-                    log::warn!("Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
-                             addr, dst_addr, msg, e);
-                },
+                    log::warn!(
+                        "Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
+                        addr,
+                        dst_addr,
+                        msg,
+                        e
+                    );
+                }
                 Ok(out_buf) => {
                     if let Err(e) = socket.send_to(&out_buf, dst_addr) {
-                        log::warn!("Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
-                                 addr, dst_addr, msg, e);
+                        log::warn!(
+                            "Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
+                            addr,
+                            dst_addr,
+                            msg,
+                            e
+                        );
                     }
-                },
+                }
             }
-        },
+        }
         Command::SetTimer(range) => {
-            let duration =
-                if range.start < range.end {
-                    use rand::Rng;
-                    rand::thread_rng().gen_range(range.start, range.end)
-                } else {
-                    range.start
-                };
+            let duration = if range.start < range.end {
+                use rand::Rng;
+                rand::thread_rng().gen_range(range.start, range.end)
+            } else {
+                range.start
+            };
             *next_interrupt = Instant::now() + duration;
-        },
+        }
         Command::CancelTimer => {
             *next_interrupt = practically_never();
-        },
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::actor::*;
-    use std::net::{SocketAddrV4, Ipv4Addr};
+    use std::net::{Ipv4Addr, SocketAddrV4};
 
     #[test]
     fn can_encode_id() {
-        let addr = SocketAddrV4::new(Ipv4Addr::new(1,2,3,4), 5);
-        assert_eq!(
-            Id::from(addr).0.to_be_bytes(),
-            [0, 0, 1, 2, 3, 4, 0, 5]);
+        let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
+        assert_eq!(Id::from(addr).0.to_be_bytes(), [0, 0, 1, 2, 3, 4, 0, 5]);
     }
 
     #[test]
     fn can_decode_id() {
-        let addr = SocketAddrV4::new(Ipv4Addr::new(1,2,3,4), 5);
-        assert_eq!(
-            SocketAddrV4::from(Id::from(addr)),
-            addr);
+        let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
+        assert_eq!(SocketAddrV4::from(Id::from(addr)), addr);
     }
 }

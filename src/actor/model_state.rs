@@ -1,7 +1,7 @@
 //! Private module for selective re-export.
 
-use crate::{Representative, Rewrite, RewritePlan};
 use crate::actor::{Actor, Id, Network};
+use crate::{Representative, Rewrite, RewritePlan};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -15,10 +15,11 @@ pub struct ActorModelState<A: Actor, H = ()> {
 }
 
 impl<A, H> serde::Serialize for ActorModelState<A, H>
-where A: Actor,
-      A::State: serde::Serialize,
-      A::Msg: serde::Serialize,
-      H: serde::Serialize,
+where
+    A: Actor,
+    A::State: serde::Serialize,
+    A::Msg: serde::Serialize,
+    H: serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         use serde::ser::SerializeStruct;
@@ -34,8 +35,9 @@ where A: Actor,
 // Manual implementation to avoid `Clone` constraint that `#derive(Clone)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Clone for ActorModelState<A, H>
-where A: Actor,
-      H: Clone,
+where
+    A: Actor,
+    H: Clone,
 {
     fn clone(&self) -> Self {
         ActorModelState {
@@ -50,8 +52,9 @@ where A: Actor,
 // Manual implementation to avoid `Debug` constraint that `#derive(Debug)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Debug for ActorModelState<A, H>
-where A: Actor,
-      H: Debug,
+where
+    A: Actor,
+    H: Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut builder = f.debug_struct("ActorModelState");
@@ -66,16 +69,19 @@ where A: Actor,
 // Manual implementation to avoid `Eq` constraint that `#derive(Eq)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Eq for ActorModelState<A, H>
-where A: Actor,
-      A::State: Eq,
-      H: Eq,
-{}
+where
+    A: Actor,
+    A::State: Eq,
+    H: Eq,
+{
+}
 
 // Manual implementation to avoid `Hash` constraint that `#derive(Hash)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Hash for ActorModelState<A, H>
-where A: Actor,
-      H: Hash,
+where
+    A: Actor,
+    H: Hash,
 {
     fn hash<Hash: Hasher>(&self, state: &mut Hash) {
         self.actor_states.hash(state);
@@ -88,9 +94,10 @@ where A: Actor,
 // Manual implementation to avoid `PartialEq` constraint that `#derive(PartialEq)` would
 // introduce on `ActorModelState<A, H>` type parameters.
 impl<A, H> PartialEq for ActorModelState<A, H>
-where A: Actor,
-      A::State: PartialEq,
-      H: PartialEq,
+where
+    A: Actor,
+    A::State: PartialEq,
+    H: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.actor_states.eq(&other.actor_states)
@@ -101,10 +108,11 @@ where A: Actor,
 }
 
 impl<A, H> Representative for ActorModelState<A, H>
-    where A: Actor,
-          A::Msg: Rewrite<Id>,
-          A::State: Ord + Rewrite<Id>,
-          H: Rewrite<Id>,
+where
+    A: Actor,
+    A::Msg: Rewrite<Id>,
+    A::State: Ord + Rewrite<Id>,
+    H: Rewrite<Id>,
 {
     fn representative(&self) -> Self {
         let plan = RewritePlan::from_values_to_sort(&self.actor_states);
@@ -119,41 +127,76 @@ impl<A, H> Representative for ActorModelState<A, H>
 
 #[cfg(test)]
 mod test {
-    use crate::{Rewrite, Representative, RewritePlan};
     use crate::actor::{Actor, ActorModelState, Envelope, Id, Network, Out};
+    use crate::{Representative, Rewrite, RewritePlan};
     use std::sync::Arc;
 
     #[test]
     fn can_find_representative_from_equivalence_class() {
         let state = ActorModelState::<A, History> {
             actor_states: vec![
-                Arc::new(ActorState { acks: vec![Id::from(1), Id::from(2)]}),
-                Arc::new(ActorState { acks: vec![]}),
-                Arc::new(ActorState { acks: vec![Id::from(1)]}),
+                Arc::new(ActorState {
+                    acks: vec![Id::from(1), Id::from(2)],
+                }),
+                Arc::new(ActorState { acks: vec![] }),
+                Arc::new(ActorState {
+                    acks: vec![Id::from(1)],
+                }),
             ],
             network: Network::new_unordered_duplicating([
                 // Id(0) sends peers "Write(X)" and receives two acks.
-                Envelope { src: 0.into(), dst: 1.into(), msg: "Write(X)" },
-                Envelope { src: 0.into(), dst: 2.into(), msg: "Write(X)" },
-                Envelope { src: 1.into(), dst: 0.into(), msg: "Ack(X)" },
-                Envelope { src: 2.into(), dst: 0.into(), msg: "Ack(X)" },
-
+                Envelope {
+                    src: 0.into(),
+                    dst: 1.into(),
+                    msg: "Write(X)",
+                },
+                Envelope {
+                    src: 0.into(),
+                    dst: 2.into(),
+                    msg: "Write(X)",
+                },
+                Envelope {
+                    src: 1.into(),
+                    dst: 0.into(),
+                    msg: "Ack(X)",
+                },
+                Envelope {
+                    src: 2.into(),
+                    dst: 0.into(),
+                    msg: "Ack(X)",
+                },
                 // Id(2) sends peers "Write(Y)" and receives one ack.
-                Envelope { src: 2.into(), dst: 0.into(), msg: "Write(Y)" },
-                Envelope { src: 2.into(), dst: 1.into(), msg: "Write(Y)" },
-                Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
+                Envelope {
+                    src: 2.into(),
+                    dst: 0.into(),
+                    msg: "Write(Y)",
+                },
+                Envelope {
+                    src: 2.into(),
+                    dst: 1.into(),
+                    msg: "Write(Y)",
+                },
+                Envelope {
+                    src: 1.into(),
+                    dst: 2.into(),
+                    msg: "Ack(Y)",
+                },
             ]),
             is_timer_set: vec![true, false, true],
             history: History {
                 send_sequence: vec![
                     // Id(0) sends two writes
-                    0.into(), 0.into(),
+                    0.into(),
+                    0.into(),
                     // Id(2) sends two writes
-                    2.into(), 2.into(),
+                    2.into(),
+                    2.into(),
                     // Id(2) gets two replies (although only one was delivered)
-                    1.into(), 0.into(),
+                    1.into(),
+                    0.into(),
                     // Id(0) gets two replies
-                    1.into(), 2.into(),
+                    1.into(),
+                    2.into(),
                 ],
             },
         };
@@ -161,38 +204,76 @@ mod test {
         // The chosen rewrite plan is:
         // - reindexing: x[0] <- x[1], x[1] <- x[2], x[2] <- x[0]
         // - rewriting:  Id(0) -> Id(2), Id(1) -> Id(0), Id(2) -> Id(1)
-        assert_eq!(representative_state, ActorModelState {
-            actor_states: vec![
-                Arc::new(ActorState { acks: vec![]}),
-                Arc::new(ActorState { acks: vec![Id::from(0)]}),
-                Arc::new(ActorState { acks: vec![Id::from(0), Id::from(1)]}),
-            ],
-            network: Network::new_unordered_duplicating([
-                // Id(2) sends peers "Write(X)" and receives two acks.
-                Envelope { src: 2.into(), dst: 0.into(), msg: "Write(X)" },
-                Envelope { src: 2.into(), dst: 1.into(), msg: "Write(X)" },
-                Envelope { src: 0.into(), dst: 2.into(), msg: "Ack(X)" },
-                Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(X)" },
-
-                // Id(1) sends peers "Write(Y)" and receives one ack.
-                Envelope { src: 1.into(), dst: 2.into(), msg: "Write(Y)" },
-                Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
-                Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
-            ]),
-            is_timer_set: vec![false, true, true],
-            history: History {
-                send_sequence: vec![
-                    // Id(2) sends two writes
-                    2.into(), 2.into(),
-                    // Id(1) sends two writes
-                    1.into(), 1.into(),
-                    // Id(1) gets two replies (although only one was delivered)
-                    0.into(), 2.into(),
-                    // Id(2) gets two replies
-                    0.into(), 1.into(),
+        assert_eq!(
+            representative_state,
+            ActorModelState {
+                actor_states: vec![
+                    Arc::new(ActorState { acks: vec![] }),
+                    Arc::new(ActorState {
+                        acks: vec![Id::from(0)]
+                    }),
+                    Arc::new(ActorState {
+                        acks: vec![Id::from(0), Id::from(1)]
+                    }),
                 ],
-            },
-        });
+                network: Network::new_unordered_duplicating([
+                    // Id(2) sends peers "Write(X)" and receives two acks.
+                    Envelope {
+                        src: 2.into(),
+                        dst: 0.into(),
+                        msg: "Write(X)"
+                    },
+                    Envelope {
+                        src: 2.into(),
+                        dst: 1.into(),
+                        msg: "Write(X)"
+                    },
+                    Envelope {
+                        src: 0.into(),
+                        dst: 2.into(),
+                        msg: "Ack(X)"
+                    },
+                    Envelope {
+                        src: 1.into(),
+                        dst: 2.into(),
+                        msg: "Ack(X)"
+                    },
+                    // Id(1) sends peers "Write(Y)" and receives one ack.
+                    Envelope {
+                        src: 1.into(),
+                        dst: 2.into(),
+                        msg: "Write(Y)"
+                    },
+                    Envelope {
+                        src: 1.into(),
+                        dst: 0.into(),
+                        msg: "Write(Y)"
+                    },
+                    Envelope {
+                        src: 0.into(),
+                        dst: 1.into(),
+                        msg: "Ack(Y)"
+                    },
+                ]),
+                is_timer_set: vec![false, true, true],
+                history: History {
+                    send_sequence: vec![
+                        // Id(2) sends two writes
+                        2.into(),
+                        2.into(),
+                        // Id(1) sends two writes
+                        1.into(),
+                        1.into(),
+                        // Id(1) gets two replies (although only one was delivered)
+                        0.into(),
+                        2.into(),
+                        // Id(2) gets two replies
+                        0.into(),
+                        1.into(),
+                    ],
+                },
+            }
+        );
     }
 
     struct A;
@@ -205,18 +286,26 @@ mod test {
     }
 
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    struct ActorState { acks: Vec<Id> }
+    struct ActorState {
+        acks: Vec<Id>,
+    }
     impl Rewrite<Id> for ActorState {
         fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
-            Self { acks: self.acks.rewrite(plan) }
+            Self {
+                acks: self.acks.rewrite(plan),
+            }
         }
     }
 
     #[derive(Debug, PartialEq)]
-    struct History { send_sequence: Vec<Id> }
+    struct History {
+        send_sequence: Vec<Id>,
+    }
     impl Rewrite<Id> for History {
         fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
-            Self { send_sequence: self.send_sequence.rewrite(plan) }
+            Self {
+                send_sequence: self.send_sequence.rewrite(plan),
+            }
         }
     }
 }
