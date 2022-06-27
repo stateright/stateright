@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
-use std::{io::Stdout, time::Duration};
+use std::time::Duration;
 
 use crate::{DiscoveryClassification, Model, Path};
 
@@ -40,45 +40,25 @@ pub trait Reporter<M: Model> {
         M::State: Debug;
 }
 
-impl<M: Model> Reporter<M> for Vec<u8> {
-    fn report_checking(&mut self, data: ReportData) {
-        if data.done {
-            let _ = writeln!(
-                self,
-                "Done. states={}, unique={}, sec={}",
-                data.total_states,
-                data.unique_states,
-                data.duration.as_secs()
-            );
-        } else {
-            let _ = writeln!(
-                self,
-                "Checking. states={}, unique={}",
-                data.total_states, data.unique_states
-            );
-        }
-    }
+pub struct WriteReporter<'a, W> {
+    writer: &'a mut W,
+}
 
-    fn report_discoveries(&mut self, discoveries: HashMap<&'static str, ReportDiscovery<M>>)
-    where
-        M::Action: Debug,
-        M::State: Debug,
-    {
-        for (name, discovery) in discoveries {
-            let _ = write!(
-                self,
-                "Discovered \"{}\" {} {}",
-                name, discovery.classification, discovery.path,
-            );
-        }
+impl<'a, W> WriteReporter<'a, W> {
+    pub fn new(writer: &'a mut W) -> Self {
+        Self { writer }
     }
 }
 
-impl<M: Model> Reporter<M> for Stdout {
+impl<'a, M, W> Reporter<M> for WriteReporter<'a, W>
+where
+    M: Model,
+    W: Write,
+{
     fn report_checking(&mut self, data: ReportData) {
         if data.done {
             let _ = writeln!(
-                self,
+                self.writer,
                 "Done. states={}, unique={}, sec={}",
                 data.total_states,
                 data.unique_states,
@@ -86,7 +66,7 @@ impl<M: Model> Reporter<M> for Stdout {
             );
         } else {
             let _ = writeln!(
-                self,
+                self.writer,
                 "Checking. states={}, unique={}",
                 data.total_states, data.unique_states
             );
@@ -100,7 +80,7 @@ impl<M: Model> Reporter<M> for Stdout {
     {
         for (name, discovery) in discoveries {
             let _ = write!(
-                self,
+                self.writer,
                 "Discovered \"{}\" {} {}",
                 name, discovery.classification, discovery.path,
             );

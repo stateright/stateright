@@ -545,7 +545,7 @@ mod test_path {
 #[cfg(test)]
 mod test_report {
     use super::*;
-    use crate::test_util::linear_equation_solver::LinearEquation;
+    use crate::{report::WriteReporter, test_util::linear_equation_solver::LinearEquation};
 
     #[test]
     fn report_includes_property_names_and_paths() {
@@ -556,7 +556,7 @@ mod test_report {
         LinearEquation { a: 2, b: 10, c: 14 }
             .checker()
             .spawn_bfs()
-            .report(&mut written);
+            .report(&mut WriteReporter::new(&mut written));
         let output = String::from_utf8(written).unwrap();
         assert!(
             output.starts_with(
@@ -584,7 +584,7 @@ mod test_report {
         LinearEquation { a: 2, b: 10, c: 14 }
             .checker()
             .spawn_dfs()
-            .report(&mut written);
+            .report(&mut WriteReporter::new(&mut written));
         let output = String::from_utf8(written).unwrap();
         assert!(
             output.starts_with(

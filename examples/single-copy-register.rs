@@ -1,6 +1,7 @@
 //! An actor system where each server exposes a rewritable single-copy register. Servers do not
 //! provide consensus.
 
+use stateright::report::WriteReporter;
 use stateright::{Checker, Expectation, Model};
 use stateright::actor::{Actor, ActorModel, Id, Network, Out};
 use stateright::actor::register::{
@@ -144,7 +145,7 @@ fn main() -> Result<(), pico_args::Error> {
                     network,
                 }
                 .into_model().checker().threads(num_cpus::get())
-                .spawn_dfs().report(&mut std::io::stdout());
+                .spawn_dfs().report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("explore") => {
             let client_count = args.opt_free_from_str()?
