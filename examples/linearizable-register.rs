@@ -8,6 +8,7 @@
 //! http://muratbuffalo.blogspot.com/2012/05/replicatedfault-tolerant-atomic-storage.html
 
 use serde::{Deserialize, Serialize};
+use stateright::report::WriteReporter;
 use std::borrow::Cow;
 use stateright::{Checker, Expectation, Model};
 use stateright::actor::{
@@ -304,7 +305,7 @@ fn main() -> Result<(), pico_args::Error> {
                     network,
                 }
                 .into_model().checker().threads(num_cpus::get())
-                .spawn_dfs().report(&mut std::io::stdout());
+                .spawn_dfs().report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("explore") => {
             let client_count = args.opt_free_from_str()?
