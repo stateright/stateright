@@ -149,19 +149,13 @@ where M: Model,
         done: checker.is_done(),
         state_count: checker.state_count(),
         unique_state_count: checker.unique_state_count(),
-        properties: checker.model().properties().into_iter()
-            .map(|p| (
-                    p.expectation,
-                    p.name.to_string(),
-                    checker.discovery(p.name).map(|p| p.encode()),
-            ))
-            .collect(),
+        properties: get_properties(checker),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
     Json(status)
 }
 
-fn properties_for_state<C, M>(checker: &Arc<C>) -> Vec<Property> 
+fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property> 
 where M: Model,
       M::State: Hash,
       C: Checker<M>,
@@ -213,7 +207,7 @@ where M: Model,
                 action: None,
                 outcome: None,
                 state: Some(state),
-                properties: properties_for_state(checker),
+                properties: get_properties(checker),
                 svg,
             });
         }
@@ -239,7 +233,7 @@ where M: Model,
                     action: Some(model.format_action(&action)),
                     outcome,
                     state: Some(state),
-                    properties: properties_for_state(checker),
+                    properties: get_properties(checker),
                     svg,
                 });
             } else {
@@ -248,7 +242,7 @@ where M: Model,
                     action: Some(model.format_action(&action)),
                     outcome: None,
                     state: None,
-                    properties: properties_for_state(checker),
+                    properties: get_properties(checker),
                     svg: None,
                 });
             }
