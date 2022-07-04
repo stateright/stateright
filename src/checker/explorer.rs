@@ -49,6 +49,9 @@ where
             out.serialize_field("state", &format!("{:#?}", state))?;
             out.serialize_field("fingerprint", &format!("{:?}", fingerprint(&state)))?;
         }
+        if !self.properties.is_empty() {
+            out.serialize_field("properties", &self.properties)?;
+        }
         if let Some(ref svg) = self.svg {
             out.serialize_field("svg", svg)?;
         }
