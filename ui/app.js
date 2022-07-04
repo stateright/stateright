@@ -69,10 +69,10 @@ function getPropertyForState(p, path) {
     const [ icon, summary ] = (() => {
         if (discoveryPath) {
             if (discoveryPath.length + 1 < path.length) {
-                // state before discovery
+                // state after discovery
                 return ['⬆️', ''];
             } else if (discoveryPath.length + 1 > path.length) {
-                // state after discovery
+                // state before discovery
                 return ['⬇️', ''];
             } else {
                 switch (expectation) {
