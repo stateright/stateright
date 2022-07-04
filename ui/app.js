@@ -54,29 +54,34 @@ function getProperty(p, done) {
     };
 }
 
-function getPropertyForState(p, fingerprint) {
+function getPropertyForState(p, path) {
     let expectation = p[0];
     let discoveryPath = p[2];
     if (discoveryPath) {
-        const fingerprints = discoveryPath.split('/')
-        if (fingerprints) {
-            const last = fingerprints[fingerprints.length - 1]
-            if (last !== fingerprint) {
-                discoveryPath = ""
-            }
-        } else {
+        const dp = `/${discoveryPath}`
+        console.log(dp, path)
+        const prefixOrSuffix = dp.indexOf(path) === 0 || path.indexOf(dp) === 0
+        if (!prefixOrSuffix) {
             discoveryPath = ""
         }
     }
 
     const [ icon, summary ] = (() => {
         if (discoveryPath) {
-            switch (expectation) {
-                case 'Always': return [ '⚠️',' Counterexample found: ' ];
-                case 'Sometimes':  return [ '✅', ' Example found: ' ];
-                case 'Eventually': return [ '⚠️', ' Counterexample found: ' ];
-                default:
-                    throw new Error(`Invalid expectation ${expectation}.`);
+            if (discoveryPath.length + 1 < path.length) {
+                // state before discovery
+                return ['⬆️', ''];
+            } else if (discoveryPath.length + 1 > path.length) {
+                // state after discovery
+                return ['⬇️', ''];
+            } else {
+                switch (expectation) {
+                    case 'Always': return [ '⚠️',' Counterexample found: ' ];
+                    case 'Sometimes':  return [ '✅', ' Example found: ' ];
+                    case 'Eventually': return [ '⚠️', ' Counterexample found: ' ];
+                    default:
+                        throw new Error(`Invalid expectation ${expectation}.`);
+                }
             }
         } else {
             switch (expectation) {
@@ -108,11 +113,13 @@ function Step({action, outcome, state, fingerprint, properties, prevStep, svg}) 
     step.state = state;
     step.svg = svg;
     step.fingerprint = fingerprint;
-    step.properties = properties.map((p) => { return getPropertyForState(p, fingerprint) });
-    step.icons = step.properties.map((p) => { return p.icon }).join(' ')
     step.prevStep = prevStep;
 
     step.path = prevStep ? prevStep.path + '/' + fingerprint : '';
+
+    step.properties = properties.map((p) => { return getPropertyForState(p, step.path) });
+    step.icons = step.properties.map((p) => { return p.icon }).join(' ')
+
     step.pathSteps = () => (prevStep ? prevStep.pathSteps() : []).concat([step]);
     step.nextSteps = ko.observableArray();
     step.computeOffsetTo = (dstStep) => {
