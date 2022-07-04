@@ -183,6 +183,8 @@ function App() {
     app.farthestStep = ko.observable(Step.PRE_INIT);
     app.isCompact = ko.observable(false);
     app.isCompleteState = ko.observable(false);
+    app.showPerStateProperties = ko.observable(false);
+    app.showCurrentStateProperties = ko.observable(false);
     app.isSameStateAsSelected = (step) => step.state == app.selectedStep().state;
     app.onKeyDown = (data, ev) => {
         switch (ev.keyCode) {
