@@ -41,6 +41,7 @@
             </ul>
 
             <h2>Properties</h2>
+            <h3>Global</h3>
             <ul data-bind="foreach: {
                                                 data: status().properties,
                                                 as: 'p',
@@ -61,6 +62,19 @@
                 </li>
             </ul>
 
+            <h3>Current state</h3>
+            <ul data-bind="foreach: {
+                                                data: selectedStep().properties,
+                                                as: 'p',
+                                                noChildContext: true,
+                                              }">
+                <li>
+                    <b data-bind="text: p.icon + ' ' + p.summary">SUMMARY</b>
+                    <span class="font-code"
+                          data-bind="text: p.expectation + ' ' + p.name">PROPERTY</span>
+                </li>
+            </ul>
+
             <h2>Path of Actions</h2>
             <ol class="path-list" data-bind="foreach: farthestStep().pathSteps()">
                 <li>
@@ -71,7 +85,7 @@
                                     'is-same-state': $data != $root.selectedStep()
                                                   && $root.isSameStateAsSelected($data)
                                   },
-                                  text: $data.action">PREV</a>
+                                  text: $data.icons + ' ' + $data.action">PREV</a>
                 </li>
             </ol>
 
@@ -87,7 +101,7 @@
                                     'is-ignored': $data.isIgnored,
                                     'is-same-state': $root.isSameStateAsSelected($data),
                                   },
-                                  text: $data.action">NEXT</a>
+                                  text: $data.icons + ' ' + $data.action">NEXT</a>
                 </li>
             </ul>
         </nav>
