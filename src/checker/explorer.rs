@@ -84,7 +84,7 @@ where M: 'static + Model + Send + Sync,
     });
     let checker = checker_builder
         .visitor(snapshot_for_visitor)
-        .spawn_bfs();
+        .spawn_on_demand();
     serve_checker(checker, snapshot_for_server, addresses)
 }
 

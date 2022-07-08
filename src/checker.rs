@@ -3,6 +3,7 @@
 mod bfs;
 mod dfs;
 mod explorer;
+mod on_demand;
 mod path;
 mod representative;
 mod rewrite;
@@ -127,6 +128,24 @@ impl<M: Model> CheckerBuilder<M> {
           M::State: Hash + Send + Sync + 'static,
     {
         bfs::BfsChecker::spawn(self)
+    }
+
+    /// Spawns an on-demand model checker. This traversal strategy doesn't compute any states until
+    /// it is asked to, useful for lightweight exploration.
+    /// [`CheckerBuilder::spawn_dfs`] but will find the shortest [`Path`] to each discovery if
+    /// checking is single threadeded (the default behavior, which [`CheckerBuilder::threads`]
+    /// overrides).
+    ///
+    /// This call does not block the current thread. Call [`Checker::join`] to block until checking
+    /// completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join() or report(...), for example."]
+    pub fn spawn_on_demand(self) -> impl Checker<M>
+    where
+        M: Model + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + 'static,
+    {
+        on_demand::OnDemandChecker::spawn(self)
     }
 
     /// Spawns a depth-first search model checker. This traversal strategy uses dramatically less
