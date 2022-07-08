@@ -48,8 +48,8 @@ where
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
 
-        let mut fingerprints_channels = Vec::new();
-        let (fingerprints_to_check_sender, fingerprints_to_check_receiver) =
+        let mut controlflow_channels = Vec::new();
+        let (controlflow_to_check_sender, controlflow_to_check_receiver) =
             std::sync::mpsc::sync_channel(1);
 
         let init_states: Vec<_> = model
@@ -102,8 +102,8 @@ where
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
 
-            let (fingerprints_sender, fingerprints_receiver) = std::sync::mpsc::channel();
-            fingerprints_channels.push(fingerprints_sender);
+            let (controlflow_sender, controlflow_receiver) = std::sync::mpsc::channel();
+            controlflow_channels.push(controlflow_sender);
 
             handles.push(std::thread::spawn(move || {
                 log::debug!("{}: Thread started.", t);
@@ -157,7 +157,7 @@ where
                     if wait_for_fingerprints {
                         // Step 0: wait for someone to ask us to do work
                         loop {
-                            let control_flow = fingerprints_receiver.recv();
+                            let control_flow = controlflow_receiver.recv();
                             if let Ok(control_flow) = control_flow {
                                 match control_flow {
                                     ControlFlow::CheckFingerprint(fingerprint) => {
@@ -258,8 +258,8 @@ where
 
         // spawn a thread to forward the fingerprints to check
         handles.push(std::thread::spawn(move || {
-            for fingerprint in fingerprints_to_check_receiver {
-                for sender in &fingerprints_channels {
+            for fingerprint in controlflow_to_check_receiver {
+                for sender in &controlflow_channels {
                     let _ = sender.send(fingerprint);
                 }
             }
@@ -273,7 +273,7 @@ where
             state_count,
             generated,
             discoveries,
-            control_flow: fingerprints_to_check_sender,
+            control_flow: controlflow_to_check_sender,
         }
     }
 
