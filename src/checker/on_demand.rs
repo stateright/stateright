@@ -106,6 +106,7 @@ where
             handles.push(std::thread::spawn(move || {
                 log::debug!("{}: Thread started.", t);
                 let mut pending = VecDeque::new();
+                let mut targetted_pending = VecDeque::new();
                 loop {
                     if pending.is_empty() {
                         pending = {
@@ -159,9 +160,13 @@ where
                                 fingerprint,
                                 pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
                             );
-                            if pending.is_empty()
-                                || pending.iter().any(|(_, f, _)| *f == fingerprint)
+                            if pending.is_empty() {
+                                break;
+                            }
+                            if let Some(index) =
+                                pending.iter().position(|(_, f, _)| *f == fingerprint)
                             {
+                                targetted_pending.push_back(pending.remove(index).unwrap());
                                 log::debug!("found matching fingerprint!");
                                 // found a matching fingerprint in our pending queue so we can
                                 // process this group
@@ -183,11 +188,12 @@ where
                         &*model,
                         &*state_count,
                         &*generated,
-                        &mut pending,
+                        &mut targetted_pending,
                         &*discoveries,
                         &*visitor,
                         1500,
                     );
+                    pending.append(&mut targetted_pending);
                     if discoveries.len() == property_count {
                         log::debug!(
                             "{}: Discovery complete. Shutting down... gen={}",
