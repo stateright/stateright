@@ -163,7 +163,8 @@ where M: Model,
       M::State: Debug + Hash,
       C: Checker<M>,
 {
-    let model = &data.1.model();
+    let checker = &data.1;
+    let model = &checker.model();
 
     // extract fingerprints
     let mut fingerprints_str = req.match_info().get("fingerprints").expect("missing 'fingerprints' param").to_string();
@@ -184,9 +185,11 @@ where M: Model,
     let mut results = Vec::new();
     if fingerprints.is_empty() {
         for state in model.init_states() {
+            let fingerprint = fingerprint(&state);
+            checker.check_fingerprint(fingerprint);
             let svg = {
                 let mut fingerprints: VecDeque<_> = fingerprints.clone().into_iter().collect();
-                fingerprints.push_back(fingerprint(&state));
+                fingerprints.push_back(fingerprint);
                 model.as_svg(Path::from_fingerprints::<M>(model, fingerprints))
             };
             results.push(StateView {
@@ -208,10 +211,13 @@ where M: Model,
         for ((action, action2), action3) in actions1.into_iter().zip(actions2).zip(actions3) {
             let outcome = model.format_step(&last_state, action2);
             let state = model.next_state(&last_state, action3);
+            log::debug!("explorer generated state transition: {} -> {}", fingerprint(&last_state), fingerprint(&state));
             if let Some(state) = state {
+                let fingerprint = fingerprint(&state);
+                checker.check_fingerprint(fingerprint);
                 let svg = {
                     let mut fingerprints: VecDeque<_> = fingerprints.clone().into_iter().collect();
-                    fingerprints.push_back(fingerprint(&state));
+                    fingerprints.push_back(fingerprint);
                     model.as_svg(Path::from_fingerprints::<M>(model, fingerprints))
                 };
                 results.push(StateView {

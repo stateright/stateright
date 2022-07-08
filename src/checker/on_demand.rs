@@ -26,6 +26,7 @@ pub(crate) struct OnDemandChecker<M: Model> {
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
+    fingerprints_to_check: std::sync::mpsc::SyncSender<Fingerprint>,
 }
 struct JobMarket<State> {
     wait_count: usize,
@@ -44,6 +45,10 @@ where
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
+
+        let mut fingerprints_channels = Vec::new();
+        let (fingerprints_to_check_sender, fingerprints_to_check_receiver) =
+            std::sync::mpsc::sync_channel(1);
 
         let init_states: Vec<_> = model
             .init_states()
@@ -94,11 +99,14 @@ where
             let state_count = Arc::clone(&state_count);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
+
+            let (fingerprints_sender, fingerprints_receiver) = std::sync::mpsc::channel();
+            fingerprints_channels.push(fingerprints_sender);
+
             handles.push(std::thread::spawn(move || {
                 log::debug!("{}: Thread started.", t);
                 let mut pending = VecDeque::new();
                 loop {
-                    // Step 1: Do work.
                     if pending.is_empty() {
                         pending = {
                             let mut job_market = job_market.lock();
@@ -136,7 +144,41 @@ where
                                 }
                             }
                         };
+                        log::debug!(
+                            "got new pending states: {:?}",
+                            pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
+                        );
                     }
+
+                    // Step 0: wait for someone to ask us to do work
+                    loop {
+                        let fingerprint = fingerprints_receiver.recv();
+                        if let Ok(fingerprint) = fingerprint {
+                            log::debug!(
+                                "received fingerprint to check: {}, pending is {:?}",
+                                fingerprint,
+                                pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
+                            );
+                            if pending.is_empty()
+                                || pending.iter().any(|(_, f, _)| *f == fingerprint)
+                            {
+                                log::debug!("found matching fingerprint!");
+                                // found a matching fingerprint in our pending queue so we can
+                                // process this group
+                                break;
+                            }
+                        } else {
+                            // no fingerprints left to check and channel closed so we can finish
+                            return;
+                        }
+                    }
+                    log::debug!("after waiting for fingerprints");
+                    // wait on channel to send us a fingerprint, likely from the explorer
+                    // when we get that fingerprint check if it matches one of the states in our
+                    // pending queue, if it does then we can proceed with this loop, if not then we
+                    // need to wait again.
+
+                    // Step 1: Do work.
                     Self::check_block(
                         &*model,
                         &*state_count,
@@ -194,6 +236,16 @@ where
                 }
             }));
         }
+
+        // spawn a thread to forward the fingerprints to check
+        handles.push(std::thread::spawn(move || {
+            for fingerprint in fingerprints_to_check_receiver {
+                for sender in &fingerprints_channels {
+                    let _ = sender.send(fingerprint);
+                }
+            }
+        }));
+
         OnDemandChecker {
             model,
             thread_count,
@@ -202,6 +254,7 @@ where
             state_count,
             generated,
             discoveries,
+            fingerprints_to_check: fingerprints_to_check_sender,
         }
     }
 
@@ -221,6 +274,7 @@ where
         let properties = model.properties();
 
         let mut actions = Vec::new();
+        let mut local_pending = pending.drain(..).collect::<Vec<_>>();
         loop {
             // Done if reached max count.
             if max_count == 0 {
@@ -229,7 +283,7 @@ where
             max_count -= 1;
 
             // Done if none pending.
-            let (state, state_fp, mut ebits) = match pending.pop_back() {
+            let (state, state_fp, mut ebits) = match local_pending.pop() {
                 None => return,
                 Some(pair) => pair,
             };
@@ -292,8 +346,17 @@ where
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
-            for next_state in next_states {
+            let next_states = actions.drain(..).flat_map(|a| {
+                model
+                    .next_state(&state, a)
+                    .map(|s| (fingerprint(&state), s))
+            });
+            for (old_state_fp, next_state) in next_states {
+                log::debug!(
+                    "checker generated state transition: {} -> {}",
+                    old_state_fp,
+                    fingerprint(&next_state)
+                );
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) {
                     continue;
@@ -347,6 +410,11 @@ where
 {
     fn model(&self) -> &M {
         &self.model
+    }
+
+    fn check_fingerprint(&self, fingerprint: Fingerprint) {
+        log::debug!("asking to check fingerprint {}", fingerprint);
+        let _ = self.fingerprints_to_check.send(fingerprint);
     }
 
     fn state_count(&self) -> usize {

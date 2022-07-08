@@ -10,7 +10,7 @@ mod rewrite;
 mod rewrite_plan;
 mod visitor;
 
-use crate::{Expectation, Model};
+use crate::{Expectation, Model, Fingerprint};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -204,6 +204,11 @@ impl<M: Model> CheckerBuilder<M> {
 pub trait Checker<M: Model> {
     /// Returns a reference to this checker's [`Model`].
     fn model(&self) -> &M;
+
+    /// Asks the checker to check the given fingerprint if not done already.
+    fn check_fingerprint(&self, _fingerprint: Fingerprint) {
+        // nothing to do for most cases
+    }
 
     /// Indicate how many states have been generated including repeats. Always greater than or
     /// equal to [`Checker::unique_state_count`].
