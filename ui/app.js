@@ -204,10 +204,16 @@ function App() {
                     for (let offset = parseInt(qsVal); offset > 0; --offset) {
                         app.selectedStep(app.selectedStep().prevStep);
                     }
-                    break; 
+                    break;
             }
         }
     }
+}
+
+async function runToCompletion() {
+    console.log("continuing checker");
+    let response = await fetch('/.runtocompletion', {method:'POST'});
+    console.log(response);
 }
 
 window.app = new App();

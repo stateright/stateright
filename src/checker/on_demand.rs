@@ -14,6 +14,12 @@ use std::sync::Arc;
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
 
+#[derive(Clone, Copy)]
+pub(crate) enum ControlFlow {
+    CheckFingerprint(Fingerprint),
+    RunToCompletion,
+}
+
 pub(crate) struct OnDemandChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
@@ -26,7 +32,7 @@ pub(crate) struct OnDemandChecker<M: Model> {
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
-    fingerprints_to_check: std::sync::mpsc::SyncSender<Fingerprint>,
+    control_flow: std::sync::mpsc::SyncSender<ControlFlow>,
 }
 struct JobMarket<State> {
     wait_count: usize,
@@ -107,6 +113,7 @@ where
                 log::debug!("{}: Thread started.", t);
                 let mut pending = VecDeque::new();
                 let mut targetted_pending = VecDeque::new();
+                let mut wait_for_fingerprints = true;
                 loop {
                     if pending.is_empty() {
                         pending = {
@@ -151,37 +158,47 @@ where
                         );
                     }
 
-                    // Step 0: wait for someone to ask us to do work
-                    loop {
-                        let fingerprint = fingerprints_receiver.recv();
-                        if let Ok(fingerprint) = fingerprint {
-                            log::debug!(
-                                "received fingerprint to check: {}, pending is {:?}",
-                                fingerprint,
-                                pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
-                            );
-                            if pending.is_empty() {
-                                break;
+                    if wait_for_fingerprints {
+                        // Step 0: wait for someone to ask us to do work
+                        loop {
+                            let control_flow = fingerprints_receiver.recv();
+                            if let Ok(control_flow) = control_flow {
+                                match control_flow {
+                                    ControlFlow::CheckFingerprint(fingerprint) => {
+                                        log::debug!(
+                                            "received fingerprint to check: {}, pending is {:?}",
+                                            fingerprint,
+                                            pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
+                                        );
+                                        if pending.is_empty() {
+                                            break;
+                                        }
+                                        if let Some(index) =
+                                            pending.iter().position(|(_, f, _)| *f == fingerprint)
+                                        {
+                                            targetted_pending
+                                                .push_back(pending.remove(index).unwrap());
+                                            log::debug!("found matching fingerprint!");
+                                            // found a matching fingerprint in our pending queue so we can
+                                            // process this group
+                                            break;
+                                        }
+                                    }
+                                    ControlFlow::RunToCompletion => {
+                                        log::debug!("{}: running to completion", t);
+                                        wait_for_fingerprints = false;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                // no commands left so we can finish
+                                return;
                             }
-                            if let Some(index) =
-                                pending.iter().position(|(_, f, _)| *f == fingerprint)
-                            {
-                                targetted_pending.push_back(pending.remove(index).unwrap());
-                                log::debug!("found matching fingerprint!");
-                                // found a matching fingerprint in our pending queue so we can
-                                // process this group
-                                break;
-                            }
-                        } else {
-                            // no fingerprints left to check and channel closed so we can finish
-                            return;
                         }
+                        log::debug!("after waiting for fingerprints");
+                    } else {
+                        targetted_pending.append(&mut pending);
                     }
-                    log::debug!("after waiting for fingerprints");
-                    // wait on channel to send us a fingerprint, likely from the explorer
-                    // when we get that fingerprint check if it matches one of the states in our
-                    // pending queue, if it does then we can proceed with this loop, if not then we
-                    // need to wait again.
 
                     // Step 1: Do work.
                     Self::check_block(
@@ -260,7 +277,7 @@ where
             state_count,
             generated,
             discoveries,
-            fingerprints_to_check: fingerprints_to_check_sender,
+            control_flow: fingerprints_to_check_sender,
         }
     }
 
@@ -420,7 +437,13 @@ where
 
     fn check_fingerprint(&self, fingerprint: Fingerprint) {
         log::debug!("asking to check fingerprint {}", fingerprint);
-        let _ = self.fingerprints_to_check.send(fingerprint);
+        let _ = self
+            .control_flow
+            .send(ControlFlow::CheckFingerprint(fingerprint));
+    }
+
+    fn run_to_completion(&self) {
+        let _ = self.control_flow.send(ControlFlow::RunToCompletion);
     }
 
     fn state_count(&self) -> usize {

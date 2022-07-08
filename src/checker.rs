@@ -210,6 +210,11 @@ pub trait Checker<M: Model> {
         // nothing to do for most cases
     }
 
+    /// Asks the checker to run to completion, no longer waiting for fingerprints.
+    fn run_to_completion(&self) {
+        // nothing to do for most cases
+    }
+
     /// Indicate how many states have been generated including repeats. Always greater than or
     /// equal to [`Checker::unique_state_count`].
     fn state_count(&self) -> usize;

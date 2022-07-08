@@ -118,6 +118,7 @@ where M: 'static + Model + Send + Sync,
         App::new()
             .data(Arc::clone(&data))
             .route("/.status", web::get().to(status::<M, C>))
+            .route("/.runtocompletion", web::post().to(run_to_completion::<M, C>))
             .route("/.states{fingerprints:.*}", web::get().to(states::<M, C>))
             .route("/", get_ui_file!("index.htm"))
             .route("/app.css", get_ui_file!("app.css"))
@@ -154,6 +155,16 @@ where M: Model,
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
     Json(status)
+}
+
+fn run_to_completion<M, C>(_: HttpRequest, data: Data<M::Action, C>)
+where M: Model,
+      M::Action: Debug,
+      M::State: Hash,
+      C: Checker<M>,
+{
+    let checker = &data.1;
+    checker.run_to_completion();
 }
 
 fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>)
