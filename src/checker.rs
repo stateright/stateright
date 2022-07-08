@@ -23,6 +23,12 @@ pub use representative::*;
 pub use rewrite_plan::*;
 pub use visitor::*;
 
+#[derive(Clone, Copy)]
+pub(crate) enum ControlFlow {
+    CheckFingerprint(Fingerprint),
+    RunToCompletion,
+}
+
 /// A [`Model`] [`Checker`] builder. Instantiable via the [`Model::checker`] method.
 ///
 /// # Example

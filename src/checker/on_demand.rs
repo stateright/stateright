@@ -1,7 +1,9 @@
 //! Private module for selective re-export.
 
 use crate::checker::{Checker, EventuallyBits, Expectation, Path};
-use crate::{fingerprint, CheckerBuilder, CheckerVisitor, Fingerprint, Model, Property};
+use crate::{
+    fingerprint, CheckerBuilder, CheckerVisitor, ControlFlow, Fingerprint, Model, Property,
+};
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use nohash_hasher::NoHashHasher;
@@ -13,12 +15,6 @@ use std::sync::Arc;
 
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
-
-#[derive(Clone, Copy)]
-pub(crate) enum ControlFlow {
-    CheckFingerprint(Fingerprint),
-    RunToCompletion,
-}
 
 pub(crate) struct OnDemandChecker<M: Model> {
     // Immutable state.
