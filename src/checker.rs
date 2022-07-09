@@ -137,10 +137,8 @@ impl<M: Model> CheckerBuilder<M> {
     }
 
     /// Spawns an on-demand model checker. This traversal strategy doesn't compute any states until
-    /// it is asked to, useful for lightweight exploration.
-    /// [`CheckerBuilder::spawn_dfs`] but will find the shortest [`Path`] to each discovery if
-    /// checking is single threadeded (the default behavior, which [`CheckerBuilder::threads`]
-    /// overrides).
+    /// it is asked to, useful for lightweight exploration. Internally the exploration strategy is
+    /// very similar to that of [`CheckerBuilder::spawn_bfs`].
     ///
     /// This call does not block the current thread. Call [`Checker::join`] to block until checking
     /// completes.
