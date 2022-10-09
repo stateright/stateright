@@ -11,35 +11,7 @@ function Status({done, state_count, unique_state_count, model, properties, recen
             ? recent_path
             : recent_path.substring(0, 99 - 3) + '...';
     }
-    status.properties = properties.map((p) => {
-        let expectation = p[0];
-        let discoveryPath = p[2];
-        return {
-            expectation,
-            name: p[1],
-            discoveryPath,
-            summary: (() => {
-                if (discoveryPath) {
-                    switch (expectation) {
-                        case 'Always':     return '⚠️ Counterexample found: ';
-                        case 'Sometimes':  return '✅ Example found: ';
-                        case 'Eventually': return '⚠️ Counterexample found: ';
-                        default:
-                            throw new Error(`Invalid expectation ${expectation}.`);
-                    }
-                } else {
-                    if (!done) { return '🔎 Searching: ' };
-                    switch (expectation) {
-                        case 'Always':     return '✅ Safety holds: ';
-                        case 'Sometimes':  return '⚠️ Example not found: ';
-                        case 'Eventually': return '✅ Liveness holds: ';
-                        default:
-                            throw new Error(`Invalid expectation ${expectation}.`);
-                    }
-                }
-            })(),
-        };
-    });
+    status.properties = properties.map((p) => { return getProperty(p, done) });
     status.recentPath = recent_path;
 }
 /// Placeholder status.
@@ -52,8 +24,88 @@ Status.LOADING = new Status({
     recent_path: 'loading...',
 });
 
+function getProperty(p, done) {
+    let expectation = p[0];
+    let discoveryPath = p[2];
+    return {
+        expectation,
+        name: p[1],
+        discoveryPath,
+        summary: (() => {
+            if (discoveryPath) {
+                switch (expectation) {
+                    case 'Always':     return '⚠️ Counterexample found: ';
+                    case 'Sometimes':  return '✅ Example found: ';
+                    case 'Eventually': return '⚠️ Counterexample found: ';
+                    default:
+                        throw new Error(`Invalid expectation ${expectation}.`);
+                }
+            } else {
+                if (!done) { return '🔎 Searching: ' };
+                switch (expectation) {
+                    case 'Always':     return '✅ Safety holds: ';
+                    case 'Sometimes':  return '⚠️ Example not found: ';
+                    case 'Eventually': return '✅ Liveness holds: ';
+                    default:
+                        throw new Error(`Invalid expectation ${expectation}.`);
+                }
+            }
+        })(),
+    };
+}
+
+function getPropertyForState(p, path) {
+    let expectation = p[0];
+    let discoveryPath = p[2];
+    if (discoveryPath) {
+        const dp = `/${discoveryPath}`
+        console.log(dp, path)
+        const prefixOrSuffix = dp.indexOf(path) === 0 || path.indexOf(dp) === 0
+        if (!prefixOrSuffix) {
+            discoveryPath = ""
+        }
+    }
+
+    const [ icon, summary ] = (() => {
+        if (discoveryPath) {
+            if (discoveryPath.length + 1 < path.length) {
+                // state after discovery
+                return ['⬆️', ''];
+            } else if (discoveryPath.length + 1 > path.length) {
+                // state before discovery
+                return ['⬇️', ''];
+            } else {
+                switch (expectation) {
+                    case 'Always': return [ '⚠️',' Counterexample found: ' ];
+                    case 'Sometimes':  return [ '✅', ' Example found: ' ];
+                    case 'Eventually': return [ '⚠️', ' Counterexample found: ' ];
+                    default:
+                        throw new Error(`Invalid expectation ${expectation}.`);
+                }
+            }
+        } else {
+            switch (expectation) {
+                case 'Always':     return [ '✅', ' Safety holds: ' ];
+                case 'Sometimes':  return [ '⚠️', ' Example not found: ' ];
+                case 'Eventually': return [ '✅', ' Liveness holds: ' ];
+                default:
+                    throw new Error(`Invalid expectation ${expectation}.`);
+            }
+        }
+    })()
+
+    return {
+        expectation,
+        name: p[1],
+        discoveryPath,
+        summary,
+        icon,
+    };
+}
+
+
 /// Represents a model step. Only loads next steps on demand.
-function Step({action, outcome, state, fingerprint, prevStep, svg}) {
+function Step({action, outcome, state, fingerprint, properties, prevStep, svg}) {
     let step = this;
 
     step.action = action || `Init ${i}`;
@@ -64,6 +116,10 @@ function Step({action, outcome, state, fingerprint, prevStep, svg}) {
     step.prevStep = prevStep;
 
     step.path = prevStep ? prevStep.path + '/' + fingerprint : '';
+
+    step.properties = properties.map((p) => { return getPropertyForState(p, step.path) });
+    step.icons = step.properties.map((p) => { return p.icon }).join(' ')
+
     step.pathSteps = () => (prevStep ? prevStep.pathSteps() : []).concat([step]);
     step.nextSteps = ko.observableArray();
     step.computeOffsetTo = (dstStep) => {
@@ -96,6 +152,7 @@ function Step({action, outcome, state, fingerprint, prevStep, svg}) {
                     state: nextStep.state,
                     svg: nextStep.svg,
                     fingerprint: nextStep.fingerprint,
+                    properties: nextStep.properties,
                     prevStep: step,
                 }));
             })
@@ -114,6 +171,7 @@ Step.PRE_INIT = new Step({
     action: 'Pre-init',
     state: 'No state selected',
     fingerprint: '',
+    properties: [],
     prevStep: null,
 });
 
@@ -125,6 +183,8 @@ function App() {
     app.farthestStep = ko.observable(Step.PRE_INIT);
     app.isCompact = ko.observable(false);
     app.isCompleteState = ko.observable(false);
+    app.showPerStateProperties = ko.observable(false);
+    app.showCurrentStateProperties = ko.observable(false);
     app.isSameStateAsSelected = (step) => step.state == app.selectedStep().state;
     app.onKeyDown = (data, ev) => {
         switch (ev.keyCode) {

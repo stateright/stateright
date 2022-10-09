@@ -3,6 +3,7 @@
 //! by Jim Gray and Leslie Lamport.
 
 use stateright::{Checker, Model, Property, Representative, Rewrite, RewritePlan};
+use stateright::report::WriteReporter;
 use std::collections::BTreeSet;
 use std::hash::Hash;
 use std::ops::Range;
@@ -151,7 +152,7 @@ fn main() -> Result<(), pico_args::Error> {
             println!("Checking two phase commit with {} resource managers.", rm_count);
             TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get()).spawn_dfs()
-                .report(&mut std::io::stdout());
+                .report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("check-sym") => {
             let rm_count = args.opt_free_from_str()?
@@ -159,7 +160,7 @@ fn main() -> Result<(), pico_args::Error> {
             println!("Checking two phase commit with {} resource managers using symmetry reduction.", rm_count);
             TwoPhaseSys { rms: 0..rm_count }.checker()
                 .threads(num_cpus::get()).symmetry().spawn_dfs()
-                .report(&mut std::io::stdout());
+                .report(&mut WriteReporter::new(&mut std::io::stdout()));
 
             // Implementing this trait enables symmetry reduction to speed up model checking (optional).
             impl Representative for TwoPhaseState {

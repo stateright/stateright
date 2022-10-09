@@ -47,6 +47,7 @@
 //! the algorithm is typically described.
 
 use serde::{Deserialize, Serialize};
+use stateright::report::WriteReporter;
 use stateright::{Expectation, Model, Checker};
 use stateright::actor::{
     Actor, ActorModel, Id, majority, model_peers, Network,Out};
@@ -334,7 +335,7 @@ fn main() -> Result<(), pico_args::Error> {
                     network,
                 }
                 .into_model().checker().threads(num_cpus::get())
-                .spawn_dfs().report(&mut std::io::stdout());
+                .spawn_dfs().report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("explore") => {
             let client_count = args.opt_free_from_str()?

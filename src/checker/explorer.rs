@@ -9,15 +9,16 @@ use std::thread::{sleep, spawn};
 use std::time::Duration;
 use std::collections::VecDeque;
 
+// (expectation, name, encoded path to discovery)
+type Property = (Expectation, String, Option<String>);
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 struct StatusView {
     done: bool,
     model: String,
     state_count: usize,
     unique_state_count: usize,
-    properties: Vec<(Expectation,
-                     String,           // name
-                     Option<String>)>, // encoded path to discovery
+    properties: Vec<Property>,
     recent_path: Option<String>,
 }
 
@@ -26,6 +27,7 @@ struct StateView<State> {
     action: Option<String>,
     outcome: Option<String>,
     state: Option<State>,
+    properties: Vec<Property>,
     svg: Option<String>,
 }
 
@@ -46,6 +48,9 @@ where
         if let Some(ref state) = self.state {
             out.serialize_field("state", &format!("{:#?}", state))?;
             out.serialize_field("fingerprint", &format!("{:?}", fingerprint(&state)))?;
+        }
+        if !self.properties.is_empty() {
+            out.serialize_field("properties", &self.properties)?;
         }
         if let Some(ref svg) = self.svg {
             out.serialize_field("svg", svg)?;
@@ -145,13 +150,7 @@ where M: Model,
         done: checker.is_done(),
         state_count: checker.state_count(),
         unique_state_count: checker.unique_state_count(),
-        properties: checker.model().properties().into_iter()
-            .map(|p| (
-                    p.expectation,
-                    p.name.to_string(),
-                    checker.discovery(p.name).map(|p| p.encode()),
-            ))
-            .collect(),
+        properties: get_properties(checker),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
     Json(status)
@@ -165,6 +164,20 @@ where M: Model,
 {
     let checker = &data.1;
     checker.run_to_completion();
+}
+
+fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property> 
+where M: Model,
+      M::State: Hash,
+      C: Checker<M>,
+{
+    checker.model().properties().into_iter()
+        .map(|p| (
+                p.expectation,
+                p.name.to_string(),
+                checker.discovery(p.name).map(|p| p.encode()),
+        ))
+        .collect()
 }
 
 fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>)
@@ -207,6 +220,7 @@ where M: Model,
                 action: None,
                 outcome: None,
                 state: Some(state),
+                properties: get_properties(checker),
                 svg,
             });
         }
@@ -235,6 +249,7 @@ where M: Model,
                     action: Some(model.format_action(&action)),
                     outcome,
                     state: Some(state),
+                    properties: get_properties(checker),
                     svg,
                 });
             } else {
@@ -243,6 +258,7 @@ where M: Model,
                     action: Some(model.format_action(&action)),
                     outcome: None,
                     state: None,
+                    properties: get_properties(checker),
                     svg: None,
                 });
             }
@@ -266,8 +282,8 @@ mod test {
     fn can_init() {
         let checker = Arc::new(BinaryClock.checker().spawn_bfs());
         assert_eq!(get_states(Arc::clone(&checker), "/").unwrap(), vec![
-            StateView { action: None, outcome: None, state: Some(0), svg: None },
-            StateView { action: None, outcome: None, state: Some(1), svg: None },
+            StateView { action: None, outcome: None, state: Some(0), properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)], svg: None },
+            StateView { action: None, outcome: None, state: Some(1), properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)], svg: None },
         ]);
     }
 
@@ -287,6 +303,7 @@ mod test {
                 action: Some("GoHigh".to_string()),
                 outcome: Some("1".to_string()),
                 state: Some(1),
+                properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)],
                 svg: None,
             },
         ]);
@@ -330,6 +347,14 @@ mod test {
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                         ]),
                     }),
+                    properties: vec![
+                        (Expectation::Always, "delta within 1".to_owned(), None), 
+                        (Expectation::Sometimes, "can reach max".to_owned(), None), 
+                        (Expectation::Eventually, "must reach max".to_owned(), None), 
+                        (Expectation::Eventually, "must exceed max".to_owned(), None), 
+                        (Expectation::Always, "#in <= #out".to_owned(), None), 
+                        (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
+                    ],
                     svg: Some("<svg version=\'1.1\' baseProfile=\'full\' width=\'500\' height=\'30\' viewbox=\'-20 -20 520 50\' xmlns=\'http://www.w3.org/2000/svg\'><defs><marker class=\'svg-event-shape\' id=\'arrow\' markerWidth=\'12\' markerHeight=\'10\' refX=\'12\' refY=\'5\' orient=\'auto\'><polygon points=\'0 0, 12 5, 0 10\' /></marker></defs><line x1=\'0\' y1=\'0\' x2=\'0\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'0\' y=\'0\' class=\'svg-actor-label\'>0</text>\n<line x1=\'100\' y1=\'0\' x2=\'100\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'100\' y=\'0\' class=\'svg-actor-label\'>1</text>\n</svg>\n".to_string()),
                 },
             ]);
@@ -361,6 +386,14 @@ mod test {
                     is_timer_set: vec![false,false],
                     network: Network::new_unordered_nonduplicating([]),
                 }),
+                properties: vec![
+                    (Expectation::Always, "delta within 1".to_owned(), None), 
+                    (Expectation::Sometimes, "can reach max".to_owned(), None), 
+                    (Expectation::Eventually, "must reach max".to_owned(), None), 
+                    (Expectation::Eventually, "must exceed max".to_owned(), None), 
+                    (Expectation::Always, "#in <= #out".to_owned(), None), 
+                    (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
+                ],
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n</svg>\n".to_string()),
             });
         assert_eq!(
@@ -379,6 +412,14 @@ mod test {
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     ]),
                 }),
+                properties: vec![
+                    (Expectation::Always, "delta within 1".to_owned(), None), 
+                    (Expectation::Sometimes, "can reach max".to_owned(), None), 
+                    (Expectation::Eventually, "must reach max".to_owned(), None), 
+                    (Expectation::Eventually, "must exceed max".to_owned(), None), 
+                    (Expectation::Always, "#in <= #out".to_owned(), None), 
+                    (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
+                ],
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n<line x1='0' x2='100' y1='0' y2='30' marker-end='url(#arrow)' class='svg-event-line' />\n<text x='100' y='30' class='svg-event-label'>Ping(0)</text>\n</svg>\n".to_string()),
             });
     }

@@ -1,4 +1,4 @@
-use stateright::*;
+use stateright::{*, report::WriteReporter};
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -119,7 +119,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .checker()
                 .threads(num_cpus::get())
                 .spawn_dfs()
-                .report(&mut std::io::stdout());
+                .report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("check-sym") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
@@ -132,7 +132,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .threads(num_cpus::get())
                 .symmetry()
                 .spawn_dfs()
-                .report(&mut std::io::stdout());
+                .report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("explore") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);

@@ -43,7 +43,19 @@
                 </li>
             </ul>
 
-            <h2>Properties</h2>
+            <div class="heading-with-controls">
+                <h2>Properties</h2>
+                <label>
+                    <input type="checkbox" data-bind="checked: showCurrentStateProperties" />
+                    Current state?
+                </label>
+                <label>
+                    <input type="checkbox" data-bind="checked: showPerStateProperties" />
+                    Per-state?
+                </label>
+            </div>
+
+            <h3>Global</h3>
             <ul data-bind="foreach: {
                                                 data: status().properties,
                                                 as: 'p',
@@ -64,6 +76,21 @@
                 </li>
             </ul>
 
+            <!-- ko if: showCurrentStateProperties -->
+            <h3>Current state</h3>
+            <ul data-bind="foreach: {
+                                                data: selectedStep().properties,
+                                                as: 'p',
+                                                noChildContext: true,
+                                              }">
+                <li>
+                    <b data-bind="text: p.icon + ' ' + p.summary">SUMMARY</b>
+                    <span class="font-code"
+                          data-bind="text: p.expectation + ' ' + p.name">PROPERTY</span>
+                </li>
+            </ul>
+            <!-- /ko -->
+
             <h2>Path of Actions</h2>
             <ol class="path-list" data-bind="foreach: farthestStep().pathSteps()">
                 <li>
@@ -74,7 +101,7 @@
                                     'is-same-state': $data != $root.selectedStep()
                                                   && $root.isSameStateAsSelected($data)
                                   },
-                                  text: $data.action">PREV</a>
+                                  text: ($root.showPerStateProperties() ? $data.icons + ' ' : '') + $data.action">PREV</a>
                 </li>
             </ol>
 
@@ -90,7 +117,7 @@
                                     'is-ignored': $data.isIgnored,
                                     'is-same-state': $root.isSameStateAsSelected($data),
                                   },
-                                  text: $data.action">NEXT</a>
+                                  text: ($root.showPerStateProperties() ? $data.icons + ' ' : '') + $data.action">NEXT</a>
                 </li>
             </ul>
         </nav>
