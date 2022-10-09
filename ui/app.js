@@ -270,5 +270,11 @@ function App() {
     }
 }
 
+async function runToCompletion() {
+    console.log("continuing checker");
+    let response = await fetch('/.runtocompletion', {method:'POST'});
+    console.log(response);
+}
+
 window.app = new App();
 ko.applyBindings(window.app);

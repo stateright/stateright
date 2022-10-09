@@ -89,7 +89,7 @@ where M: 'static + Model + Send + Sync,
     });
     let checker = checker_builder
         .visitor(snapshot_for_visitor)
-        .spawn_bfs();
+        .spawn_on_demand();
     serve_checker(checker, snapshot_for_server, addresses)
 }
 
@@ -123,6 +123,7 @@ where M: 'static + Model + Send + Sync,
         App::new()
             .data(Arc::clone(&data))
             .route("/.status", web::get().to(status::<M, C>))
+            .route("/.runtocompletion", web::post().to(run_to_completion::<M, C>))
             .route("/.states{fingerprints:.*}", web::get().to(states::<M, C>))
             .route("/", get_ui_file!("index.htm"))
             .route("/app.css", get_ui_file!("app.css"))
@@ -153,6 +154,16 @@ where M: Model,
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
     Json(status)
+}
+
+fn run_to_completion<M, C>(_: HttpRequest, data: Data<M::Action, C>)
+where M: Model,
+      M::Action: Debug,
+      M::State: Hash,
+      C: Checker<M>,
+{
+    let checker = &data.1;
+    checker.run_to_completion();
 }
 
 fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property> 
@@ -198,9 +209,11 @@ where M: Model,
     let mut results = Vec::new();
     if fingerprints.is_empty() {
         for state in model.init_states() {
+            let fingerprint = fingerprint(&state);
+            checker.check_fingerprint(fingerprint);
             let svg = {
                 let mut fingerprints: VecDeque<_> = fingerprints.clone().into_iter().collect();
-                fingerprints.push_back(fingerprint(&state));
+                fingerprints.push_back(fingerprint);
                 model.as_svg(Path::from_fingerprints::<M>(model, fingerprints))
             };
             results.push(StateView {
@@ -223,10 +236,13 @@ where M: Model,
         for ((action, action2), action3) in actions1.into_iter().zip(actions2).zip(actions3) {
             let outcome = model.format_step(&last_state, action2);
             let state = model.next_state(&last_state, action3);
+            log::debug!("explorer generated state transition: {} -> {}", fingerprint(&last_state), fingerprint(&state));
             if let Some(state) = state {
+                let fingerprint = fingerprint(&state);
+                checker.check_fingerprint(fingerprint);
                 let svg = {
                     let mut fingerprints: VecDeque<_> = fingerprints.clone().into_iter().collect();
-                    fingerprints.push_back(fingerprint(&state));
+                    fingerprints.push_back(fingerprint);
                     model.as_svg(Path::from_fingerprints::<M>(model, fingerprints))
                 };
                 results.push(StateView {

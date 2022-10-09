@@ -3,6 +3,7 @@
 mod bfs;
 mod dfs;
 mod explorer;
+mod on_demand;
 mod path;
 mod representative;
 mod rewrite;
@@ -10,7 +11,7 @@ mod rewrite_plan;
 mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
-use crate::{Expectation, Model};
+use crate::{Expectation, Model, Fingerprint};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -22,6 +23,12 @@ pub use representative::*;
 pub use rewrite::*;
 pub use rewrite_plan::*;
 pub use visitor::*;
+
+#[derive(Clone, Copy)]
+pub(crate) enum ControlFlow {
+    CheckFingerprint(Fingerprint),
+    RunToCompletion,
+}
 
 /// The classification of a property discovery.
 pub enum DiscoveryClassification {
@@ -149,6 +156,22 @@ impl<M: Model> CheckerBuilder<M> {
         bfs::BfsChecker::spawn(self)
     }
 
+    /// Spawns an on-demand model checker. This traversal strategy doesn't compute any states until
+    /// it is asked to, useful for lightweight exploration. Internally the exploration strategy is
+    /// very similar to that of [`CheckerBuilder::spawn_bfs`].
+    ///
+    /// This call does not block the current thread. Call [`Checker::join`] to block until checking
+    /// completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join() or report(...), for example."]
+    pub fn spawn_on_demand(self) -> impl Checker<M>
+    where
+        M: Model + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + 'static,
+    {
+        on_demand::OnDemandChecker::spawn(self)
+    }
+
     /// Spawns a depth-first search model checker. This traversal strategy uses dramatically less
     /// memory than [`CheckerBuilder::spawn_bfs`] at the cost of not finding the shortest [`Path`]
     /// to each discovery.
@@ -219,6 +242,16 @@ impl<M: Model> CheckerBuilder<M> {
 pub trait Checker<M: Model> {
     /// Returns a reference to this checker's [`Model`].
     fn model(&self) -> &M;
+
+    /// Asks the checker to check the given fingerprint if not done already.
+    fn check_fingerprint(&self, _fingerprint: Fingerprint) {
+        // nothing to do for most cases
+    }
+
+    /// Asks the checker to run to completion, no longer waiting for fingerprints.
+    fn run_to_completion(&self) {
+        // nothing to do for most cases
+    }
 
     /// Indicate how many states have been generated including repeats. Always greater than or
     /// equal to [`Checker::unique_state_count`].
