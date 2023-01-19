@@ -86,7 +86,9 @@ where M: Model + Send + Sync + 'static,
             let state_count = Arc::clone(&state_count);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
-            handles.push(std::thread::spawn(move || {
+            handles.push(std::thread::Builder::new()
+                .name(format!("checker-{}", t))
+                .spawn(move || {
                 log::debug!("{}: Thread started.", t);
                 let mut pending = Vec::new();
                 loop {
@@ -156,7 +158,7 @@ where M: Model + Send + Sync + 'static,
                         job_market.wait_count += 1;
                     }
                 }
-            }));
+            }).expect("Failed to spawn a thread"));
         }
         DfsChecker {
             model,
