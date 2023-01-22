@@ -62,6 +62,7 @@ pub struct CheckerBuilder<M: Model> {
     #[allow(clippy::type_complexity)]
     symmetry: Option<fn(&M::State) -> M::State>,
     target_state_count: Option<NonZeroUsize>,
+    target_max_depth: Option<NonZeroUsize>,
     thread_count: usize,
     visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
 }
@@ -70,6 +71,7 @@ impl<M: Model> CheckerBuilder<M> {
         Self {
             model,
             target_state_count: None,
+            target_max_depth: None,
             symmetry: None,
             thread_count: 1,
             visitor: None,
@@ -213,6 +215,14 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn target_state_count(self, count: usize) -> Self {
         Self {
             target_state_count: NonZeroUsize::new(count),
+            ..self
+        }
+    }
+
+    /// Sets the maximum depth that the checker should aim to explore.
+    pub fn target_max_depth(self, depth: usize) -> Self {
+        Self {
+            target_max_depth: NonZeroUsize::new(depth),
             ..self
         }
     }
