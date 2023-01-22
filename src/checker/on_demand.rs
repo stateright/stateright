@@ -10,6 +10,7 @@ use nohash_hasher::NoHashHasher;
 use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ pub(crate) struct OnDemandChecker<M: Model> {
     // Mutable state.
     job_market: Arc<Mutex<JobMarket<M::State>>>,
     state_count: Arc<AtomicUsize>,
+    max_depth: Arc<AtomicUsize>,
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
@@ -34,7 +36,7 @@ struct JobMarket<State> {
     wait_count: usize,
     jobs: Vec<Job<State>>,
 }
-type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits)>;
+type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits, NonZeroUsize)>;
 
 impl<M> OnDemandChecker<M>
 where
@@ -58,6 +60,7 @@ where
             .filter(|s| model.within_boundary(s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
+        let max_depth = Arc::new(AtomicUsize::new(0));
         let generated = Arc::new({
             let generated = DashMap::default();
             for s in &init_states {
@@ -82,7 +85,7 @@ where
             .into_iter()
             .map(|s| {
                 let fp = fingerprint(&s);
-                (s, fp, ebits.clone())
+                (s, fp, ebits.clone(), NonZeroUsize::new(1).unwrap())
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -99,6 +102,7 @@ where
             let has_new_job = Arc::clone(&has_new_job);
             let job_market = Arc::clone(&job_market);
             let state_count = Arc::clone(&state_count);
+            let max_depth = Arc::clone(&max_depth);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
 
@@ -150,7 +154,7 @@ where
                         };
                         log::debug!(
                             "got new pending states: {:?}",
-                            pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
+                            pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
                         );
                     }
 
@@ -164,13 +168,13 @@ where
                                         log::debug!(
                                             "received fingerprint to check: {}, pending is {:?}",
                                             fingerprint,
-                                            pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
+                                            pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
                                         );
                                         if pending.is_empty() {
                                             break;
                                         }
                                         if let Some(index) =
-                                            pending.iter().position(|(_, f, _)| *f == fingerprint)
+                                            pending.iter().position(|(_, f, _, _)| *f == fingerprint)
                                         {
                                             targetted_pending
                                                 .push_back(pending.remove(index).unwrap());
@@ -205,6 +209,7 @@ where
                         &*discoveries,
                         &*visitor,
                         1500,
+                        &max_depth,
                     );
                     pending.append(&mut targetted_pending);
                     if discoveries.len() == property_count {
@@ -271,6 +276,7 @@ where
             handles,
             job_market,
             state_count,
+            max_depth,
             generated,
             discoveries,
             control_flow: controlflow_to_check_sender,
@@ -289,9 +295,11 @@ where
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         mut max_count: usize,
+        global_max_depth: &AtomicUsize,
     ) {
         let properties = model.properties();
 
+        let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
         let mut local_pending = pending.drain(..).collect::<Vec<_>>();
         loop {
@@ -302,10 +310,16 @@ where
             max_count -= 1;
 
             // Done if none pending.
-            let (state, state_fp, mut ebits) = match local_pending.pop() {
+            let (state, state_fp, mut ebits, max_depth) = match local_pending.pop() {
                 None => return,
                 Some(pair) => pair,
             };
+
+            if max_depth.get() > current_max_depth {
+                let _ = global_max_depth.compare_exchange(current_max_depth, max_depth.get(), Ordering::Relaxed, Ordering::Relaxed);
+                current_max_depth = max_depth.get();
+            }
+
             if let Some(visitor) = visitor {
                 visitor.visit(model, reconstruct_path(model, generated, state_fp));
             }
@@ -408,7 +422,8 @@ where
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
-                pending.push_front((next_state, next_fingerprint, ebits.clone()));
+                pending.push_front((next_state, next_fingerprint, ebits.clone(),
+                        NonZeroUsize::new(max_depth.get() + 1).unwrap()));
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {
@@ -448,6 +463,10 @@ where
 
     fn unique_state_count(&self) -> usize {
         self.generated.len()
+    }
+
+    fn max_depth(&self) -> usize {
+        self.max_depth.load(Ordering::Relaxed)
     }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {

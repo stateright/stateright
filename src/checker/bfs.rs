@@ -24,6 +24,7 @@ pub(crate) struct BfsChecker<M: Model> {
     // Mutable state.
     job_market: Arc<Mutex<JobMarket<M::State>>>,
     state_count: Arc<AtomicUsize>,
+    max_depth: Arc<AtomicUsize>,
     generated: Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
 }
@@ -46,6 +47,7 @@ where M: Model + Send + Sync + 'static,
             .filter(|s| model.within_boundary(s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
+        let max_depth = Arc::new(AtomicUsize::new(0));
         let generated = Arc::new({
             let generated = DashMap::default();
             for s in &init_states { generated.insert(fingerprint(s), None); }
@@ -80,6 +82,7 @@ where M: Model + Send + Sync + 'static,
             let has_new_job = Arc::clone(&has_new_job);
             let job_market = Arc::clone(&job_market);
             let state_count = Arc::clone(&state_count);
+            let max_depth = Arc::clone(&max_depth);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
             handles.push(std::thread::spawn(move || {
@@ -121,6 +124,7 @@ where M: Model + Send + Sync + 'static,
                         &*visitor,
                         1500,
                         target_max_depth,
+                        &max_depth,
                     );
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
@@ -161,6 +165,7 @@ where M: Model + Send + Sync + 'static,
             handles,
             job_market,
             state_count,
+            max_depth,
             generated,
             discoveries,
         }
@@ -175,9 +180,11 @@ where M: Model + Send + Sync + 'static,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         mut max_count: usize,
         target_max_depth: Option<NonZeroUsize>,
+        global_max_depth: &AtomicUsize,
     ) {
         let properties = model.properties();
 
+        let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
         loop {
             // Done if reached max count.
@@ -189,6 +196,11 @@ where M: Model + Send + Sync + 'static,
                 None => return,
                 Some(pair) => pair,
             };
+
+            if max_depth.get() > current_max_depth {
+                let _ = global_max_depth.compare_exchange(current_max_depth, max_depth.get(), Ordering::Relaxed, Ordering::Relaxed);
+                current_max_depth = max_depth.get();
+            }
 
             if let Some(target_max_depth) = target_max_depth {
                 if max_depth >= target_max_depth {
@@ -303,6 +315,10 @@ where M: Model,
     }
 
     fn unique_state_count(&self) -> usize { self.generated.len() }
+
+    fn max_depth(&self) -> usize {
+        self.max_depth.load(Ordering::Relaxed)
+    }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
         self.discoveries.iter()
