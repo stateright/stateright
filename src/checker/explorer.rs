@@ -18,6 +18,7 @@ struct StatusView {
     model: String,
     state_count: usize,
     unique_state_count: usize,
+    max_depth: usize,
     properties: Vec<Property>,
     recent_path: Option<String>,
 }
@@ -150,6 +151,7 @@ where M: Model,
         done: checker.is_done(),
         state_count: checker.state_count(),
         unique_state_count: checker.unique_state_count(),
+        max_depth: checker.max_depth(),
         properties: get_properties(checker),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
     };
@@ -166,7 +168,7 @@ where M: Model,
     checker.run_to_completion();
 }
 
-fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property> 
+fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property>
 where M: Model,
       M::State: Hash,
       C: Checker<M>,
@@ -348,11 +350,11 @@ mod test {
                         ]),
                     }),
                     properties: vec![
-                        (Expectation::Always, "delta within 1".to_owned(), None), 
-                        (Expectation::Sometimes, "can reach max".to_owned(), None), 
-                        (Expectation::Eventually, "must reach max".to_owned(), None), 
-                        (Expectation::Eventually, "must exceed max".to_owned(), None), 
-                        (Expectation::Always, "#in <= #out".to_owned(), None), 
+                        (Expectation::Always, "delta within 1".to_owned(), None),
+                        (Expectation::Sometimes, "can reach max".to_owned(), None),
+                        (Expectation::Eventually, "must reach max".to_owned(), None),
+                        (Expectation::Eventually, "must exceed max".to_owned(), None),
+                        (Expectation::Always, "#in <= #out".to_owned(), None),
                         (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
                     ],
                     svg: Some("<svg version=\'1.1\' baseProfile=\'full\' width=\'500\' height=\'30\' viewbox=\'-20 -20 520 50\' xmlns=\'http://www.w3.org/2000/svg\'><defs><marker class=\'svg-event-shape\' id=\'arrow\' markerWidth=\'12\' markerHeight=\'10\' refX=\'12\' refY=\'5\' orient=\'auto\'><polygon points=\'0 0, 12 5, 0 10\' /></marker></defs><line x1=\'0\' y1=\'0\' x2=\'0\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'0\' y=\'0\' class=\'svg-actor-label\'>0</text>\n<line x1=\'100\' y1=\'0\' x2=\'100\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'100\' y=\'0\' class=\'svg-actor-label\'>1</text>\n</svg>\n".to_string()),
@@ -387,11 +389,11 @@ mod test {
                     network: Network::new_unordered_nonduplicating([]),
                 }),
                 properties: vec![
-                    (Expectation::Always, "delta within 1".to_owned(), None), 
-                    (Expectation::Sometimes, "can reach max".to_owned(), None), 
-                    (Expectation::Eventually, "must reach max".to_owned(), None), 
-                    (Expectation::Eventually, "must exceed max".to_owned(), None), 
-                    (Expectation::Always, "#in <= #out".to_owned(), None), 
+                    (Expectation::Always, "delta within 1".to_owned(), None),
+                    (Expectation::Sometimes, "can reach max".to_owned(), None),
+                    (Expectation::Eventually, "must reach max".to_owned(), None),
+                    (Expectation::Eventually, "must exceed max".to_owned(), None),
+                    (Expectation::Always, "#in <= #out".to_owned(), None),
                     (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
                 ],
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n</svg>\n".to_string()),
@@ -413,11 +415,11 @@ mod test {
                     ]),
                 }),
                 properties: vec![
-                    (Expectation::Always, "delta within 1".to_owned(), None), 
-                    (Expectation::Sometimes, "can reach max".to_owned(), None), 
-                    (Expectation::Eventually, "must reach max".to_owned(), None), 
-                    (Expectation::Eventually, "must exceed max".to_owned(), None), 
-                    (Expectation::Always, "#in <= #out".to_owned(), None), 
+                    (Expectation::Always, "delta within 1".to_owned(), None),
+                    (Expectation::Sometimes, "can reach max".to_owned(), None),
+                    (Expectation::Eventually, "must reach max".to_owned(), None),
+                    (Expectation::Eventually, "must exceed max".to_owned(), None),
+                    (Expectation::Always, "#in <= #out".to_owned(), None),
                     (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
                 ],
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n<line x1='0' x2='100' y1='0' y2='30' marker-end='url(#arrow)' class='svg-event-line' />\n<text x='100' y='30' class='svg-event-label'>Ping(0)</text>\n</svg>\n".to_string()),
@@ -448,6 +450,7 @@ mod test {
                  stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>");
         assert_eq!(status.state_count, 5);
         assert_eq!(status.unique_state_count, 5);
+        assert_eq!(status.max_depth, 5);
         let assert_discovery =
             |status: &StatusView,
              expectation: Expectation,
