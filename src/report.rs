@@ -11,6 +11,8 @@ pub struct ReportData {
     pub total_states: usize,
     /// The number of unique states found.
     pub unique_states: usize,
+    /// Maximum depth explored.
+    pub max_depth: usize,
     /// The current duration checking has been running for.
     pub duration: Duration,
     /// Whether checking is done.
@@ -59,16 +61,17 @@ where
         if data.done {
             let _ = writeln!(
                 self.writer,
-                "Done. states={}, unique={}, sec={}",
+                "Done. states={}, unique={}, depth={}, sec={}",
                 data.total_states,
                 data.unique_states,
-                data.duration.as_secs()
+                data.max_depth,
+                data.duration.as_secs(),
             );
         } else {
             let _ = writeln!(
                 self.writer,
-                "Checking. states={}, unique={}",
-                data.total_states, data.unique_states
+                "Checking. states={}, unique={}, depth={}",
+                data.total_states, data.unique_states, data.max_depth
             );
         }
     }

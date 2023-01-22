@@ -271,6 +271,9 @@ pub trait Checker<M: Model> {
     /// [`Checker::state_count`].
     fn unique_state_count(&self) -> usize;
 
+    /// Indicates the maximum depth that has been explored.
+    fn max_depth(&self) -> usize;
+
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>;
@@ -304,6 +307,7 @@ pub trait Checker<M: Model> {
             reporter.report_checking(ReportData {
                 total_states: self.state_count(),
                 unique_states: self.unique_state_count(),
+                max_depth: self.max_depth(),
                 duration: method_start.elapsed(),
                 done: false,
             });
@@ -312,6 +316,7 @@ pub trait Checker<M: Model> {
         reporter.report_checking(ReportData {
             total_states: self.state_count(),
             unique_states: self.unique_state_count(),
+            max_depth: self.max_depth(),
             duration: method_start.elapsed(),
             done: true,
         });
