@@ -609,8 +609,8 @@ mod test_report {
         assert!(
             output.starts_with(
                 "\
-                Checking. states=1, unique=1\n\
-                Done. states=15, unique=12, sec="
+                Checking. states=1, unique=1, depth=0\n\
+                Done. states=15, unique=12, depth=4, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output
@@ -637,8 +637,8 @@ mod test_report {
         assert!(
             output.starts_with(
                 "\
-                Checking. states=1, unique=1\n\
-                Done. states=55, unique=55, sec="
+                Checking. states=1, unique=1, depth=0\n\
+                Done. states=55, unique=55, depth=28, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output
