@@ -7,6 +7,7 @@ use nohash_hasher::NoHashHasher;
 use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -26,7 +27,7 @@ pub(crate) struct DfsChecker<M: Model> {
     discoveries: Arc<DashMap<&'static str, Vec<Fingerprint>>>,
 }
 struct JobMarket<State> { wait_count: usize, jobs: Vec<Job<State>> }
-type Job<State> = Vec<(State, Vec<Fingerprint>, EventuallyBits)>;
+type Job<State> = Vec<(State, Vec<Fingerprint>, EventuallyBits, NonZeroUsize)>;
 
 impl<M> DfsChecker<M>
 where M: Model + Send + Sync + 'static,
@@ -36,6 +37,7 @@ where M: Model + Send + Sync + 'static,
         let model = Arc::new(options.model);
         let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
+        let target_max_depth = options.target_max_depth;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
@@ -67,7 +69,7 @@ where M: Model + Send + Sync + 'static,
         let pending: Vec<_> = init_states.into_iter()
             .map(|s| {
                 let fp = fingerprint(&s);
-                (s, vec![fp], ebits.clone())
+                (s, vec![fp], ebits.clone(), NonZeroUsize::new(1).unwrap())
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -124,7 +126,9 @@ where M: Model + Send + Sync + 'static,
                         &*discoveries,
                         &*visitor,
                         1500,
-                        symmetry);
+                        target_max_depth,
+                        symmetry,
+                    );
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
                         let mut job_market = job_market.lock();
@@ -179,6 +183,7 @@ where M: Model + Send + Sync + 'static,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         mut max_count: usize,
+        target_max_depth: Option<NonZeroUsize>,
         symmetry: Option<fn(&M::State) -> M::State>,
     ) {
         let properties = model.properties();
@@ -190,10 +195,17 @@ where M: Model + Send + Sync + 'static,
             max_count -= 1;
 
             // Done if none pending.
-            let (state, fingerprints, mut ebits) = match pending.pop() {
+            let (state, fingerprints, mut ebits, max_depth) = match pending.pop() {
                 None => return,
                 Some(pair) => pair,
             };
+
+            if let Some(target_max_depth) = target_max_depth {
+                if max_depth >= target_max_depth {
+                    log::trace!("Skipping state as past max depth {}", max_depth);
+                    continue;
+                }
+            }
             if let Some(visitor) = visitor {
                 visitor.visit(model, Path::from_fingerprints(
                         model,
@@ -289,7 +301,12 @@ where M: Model + Send + Sync + 'static,
                 let mut next_fingerprints = Vec::with_capacity(1 + fingerprints.len());
                 for f in &fingerprints { next_fingerprints.push(*f); }
                 next_fingerprints.push(next_fingerprint);
-                pending.push((next_state, next_fingerprints, ebits.clone()));
+                pending.push((
+                    next_state,
+                    next_fingerprints,
+                    ebits.clone(),
+                    NonZeroUsize::new(max_depth.get() + 1).unwrap(),
+                ));
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {

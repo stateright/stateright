@@ -9,6 +9,7 @@ use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
 use std::sync::Arc;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
@@ -27,7 +28,7 @@ pub(crate) struct BfsChecker<M: Model> {
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
 }
 struct JobMarket<State> { wait_count: usize, jobs: Vec<Job<State>> }
-type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits)>;
+type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits, NonZeroUsize)>;
 
 impl<M> BfsChecker<M>
 where M: Model + Send + Sync + 'static,
@@ -36,6 +37,7 @@ where M: Model + Send + Sync + 'static,
     pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
         let target_state_count = options.target_state_count;
+        let target_max_depth = options.target_max_depth;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
@@ -61,7 +63,7 @@ where M: Model + Send + Sync + 'static,
         let pending: VecDeque<_> = init_states.into_iter()
             .map(|s| {
                 let fp = fingerprint(&s);
-                (s, fp, ebits.clone())
+                (s, fp, ebits.clone(), NonZeroUsize::new(1).unwrap())
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -117,7 +119,9 @@ where M: Model + Send + Sync + 'static,
                         &mut pending,
                         &*discoveries,
                         &*visitor,
-                        1500);
+                        1500,
+                        target_max_depth,
+                    );
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
                         let mut job_market = job_market.lock();
@@ -169,8 +173,9 @@ where M: Model + Send + Sync + 'static,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
-        mut max_count: usize)
-    {
+        mut max_count: usize,
+        target_max_depth: Option<NonZeroUsize>,
+    ) {
         let properties = model.properties();
 
         let mut actions = Vec::new();
@@ -180,10 +185,18 @@ where M: Model + Send + Sync + 'static,
             max_count -= 1;
 
             // Done if none pending.
-            let (state, state_fp, mut ebits) = match pending.pop_back() {
+            let (state, state_fp, mut ebits, max_depth) = match pending.pop_back() {
                 None => return,
                 Some(pair) => pair,
             };
+
+            if let Some(target_max_depth) = target_max_depth {
+                if max_depth >= target_max_depth {
+                    log::trace!("Skipping state as past max depth {}", max_depth);
+                    continue;
+                }
+            }
+
             if let Some(visitor) = visitor {
                 visitor.visit(model, reconstruct_path(model, generated, state_fp));
             }
@@ -260,7 +273,12 @@ where M: Model + Send + Sync + 'static,
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
-                pending.push_front((next_state, next_fingerprint, ebits.clone()));
+                pending.push_front((
+                    next_state,
+                    next_fingerprint,
+                    ebits.clone(),
+                    NonZeroUsize::new(max_depth.get() + 1).unwrap(),
+                ));
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {
