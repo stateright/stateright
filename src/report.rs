@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
 use std::time::Duration;
+use std::hash::Hash;
 
 use crate::{DiscoveryClassification, Model, Path};
 
@@ -37,7 +38,7 @@ pub trait Reporter<M: Model> {
     fn report_discoveries(&mut self, discoveries: HashMap<&'static str, ReportDiscovery<M>>)
     where
         M::Action: Debug,
-        M::State: Debug;
+        M::State: Debug + Hash;
 }
 
 pub struct WriteReporter<'a, W> {
