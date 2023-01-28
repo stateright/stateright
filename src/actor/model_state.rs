@@ -6,11 +6,13 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use super::timers::Timers;
+
 /// Represents a snapshot in time for the entire actor system.
 pub struct ActorModelState<A: Actor, H = ()> {
     pub actor_states: Vec<Arc<A::State>>,
     pub network: Network<A::Msg>,
-    pub is_timer_set: Vec<bool>,
+    pub timers_set: Vec<Timers<A::Timer>>,
     pub history: H,
 }
 
@@ -25,7 +27,7 @@ where A: Actor,
         let mut out = ser.serialize_struct("ActorModelState", 4)?;
         out.serialize_field("actor_states", &self.actor_states)?;
         out.serialize_field("network", &self.network)?;
-        out.serialize_field("is_timer_set", &self.is_timer_set)?;
+        out.serialize_field("is_timer_set", &self.timers_set)?;
         out.serialize_field("history", &self.history)?;
         out.end()
     }
@@ -41,7 +43,7 @@ where A: Actor,
         ActorModelState {
             actor_states: self.actor_states.clone(),
             history: self.history.clone(),
-            is_timer_set: self.is_timer_set.clone(),
+            timers_set: self.timers_set.clone(),
             network: self.network.clone(),
         }
     }
@@ -57,7 +59,7 @@ where A: Actor,
         let mut builder = f.debug_struct("ActorModelState");
         builder.field("actor_states", &self.actor_states);
         builder.field("history", &self.history);
-        builder.field("is_timer_set", &self.is_timer_set);
+        builder.field("is_timer_set", &self.timers_set);
         builder.field("network", &self.network);
         builder.finish()
     }
@@ -80,7 +82,7 @@ where A: Actor,
     fn hash<Hash: Hasher>(&self, state: &mut Hash) {
         self.actor_states.hash(state);
         self.history.hash(state);
-        self.is_timer_set.hash(state);
+        self.timers_set.hash(state);
         self.network.hash(state);
     }
 }
@@ -95,7 +97,7 @@ where A: Actor,
     fn eq(&self, other: &Self) -> bool {
         self.actor_states.eq(&other.actor_states)
             && self.history.eq(&other.history)
-            && self.is_timer_set.eq(&other.is_timer_set)
+            && self.timers_set.eq(&other.timers_set)
             && self.network.eq(&other.network)
     }
 }
@@ -111,7 +113,7 @@ impl<A, H> Representative for ActorModelState<A, H>
         Self {
             actor_states: plan.reindex(&self.actor_states),
             network: self.network.rewrite(&plan),
-            is_timer_set: plan.reindex(&self.is_timer_set),
+            timers_set: plan.reindex(&self.timers_set),
             history: self.history.rewrite(&plan),
         }
     }
@@ -119,12 +121,16 @@ impl<A, H> Representative for ActorModelState<A, H>
 
 #[cfg(test)]
 mod test {
+    use crate::actor::timers::Timers;
     use crate::{Rewrite, Representative, RewritePlan};
     use crate::actor::{Actor, ActorModelState, Envelope, Id, Network, Out};
     use std::sync::Arc;
 
     #[test]
     fn can_find_representative_from_equivalence_class() {
+        let empty_timers = Timers::new();
+        let mut non_empty_timers = Timers::new();
+        non_empty_timers.insert(());
         let state = ActorModelState::<A, History> {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![Id::from(1), Id::from(2)]}),
@@ -143,7 +149,7 @@ mod test {
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(Y)" },
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
             ]),
-            is_timer_set: vec![true, false, true],
+            timers_set: vec![non_empty_timers.clone(), empty_timers.clone(), non_empty_timers.clone()],
             history: History {
                 send_sequence: vec![
                     // Id(0) sends two writes
@@ -179,7 +185,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ]),
-            is_timer_set: vec![false, true, true],
+            timers_set: vec![empty_timers.clone(), non_empty_timers.clone(), non_empty_timers.clone()],
             history: History {
                 send_sequence: vec![
                     // Id(2) sends two writes
@@ -199,6 +205,7 @@ mod test {
     impl Actor for A {
         type Msg = &'static str;
         type State = ActorState;
+        type Timer = ();
         fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
             unimplemented!();
         }

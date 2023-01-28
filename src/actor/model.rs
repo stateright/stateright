@@ -12,11 +12,14 @@ use crate::actor::{
     Out,
 };
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
+
+use super::timers::Timers;
 
 /// Represents a system of [`Actor`]s that communicate over a network. `H` indicates the type of
 /// history to maintain as auxiliary state, if any.  See [Auxiliary Variables in
@@ -41,13 +44,13 @@ where A: Actor,
 
 /// Indicates possible steps that an actor system can take as it evolves.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ActorModelAction<Msg> {
+pub enum ActorModelAction<Msg, Timer> {
     /// A message can be delivered to an actor.
     Deliver { src: Id, dst: Id, msg: Msg },
     /// A message can be dropped if the network is lossy.
     Drop(Envelope<Msg>),
     /// An actor can by notified after a timeout.
-    Timeout(Id),
+    Timeout(Id, Timer),
 }
 
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
@@ -169,15 +172,15 @@ where A: Actor,
                     }
                     state.network.send(Envelope { src: id, dst, msg });
                 },
-                Command::SetTimer(_) => {
+                Command::SetTimer(timer, _) => {
                     // must use the index to infer how large as actor state may not be initialized yet
-                    if state.is_timer_set.len() <= index {
-                        state.is_timer_set.resize(index + 1, false);
+                    if state.timers_set.len() <= index {
+                        state.timers_set.resize_with(index + 1, Timers::new);
                     }
-                    state.is_timer_set[index] = true;
+                    state.timers_set[index].insert(timer);
                 },
-                Command::CancelTimer => {
-                    state.is_timer_set[index] = false;
+                Command::CancelTimer(timer) => {
+                    state.timers_set[index].remove(&timer);
                 },
             }
         }
@@ -189,13 +192,13 @@ where A: Actor,
       H: Clone + Debug + Hash,
 {
     type State = ActorModelState<A, H>;
-    type Action = ActorModelAction<A::Msg>;
+    type Action = ActorModelAction<A::Msg, A::Timer>;
 
     fn init_states(&self) -> Vec<Self::State> {
         let mut init_sys_state = ActorModelState {
             actor_states: Vec::with_capacity(self.actors.len()),
             history: self.init_history.clone(),
-            is_timer_set: vec![false; self.actors.len()],
+            timers_set: vec![Timers::new(); self.actors.len()],
             network: self.init_network.clone(),
         };
 
@@ -231,9 +234,9 @@ where A: Actor,
         }
 
         // option 3: actor timeout
-        for (index, &is_scheduled) in state.is_timer_set.iter().enumerate() {
-            if is_scheduled {
-                actions.push(ActorModelAction::Timeout(Id::from(index)));
+        for (index, timers) in state.timers_set.iter().enumerate() {
+            for timer in timers.iter() {
+                actions.push(ActorModelAction::Timeout(Id::from(index), timer.clone()));
             }
         }
     }
@@ -285,18 +288,18 @@ where A: Actor,
                 self.process_commands(id, out, &mut next_sys_state);
                 Some(next_sys_state)
             },
-            ActorModelAction::Timeout(id) => {
+            ActorModelAction::Timeout(id, timer) => {
                 // Clone new state if necessary (otherwise early exit).
                 let index = usize::from(id);
                 let mut state = Cow::Borrowed(&*last_sys_state.actor_states[index]);
                 let mut out = Out::new();
-                self.actors[index].on_timeout(id, &mut state, &mut out);
-                let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(_)));
+                self.actors[index].on_timeout(id, &mut state, &timer, &mut out);
+                let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(_, _)));
                 if is_no_op(&state, &out) && keep_timer { return None }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
-                next_sys_state.is_timer_set[index] = false;
+                next_sys_state.timers_set[index].remove(&timer);
 
                 if let Cow::Owned(next_actor_state) = state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
@@ -359,7 +362,7 @@ where A: Actor,
                     out,
                 }))
             },
-            ActorModelAction::Timeout(id) => {
+            ActorModelAction::Timeout(id, timer) => {
                 let index = usize::from(id);
                 let last_actor_state = match last_state.actor_states.get(index) {
                     None => return None,
@@ -367,7 +370,7 @@ where A: Actor,
                 };
                 let mut actor_state = Cow::Borrowed(last_actor_state);
                 let mut out = Out::new();
-                self.actors[index].on_timeout(id, &mut actor_state, &mut out);
+                self.actors[index].on_timeout(id, &mut actor_state, &timer, &mut out);
                 Some(format!("{}", ActorStep {
                     last_state: last_actor_state,
                     next_state: match actor_state {
@@ -382,7 +385,6 @@ where A: Actor,
 
     /// Draws a sequence diagram for the actor system.
     fn as_svg(&self, path: Path<Self::State, Self::Action>) -> Option<String> {
-        use std::collections::HashMap;
         use std::fmt::Write;
 
         let plot = |x, y| (x as u64 * 100, y as u64 * 30);
@@ -440,7 +442,7 @@ where A: Actor,
                         }
                     }
                 }
-                Some(ActorModelAction::Timeout(actor_id)) => {
+                Some(ActorModelAction::Timeout(actor_id, timer)) => {
                     let (x, y) = plot(actor_id.into(),  time);
                     writeln!(&mut svg, "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
                            x, y).unwrap();
@@ -450,7 +452,7 @@ where A: Actor,
                     if let Some(actor_state) = state.actor_states.get(index) {
                         let mut actor_state = Cow::Borrowed(&**actor_state);
                         let mut out = Out::new();
-                        self.actors[index].on_timeout(actor_id, &mut actor_state, &mut out);
+                        self.actors[index].on_timeout(actor_id, &mut actor_state, &timer, &mut out);
                         for command in out {
                             if let Command::Send(dst, msg) = command {
                                 send_time.insert((actor_id, dst, msg), time);
@@ -471,10 +473,10 @@ where A: Actor,
                     writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>",
                            x, y, msg).unwrap();
                 }
-                Some(ActorModelAction::Timeout(id)) => {
+                Some(ActorModelAction::Timeout(id, timer)) => {
                     let (x, y) = plot(id.into(), time);
-                    writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>Timeout</text>",
-                           x, y).unwrap();
+                    writeln!(&mut svg, "<text x='{}' y='{}' class='svg-event-label'>Timeout({:?})</text>",
+                           x, y, timer).unwrap();
                 }
                 _ => {}
             }
@@ -509,11 +511,11 @@ mod test {
 
         // helper to make the test more concise
         let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>| {
-            let is_timer_set = vec![false; states.len()];
+            let timers_set = vec![Timers::new(); states.len()];
             ActorModelState {
                 actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
                 network: Network::new_unordered_duplicating(envelopes),
-                is_timer_set,
+                timers_set,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
             }
         };
@@ -699,6 +701,7 @@ mod test {
         impl Actor for OrderedNetworkActor {
             type Msg = u8;
             type State = Vec<u8>;
+            type Timer = ();
             fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
                 if id == 0.into() {
                     // Count down.
@@ -757,13 +760,14 @@ mod test {
         // therefore could not distinguish between dropping/delivering 1 message vs multiple
         // pending copies of the same message.
 
-        fn enumerate_action_sequences(lossy: LossyNetwork, init_network: Network<()>) -> HashSet<Vec<ActorModelAction<()>>> {
+        fn enumerate_action_sequences(lossy: LossyNetwork, init_network: Network<()>) -> HashSet<Vec<ActorModelAction<(), ()>>> {
             // There are two actors, and the first sends the same two messages to the second, which
             // counts them.
             struct A;
             impl Actor for A {
                 type Msg = ();
                 type State = usize; // receipt count
+                type Timer = ();
 
                 fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
                     if id == 0.into() {
@@ -797,8 +801,8 @@ mod test {
         }
 
         // The actions are named here for brevity. These implement `Copy`.
-        let deliver = ActorModelAction::<()>::Deliver { src: 0.into(), msg: (), dst: 1.into() };
-        let drop = ActorModelAction::<()>::Drop(Envelope { src: 0.into(), msg: (), dst: 1.into() });
+        let deliver = ActorModelAction::<(), ()>::Deliver { src: 0.into(), msg: (), dst: 1.into() };
+        let drop = ActorModelAction::<(), ()>::Drop(Envelope { src: 0.into(), msg: (), dst: 1.into() });
 
         // Ordered networks can deliver/drop both messages.
         let ordered_lossless = enumerate_action_sequences(LossyNetwork::No, Network::new_ordered([]));
@@ -841,8 +845,9 @@ mod test {
         impl Actor for TestActor {
             type State = ();
             type Msg = ();
+            type Timer = ();
             fn on_start(&self, _: Id, o: &mut Out<Self>) {
-                o.set_timer(model_timeout());
+                o.set_timer((), model_timeout());
                 ()
             }
             fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
@@ -870,6 +875,7 @@ mod choice_test {
     impl Actor for A {
         type State = u8;
         type Msg = ();
+        type Timer = ();
         fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
             1
         }
@@ -885,6 +891,7 @@ mod choice_test {
     impl Actor for B {
         type State = char;
         type Msg = ();
+        type Timer = ();
         fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
             'a'
         }
@@ -900,6 +907,7 @@ mod choice_test {
     impl Actor for C {
         type State = String;
         type Msg = ();
+        type Timer = ();
         fn on_start(&self, _: Id, o: &mut Out<Self>) -> Self::State {
             o.send(self.a, ());
             "I".to_string()

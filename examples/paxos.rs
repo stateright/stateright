@@ -97,6 +97,7 @@ struct PaxosActor { peer_ids: Vec<Id> }
 impl Actor for PaxosActor {
     type Msg = RegisterMsg<RequestId, Value, PaxosMsg>;
     type State = PaxosState;
+    type Timer = ();
 
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
         PaxosState {

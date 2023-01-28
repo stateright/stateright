@@ -14,6 +14,8 @@
 //! [`Network::new_ordered`] can be used to reduce the state space of models that will use this
 //! abstraction.
 
+use serde::Serialize;
+
 use crate::actor::*;
 use crate::util::HashableHashMap;
 use std::borrow::Cow;
@@ -56,6 +58,13 @@ pub struct StateWrapper<Msg, State> {
     wrapped_state: State,
 }
 
+/// Wrapper for timers.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+pub enum TimerWrapper<Timer> {
+    Network,
+    User(Timer),
+}
+
 impl<A: Actor> ActorWrapper<A> {
     pub fn with_default_timeout(wrapped_actor: A) -> Self {
         Self {
@@ -70,9 +79,10 @@ impl<A: Actor> Actor for ActorWrapper<A>
 {
     type Msg = MsgWrapper<A::Msg>;
     type State = StateWrapper<A::Msg, A::State>;
+    type Timer = TimerWrapper<A::Timer>;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
-        o.set_timer(self.resend_interval.clone());
+        o.set_timer(TimerWrapper::Network, self.resend_interval.clone());
 
         let mut wrapped_out = Out::new();
         let mut state = StateWrapper {
@@ -119,10 +129,21 @@ impl<A: Actor> Actor for ActorWrapper<A>
         }
     }
 
-    fn on_timeout(&self, _id: Id, state: &mut std::borrow::Cow<Self::State>, o: &mut Out<Self>) {
-        o.set_timer(self.resend_interval.clone());
-        for (seq, (dst, msg)) in &state.msgs_pending_ack {
-            o.send(*dst, MsgWrapper::Deliver(*seq, msg.clone()));
+    fn on_timeout(&self, id: Id, state: &mut std::borrow::Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
+        match timer {
+            TimerWrapper::Network => {
+                o.set_timer(TimerWrapper::Network, self.resend_interval.clone());
+                for (seq, (dst, msg)) in &state.msgs_pending_ack {
+                    o.send(*dst, MsgWrapper::Deliver(*seq, msg.clone()));
+                }
+            }
+            TimerWrapper::User(timer) => {
+                let mut wrapped_state = Cow::Borrowed(&state.wrapped_state);
+                let mut wrapped_out = Out::new();
+                self.wrapped_actor.on_timeout(id, &mut wrapped_state, timer, &mut wrapped_out);
+                if is_no_op(&wrapped_state, &wrapped_out) { return }
+                process_output(state.to_mut(), wrapped_out, o);
+            }
         }
     }
 }
@@ -132,10 +153,10 @@ where A::Msg: Hash
 {
     for command in wrapped_out {
         match command {
-            Command::CancelTimer => {
+            Command::CancelTimer(_) => {
                 todo!("CancelTimer is not supported at this time");
             },
-            Command::SetTimer(_) => {
+            Command::SetTimer(_, _) => {
                 todo!("SetTimer is not supported at this time");
             },
             Command::Send(dst, inner_msg) => {
@@ -167,6 +188,7 @@ mod test {
     impl Actor for TestActor {
         type Msg = TestMsg;
         type State = Received;
+        type Timer = ();
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let TestActor::Sender { receiver_id } = self {

@@ -85,7 +85,7 @@ impl<R, V> Rewrite<R> for HashableHashSet<V> where V: Eq + Hash + Rewrite<R> {
         self.iter().map(|x| x.rewrite(plan)).collect()
     }
 }
-impl<R, K, V> Rewrite<R> for HashableHashMap<K,V> 
+impl<R, K, V> Rewrite<R> for HashableHashMap<K,V>
 where V: Eq + Hash + Rewrite<R>,
       K: Eq + Hash + Rewrite<R>,
       {

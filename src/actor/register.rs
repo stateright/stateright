@@ -123,6 +123,7 @@ where
 {
     type Msg = RegisterMsg<u64, char, InternalMsg>;
     type State = RegisterActorState<ServerActor::State, u64>;
+    type Timer = ServerActor::Timer;
 
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
@@ -215,7 +216,7 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
         use RegisterActor as A;
         use RegisterActorState as S;
         match (self, &**state) {
@@ -229,7 +230,7 @@ where
             ) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
-                server_actor.on_timeout(id, &mut server_state, &mut server_out);
+                server_actor.on_timeout(id, &mut server_state, timer, &mut server_out);
                 if let Cow::Owned(server_state) = server_state {
                     *state = Cow::Owned(RegisterActorState::Server(server_state))
                 }
