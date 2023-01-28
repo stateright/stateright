@@ -13,6 +13,7 @@ pub mod ping_pong {
     impl Actor for PingPongActor {
         type Msg = PingPongMsg;
         type State = u32; // count
+        type Timer = ();
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let Some(id) = self.serve_to {

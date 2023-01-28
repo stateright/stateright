@@ -19,6 +19,7 @@ struct SingleCopyActor;
 impl Actor for SingleCopyActor {
     type Msg = RegisterMsg<RequestId, Value, ()>;
     type State = Value;
+    type Timer = ();
 
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
         Value::default()

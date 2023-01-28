@@ -19,7 +19,7 @@ use std::fmt;
 pub struct RewritePlan<R,S> {s: S, f: fn(&R, &S) -> R}
 
 impl<R,S> RewritePlan<R,S> {
-    /// Applies the rewrite plan to a value of type R 
+    /// Applies the rewrite plan to a value of type R
     pub fn rewrite(&self, x : &R) -> R {
         (self.f)(x, &self.s)
     }
@@ -45,7 +45,7 @@ where S: fmt::Debug
     }
 }
 
-impl<R, V> From<DenseNatMap<R, V>> for RewritePlan<R,DenseNatMap<R,R>> 
+impl<R, V> From<DenseNatMap<R, V>> for RewritePlan<R,DenseNatMap<R,R>>
 where R: From<usize> + Copy,
       usize: From<R>,
       V: Ord,
@@ -55,7 +55,7 @@ where R: From<usize> + Copy,
     }
 }
 
-impl<R, V> From<&DenseNatMap<R, V>> for RewritePlan<R,DenseNatMap<R,R>> 
+impl<R, V> From<&DenseNatMap<R, V>> for RewritePlan<R,DenseNatMap<R,R>>
 where R: From<usize> + Copy,
       usize: From<R>,
       V: Ord,

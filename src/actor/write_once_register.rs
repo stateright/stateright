@@ -131,6 +131,7 @@ where
 {
     type Msg = WORegisterMsg<u64, char, InternalMsg>;
     type State = WORegisterActorState<ServerActor::State, u64>;
+    type Timer = ServerActor::Timer;
 
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
@@ -169,7 +170,7 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
         use WORegisterActor as A;
         use WORegisterActorState as S;
         match (self, &**state) {
@@ -183,7 +184,7 @@ where
             ) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
-                server_actor.on_timeout(id, &mut server_state, &mut server_out);
+                server_actor.on_timeout(id, &mut server_state, timer, &mut server_out);
                 if let Cow::Owned(server_state) = server_state {
                     *state = Cow::Owned(WORegisterActorState::Server(server_state))
                 }
@@ -273,8 +274,8 @@ where ServerState : Rewrite<R> + Clone,
     fn rewrite<S>(&self, plan: &RewritePlan<R,S>) -> Self {
         match self {
             WORegisterActorState::Client{..} => { (*self).clone() }
-            WORegisterActorState::Server(server_state) => { 
-                WORegisterActorState::Server(server_state.rewrite(plan)) 
+            WORegisterActorState::Server(server_state) => {
+                WORegisterActorState::Server(server_state.rewrite(plan))
             }
         }
    }

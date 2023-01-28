@@ -30,6 +30,7 @@
 //! impl Actor for LogicalClockActor {
 //!     type Msg = MsgWithTimestamp;
 //!     type State = Timestamp;
+//!     type Timer = ();
 //!
 //!     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
 //!         // The actor either bootstraps or starts at time zero.
@@ -84,6 +85,7 @@ use choice::{Choice, Never};
 mod model;
 mod model_state;
 mod network;
+mod timers;
 mod spawn;
 use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
@@ -97,6 +99,7 @@ pub mod actor_test_util;
 pub use model::*;
 pub use model_state::*;
 pub use network::*;
+pub use timers::*;
 pub mod ordered_reliable_link;
 pub mod register;
 pub mod write_once_register;
@@ -154,17 +157,17 @@ impl From<usize> for Id {
 
 /// Commands with which an actor can respond.
 #[derive(Debug, serde::Serialize)]
-pub enum Command<Msg> {
+pub enum Command<Msg, Timer> {
     /// Cancel the timer if one is set.
-    CancelTimer,
+    CancelTimer(Timer),
     /// Set/reset the timer.
-    SetTimer(Range<Duration>),
+    SetTimer(Timer, Range<Duration>),
     /// Send a message to a destination.
     Send(Id, Msg),
 }
 
 /// Holds [`Command`]s output by an actor.
-pub struct Out<A: Actor>(Vec<Command<A::Msg>>);
+pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer>>);
 
 impl<A: Actor> Out<A> {
     /// Constructs an empty `Out`.
@@ -175,19 +178,19 @@ impl<A: Actor> Out<A> {
     /// Moves all [`Command`]s of `other` into `Self`, leaving `other` empty.
     pub fn append<B>(&mut self, other: &mut Out<B>)
     where
-        B: Actor<Msg = A::Msg>,
+        B: Actor<Msg = A::Msg, Timer = A::Timer>,
     {
         self.0.append(&mut other.0)
     }
 
     /// Records the need to set the timer. See [`Actor::on_timeout`].
-    pub fn set_timer(&mut self, duration: Range<Duration>) {
-        self.0.push(Command::SetTimer(duration));
+    pub fn set_timer(&mut self, tag: A::Timer, duration: Range<Duration>) {
+        self.0.push(Command::SetTimer(tag, duration));
     }
 
     /// Records the need to cancel the timer.
-    pub fn cancel_timer(&mut self) {
-        self.0.push(Command::CancelTimer);
+    pub fn cancel_timer(&mut self, tag: A::Timer) {
+        self.0.push(Command::CancelTimer(tag));
     }
 
     /// Records the need to send a message. See [`Actor::on_msg`].
@@ -213,21 +216,21 @@ impl<A: Actor> Debug for Out<A> {
 }
 
 impl<A: Actor> std::ops::Deref for Out<A> {
-    type Target = [Command<A::Msg>];
+    type Target = [Command<A::Msg, A::Timer>];
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<A: Actor> std::iter::FromIterator<Command<A::Msg>> for Out<A> {
-    fn from_iter<I: IntoIterator<Item = Command<A::Msg>>>(iter: I) -> Self {
+impl<A: Actor> std::iter::FromIterator<Command<A::Msg, A::Timer>> for Out<A> {
+    fn from_iter<I: IntoIterator<Item = Command<A::Msg, A::Timer>>>(iter: I) -> Self {
         Out(Vec::from_iter(iter))
     }
 }
 
 impl<A: Actor> IntoIterator for Out<A> {
-    type Item = Command<A::Msg>;
-    type IntoIter = std::vec::IntoIter<Command<A::Msg>>;
+    type Item = Command<A::Msg, A::Timer>;
+    type IntoIter = std::vec::IntoIter<Command<A::Msg, A::Timer>>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
@@ -255,6 +258,17 @@ pub trait Actor: Sized {
     /// enum MyActorMsg { Msg1(u64), Msg2(char) }
     /// ```
     type Msg: Clone + Debug + Eq + Hash;
+
+    /// The type for tagging timers.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use serde::{Deserialize, Serialize};
+    /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    /// enum MyActorTimer { Event1, Event2 }
+    /// ```
+    type Timer: Clone + Debug + Eq + Hash + serde::Serialize;
 
     /// The type of state maintained by the actor.
     ///
@@ -287,7 +301,7 @@ pub trait Actor: Sized {
     }
 
     /// Indicates the next state and commands when a timeout is encountered. See [`Out::set_timer`].
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, _timer: &Self::Timer, o: &mut Out<Self>) {
         // no-op by default
         let _ = id;
         let _ = state;
@@ -301,6 +315,7 @@ where
 {
     type Msg = A::Msg;
     type State = Choice<A::State, Never>;
+    type Timer = A::Timer;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         let actor = self.get();
@@ -330,11 +345,11 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
         let actor = self.get();
         let mut state_prime = Cow::Borrowed(state.get());
         let mut o_prime = Out::new();
-        actor.on_timeout(id, &mut state_prime, &mut o_prime);
+        actor.on_timeout(id, &mut state_prime, timer, &mut o_prime);
 
         o.append(&mut o_prime);
         if let Cow::Owned(state_prime) = state_prime {
@@ -343,14 +358,16 @@ where
     }
 }
 
-impl<Msg, A1, A2> Actor for Choice<A1, A2>
+impl<Msg, Timer, A1, A2> Actor for Choice<A1, A2>
 where
     Msg: Clone + Debug + Eq + Hash,
-    A1: Actor<Msg = Msg>,
-    A2: Actor<Msg = Msg>,
+    Timer: Clone + Debug + Eq + Hash + serde::Serialize,
+    A1: Actor<Msg = Msg, Timer = Timer>,
+    A2: Actor<Msg = Msg, Timer = Timer>,
 {
     type Msg = Msg;
     type State = Choice<A1::State, A2::State>;
+    type Timer = Timer;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
@@ -400,12 +417,12 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, tag: &Self::Timer, o: &mut Out<Self>) {
         match (self, &**state) {
             (Choice::L(actor), Choice::L(state_prime)) => {
                 let mut state_prime = Cow::Borrowed(state_prime);
                 let mut o_prime = Out::new();
-                actor.on_timeout(id, &mut state_prime, &mut o_prime);
+                actor.on_timeout(id, &mut state_prime, tag, &mut o_prime);
                 o.append(&mut o_prime);
                 if let Cow::Owned(state_prime) = state_prime {
                     *state = Cow::Owned(Choice::L(state_prime));
@@ -414,7 +431,7 @@ where
             (Choice::R(actor), Choice::R(state_prime)) => {
                 let mut state_prime = Cow::Borrowed(state_prime);
                 let mut o_prime = Out::new();
-                actor.on_timeout(id, &mut state_prime, &mut o_prime);
+                actor.on_timeout(id, &mut state_prime, tag, &mut o_prime);
                 o.append(&mut o_prime);
                 if let Cow::Owned(state_prime) = state_prime {
                     *state = Cow::Owned(Choice::R(state_prime));
@@ -431,6 +448,7 @@ where
 impl Actor for () {
     type State = ();
     type Msg = ();
+    type Timer = ();
     fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State {}
     fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
 }
@@ -443,6 +461,7 @@ where
 {
     type Msg = Msg;
     type State = usize;
+    type Timer = ();
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
         if let Some((dst, msg)) = self.get(0) {

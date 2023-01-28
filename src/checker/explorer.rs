@@ -278,6 +278,7 @@ where M: Model,
 mod test {
     use super::*;
     use crate::test_util::binary_clock::*;
+    use crate::actor::Timers;
     use lazy_static::lazy_static;
 
     #[test]
@@ -344,7 +345,7 @@ mod test {
                     state: Some(ActorModelState {
                         actor_states: vec![Arc::new(0), Arc::new(0)],
                         history: (0, 1),
-                        is_timer_set: vec![false,false],
+                        timers_set: vec![Timers::new(); 2],
                         network: Network::new_unordered_nonduplicating([
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                         ]),
@@ -367,7 +368,7 @@ mod test {
                 let fp = fingerprint(&ActorModelState::<PingPongActor, PingPongHistory> {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
-                    is_timer_set: vec![false,false],
+                    timers_set: vec![Timers::new(); 2],
                     network: Network::new_unordered_nonduplicating([
                         Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     ]),
@@ -385,7 +386,7 @@ mod test {
                 state: Some(ActorModelState {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
-                    is_timer_set: vec![false,false],
+                    timers_set: vec![Timers::new(); 2],
                     network: Network::new_unordered_nonduplicating([]),
                 }),
                 properties: vec![
@@ -409,7 +410,7 @@ mod test {
                         Arc::new(1),
                     ],
                     history: (1, 2),
-                    is_timer_set: vec![false,false],
+                    timers_set: vec![Timers::new(); 2],
                     network: Network::new_unordered_nonduplicating([
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     ]),
