@@ -184,13 +184,13 @@ impl<A: Actor> Out<A> {
     }
 
     /// Records the need to set the timer. See [`Actor::on_timeout`].
-    pub fn set_timer(&mut self, tag: A::Timer, duration: Range<Duration>) {
-        self.0.push(Command::SetTimer(tag, duration));
+    pub fn set_timer(&mut self, timer: A::Timer, duration: Range<Duration>) {
+        self.0.push(Command::SetTimer(timer, duration));
     }
 
     /// Records the need to cancel the timer.
-    pub fn cancel_timer(&mut self, tag: A::Timer) {
-        self.0.push(Command::CancelTimer(tag));
+    pub fn cancel_timer(&mut self, timer: A::Timer) {
+        self.0.push(Command::CancelTimer(timer));
     }
 
     /// Records the need to send a message. See [`Actor::on_msg`].
@@ -417,12 +417,12 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, tag: &Self::Timer, o: &mut Out<Self>) {
+    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
         match (self, &**state) {
             (Choice::L(actor), Choice::L(state_prime)) => {
                 let mut state_prime = Cow::Borrowed(state_prime);
                 let mut o_prime = Out::new();
-                actor.on_timeout(id, &mut state_prime, tag, &mut o_prime);
+                actor.on_timeout(id, &mut state_prime, timer, &mut o_prime);
                 o.append(&mut o_prime);
                 if let Cow::Owned(state_prime) = state_prime {
                     *state = Cow::Owned(Choice::L(state_prime));
@@ -431,7 +431,7 @@ where
             (Choice::R(actor), Choice::R(state_prime)) => {
                 let mut state_prime = Cow::Borrowed(state_prime);
                 let mut o_prime = Out::new();
-                actor.on_timeout(id, &mut state_prime, tag, &mut o_prime);
+                actor.on_timeout(id, &mut state_prime, timer, &mut o_prime);
                 o.append(&mut o_prime);
                 if let Cow::Owned(state_prime) = state_prime {
                     *state = Cow::Owned(Choice::R(state_prime));
