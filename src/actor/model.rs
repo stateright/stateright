@@ -294,7 +294,8 @@ where A: Actor,
                 let mut state = Cow::Borrowed(&*last_sys_state.actor_states[index]);
                 let mut out = Out::new();
                 self.actors[index].on_timeout(id, &mut state, &timer, &mut out);
-                if is_no_op(&state, &out) { return None }
+                let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(t, _) if t == &timer));
+                if is_no_op(&state, &out) && keep_timer { return None }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
