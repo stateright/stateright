@@ -157,7 +157,7 @@ where A: Actor,
         self
     }
 
-    // Updates the actor state, sends messages, and configures the timer.
+    /// Updates the actor state, sends messages, and configures the timers.
     fn process_commands(&self, id: Id, commands: Out<A>, state: &mut ActorModelState<A, H>) {
         let index = usize::from(id);
         for c in commands {
@@ -294,8 +294,7 @@ where A: Actor,
                 let mut state = Cow::Borrowed(&*last_sys_state.actor_states[index]);
                 let mut out = Out::new();
                 self.actors[index].on_timeout(id, &mut state, &timer, &mut out);
-                let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(_, _)));
-                if is_no_op(&state, &out) && keep_timer { return None }
+                if is_no_op(&state, &out) { return None }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
