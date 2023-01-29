@@ -3,6 +3,7 @@ use std::hash::Hash;
 
 use super::Id;
 
+/// A collection of timers that have been set for a given actor.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize)]
 pub struct Timers<T: Hash + Eq>(HashableHashSet<T>);
 
@@ -10,18 +11,22 @@ impl<T> Timers<T>
 where
     T: Hash + Eq,
 {
+    /// Create a new timer set.
     pub fn new() -> Self {
         Self(HashableHashSet::new())
     }
 
-    pub fn insert(&mut self, timer: T) -> bool {
+    /// Set a timer.
+    pub fn set(&mut self, timer: T) -> bool {
         self.0.insert(timer)
     }
 
-    pub fn remove(&mut self, timer: &T) -> bool {
+    /// Cancel a timer.
+    pub fn cancel(&mut self, timer: &T) -> bool {
         self.0.remove(timer)
     }
 
+    /// Iterate through the currently set timers.
     pub fn iter(&self) -> impl Iterator<Item=&T> {
         self.0.iter()
     }
