@@ -131,7 +131,7 @@ mod test {
     fn can_find_representative_from_equivalence_class() {
         let empty_timers = Timers::new();
         let mut non_empty_timers = Timers::new();
-        non_empty_timers.insert(());
+        non_empty_timers.set(());
         let state = ActorModelState::<A, History> {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![Id::from(1), Id::from(2)]}),

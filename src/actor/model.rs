@@ -177,10 +177,10 @@ where A: Actor,
                     if state.timers_set.len() <= index {
                         state.timers_set.resize_with(index + 1, Timers::new);
                     }
-                    state.timers_set[index].insert(timer);
+                    state.timers_set[index].set(timer);
                 },
                 Command::CancelTimer(timer) => {
-                    state.timers_set[index].remove(&timer);
+                    state.timers_set[index].cancel(&timer);
                 },
             }
         }
@@ -298,7 +298,7 @@ where A: Actor,
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
-                next_sys_state.timers_set[index].remove(&timer);
+                next_sys_state.timers_set[index].cancel(&timer);
 
                 if let Cow::Owned(next_actor_state) = state {
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
