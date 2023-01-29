@@ -268,7 +268,7 @@ pub trait Actor: Sized {
     /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     /// enum MyActorTimer { Event1, Event2 }
     /// ```
-    type Timer: Clone + Debug + Eq + Hash + serde::Serialize;
+    type Timer: Clone + Debug + Eq + Hash;
 
     /// The type of state maintained by the actor.
     ///

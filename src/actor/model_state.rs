@@ -20,6 +20,7 @@ impl<A, H> serde::Serialize for ActorModelState<A, H>
 where A: Actor,
       A::State: serde::Serialize,
       A::Msg: serde::Serialize,
+      A::Timer: serde::Serialize,
       H: serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
