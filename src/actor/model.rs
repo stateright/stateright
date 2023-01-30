@@ -9,7 +9,7 @@ use crate::actor::{
     is_no_op,
     Id,
     Network,
-    Out,
+    Out, is_no_op_with_timer,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -294,8 +294,7 @@ where A: Actor,
                 let mut state = Cow::Borrowed(&*last_sys_state.actor_states[index]);
                 let mut out = Out::new();
                 self.actors[index].on_timeout(id, &mut state, &timer, &mut out);
-                let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(t, _) if t == &timer));
-                if is_no_op(&state, &out) && keep_timer { return None }
+                if is_no_op_with_timer(&state, &out, &timer) { return None }
                 let mut next_sys_state = last_sys_state.clone();
 
                 // Timer is no longer valid.
