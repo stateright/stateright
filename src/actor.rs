@@ -242,6 +242,15 @@ pub fn is_no_op<A: Actor>(state: &Cow<A::State>, out: &Out<A>) -> bool {
     matches!(state, Cow::Borrowed(_)) && out.0.is_empty()
 }
 
+/// If true, then the actor did not update its state or output commands, besides renewing the same
+/// timer.
+#[allow(clippy::ptr_arg)] // `&Cow` needed for `matches!`
+pub fn is_no_op_with_timer<A: Actor>(state: &Cow<A::State>, out: &Out<A>, timer: &A::Timer) -> bool {
+    let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(t, _) if t == timer));
+    let unmodified_out = out.0.is_empty() || (out.0.len() == 1 && keep_timer);
+    matches!(state, Cow::Borrowed(_)) && unmodified_out
+}
+
 /// An actor initializes internal state optionally emitting [outputs]; then it waits for incoming
 /// events, responding by updating its internal state and optionally emitting [outputs].
 ///
