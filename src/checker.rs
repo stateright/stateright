@@ -11,11 +11,13 @@ mod rewrite_plan;
 mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
-use crate::{Expectation, Model, Fingerprint};
-use std::collections::{HashMap, BTreeMap};
+use crate::{Expectation, Fingerprint, Model};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub use path::*;
@@ -294,6 +296,63 @@ pub trait Checker<M: Model> {
     /// Looks up a discovery by property name. Panics if the property does not exist.
     fn discovery(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
         self.discoveries().remove(name)
+    }
+
+    /// Wait for all threads to finish whilst reporting, reporting the finish more accurately than
+    /// the interval used for the reporting.
+    fn join_and_report<R>(mut self, reporter: &mut R) -> Self
+    where
+        M::Action: Debug,
+        M::State: Debug,
+        Self: Sized + Send+Sync,
+        R: Reporter<M> + Send,
+    {
+        let handles = self.handles();
+        let reporter_mutex = Arc::new(Mutex::new(reporter));
+        let reporter_mutex2 = Arc::clone(&reporter_mutex);
+
+        std::thread::scope(|s| {
+            let method_start = Instant::now();
+            let slf = &self;
+            let method_start2 = method_start.clone();
+            s.spawn(move || {
+                // Start with the checking status.
+                while !slf.is_done() {
+                    reporter_mutex.lock().unwrap().report_checking(ReportData {
+                        total_states: slf.state_count(),
+                        unique_states: slf.unique_state_count(),
+                        max_depth: slf.max_depth(),
+                        duration: method_start.elapsed(),
+                        done: false,
+                    });
+                    std::thread::sleep(std::time::Duration::from_millis(1_000));
+                }
+
+                // Finish with a discovery summary.
+                let mut discoveries = BTreeMap::new();
+                for (name, path) in slf.discoveries() {
+                    let discovery = ReportDiscovery {
+                        path,
+                        classification: slf.discovery_classification(name),
+                    };
+                    discoveries.insert(name, discovery);
+                }
+                reporter_mutex.lock().unwrap().report_discoveries(discoveries);
+            });
+
+            for h in handles {
+                h.join().expect("Failed to join checker thread");
+            }
+
+            reporter_mutex2.lock().unwrap().report_checking(ReportData {
+                total_states: self.state_count(),
+                unique_states: self.unique_state_count(),
+                max_depth: self.max_depth(),
+                duration: method_start2.elapsed(),
+                done: true,
+            });
+        });
+        self
     }
 
     /// Periodically emits a status message.
