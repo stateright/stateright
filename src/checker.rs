@@ -284,7 +284,15 @@ pub trait Checker<M: Model> {
     /// a specified maximum number of states.
     ///
     /// [`is_done`]: Self::is_done
-    fn join(self) -> Self;
+    fn join(mut self) -> Self
+    where
+        Self: Sized,
+    {
+        for h in self.handles() {
+            h.join().expect("Failed to join checker thread");
+        }
+        self
+    }
 
     /// Extract the thread handles from this checker.
     fn handles(&mut self) -> Vec<JoinHandle<()>>;
@@ -304,7 +312,7 @@ pub trait Checker<M: Model> {
     where
         M::Action: Debug,
         M::State: Debug,
-        Self: Sized + Send+Sync,
+        Self: Sized + Send + Sync,
         R: Reporter<M> + Send,
     {
         let handles = self.handles();
@@ -337,7 +345,10 @@ pub trait Checker<M: Model> {
                     };
                     discoveries.insert(name, discovery);
                 }
-                reporter_mutex.lock().unwrap().report_discoveries(discoveries);
+                reporter_mutex
+                    .lock()
+                    .unwrap()
+                    .report_discoveries(discoveries);
             });
 
             for h in handles {
