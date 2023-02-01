@@ -10,6 +10,7 @@ use std::hash::{BuildHasherDefault, Hash};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread::JoinHandle;
 
 // While this file is currently quite similar to bfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
@@ -368,6 +369,10 @@ where M: Model,
             h.join().unwrap();
         }
         self
+    }
+
+    fn handles(&mut self) -> Vec<JoinHandle<()>>{
+        std::mem::take(&mut self.handles)
     }
 
     fn is_done(&self) -> bool {
