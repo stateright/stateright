@@ -12,7 +12,7 @@ mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
 use crate::{Expectation, Model, Fingerprint};
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -322,7 +322,7 @@ pub trait Checker<M: Model> {
         });
 
         // Finish with a discovery summary.
-        let mut discoveries = HashMap::new();
+        let mut discoveries = BTreeMap::new();
         for (name, path) in self.discoveries() {
             let discovery = ReportDiscovery {
                 path,
