@@ -484,13 +484,6 @@ where
             .collect()
     }
 
-    fn join(mut self) -> Self {
-        for h in self.handles.drain(0..) {
-            h.join().unwrap();
-        }
-        self
-    }
-
     fn handles(&mut self) -> Vec<JoinHandle<()>>{
         std::mem::take(&mut self.handles)
     }
