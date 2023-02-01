@@ -324,7 +324,7 @@ pub trait Checker<M: Model> {
             let slf = &self;
             let method_start2 = method_start.clone();
             s.spawn(move || {
-                // Start with the checking status.
+                // Loop checking the status until we're done.
                 while !slf.is_done() {
                     reporter_mutex.lock().unwrap().report_checking(ReportData {
                         total_states: slf.state_count(),
@@ -335,26 +335,13 @@ pub trait Checker<M: Model> {
                     });
                     std::thread::sleep(std::time::Duration::from_millis(1_000));
                 }
-
-                // Finish with a discovery summary.
-                let mut discoveries = BTreeMap::new();
-                for (name, path) in slf.discoveries() {
-                    let discovery = ReportDiscovery {
-                        path,
-                        classification: slf.discovery_classification(name),
-                    };
-                    discoveries.insert(name, discovery);
-                }
-                reporter_mutex
-                    .lock()
-                    .unwrap()
-                    .report_discoveries(discoveries);
             });
 
             for h in handles {
                 h.join().expect("Failed to join checker thread");
             }
 
+            // Send a final report to say we're done.
             reporter_mutex2.lock().unwrap().report_checking(ReportData {
                 total_states: self.state_count(),
                 unique_states: self.unique_state_count(),
@@ -362,6 +349,20 @@ pub trait Checker<M: Model> {
                 duration: method_start2.elapsed(),
                 done: true,
             });
+
+            // Finish with a discovery summary.
+            let mut discoveries = BTreeMap::new();
+            for (name, path) in slf.discoveries() {
+                let discovery = ReportDiscovery {
+                    path,
+                    classification: slf.discovery_classification(name),
+                };
+                discoveries.insert(name, discovery);
+            }
+            reporter_mutex2
+                .lock()
+                .unwrap()
+                .report_discoveries(discoveries);
         });
         self
     }
