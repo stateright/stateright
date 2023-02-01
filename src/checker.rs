@@ -284,6 +284,9 @@ pub trait Checker<M: Model> {
     /// [`is_done`]: Self::is_done
     fn join(self) -> Self;
 
+    /// Extract the thread handles from this checker.
+    fn handles(&mut self) -> Vec<JoinHandle<()>>;
+
     /// Indicates that either all properties have associated discoveries or all reachable states
     /// have been visited.
     fn is_done(&self) -> bool;
