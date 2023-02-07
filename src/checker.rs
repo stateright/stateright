@@ -333,7 +333,8 @@ pub trait Checker<M: Model> {
                         duration: method_start.elapsed(),
                         done: false,
                     });
-                    std::thread::sleep(std::time::Duration::from_millis(1_000));
+                    let delay = reporter_mutex.lock().unwrap().delay();
+                    std::thread::sleep(delay);
                 }
             });
 
@@ -385,7 +386,8 @@ pub trait Checker<M: Model> {
                 duration: method_start.elapsed(),
                 done: false,
             });
-            std::thread::sleep(std::time::Duration::from_millis(1_000));
+            let delay = reporter.delay();
+            std::thread::sleep(delay);
         }
         reporter.report_checking(ReportData {
             total_states: self.state_count(),
