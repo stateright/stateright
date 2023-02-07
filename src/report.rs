@@ -40,6 +40,10 @@ pub trait Reporter<M: Model> {
     where
         M::Action: Debug,
         M::State: Debug;
+
+    fn delay(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(1_000)
+    }
 }
 
 pub struct WriteReporter<'a, W> {
