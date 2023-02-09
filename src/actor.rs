@@ -247,7 +247,7 @@ pub fn is_no_op<A: Actor>(state: &Cow<A::State>, out: &Out<A>) -> bool {
 #[allow(clippy::ptr_arg)] // `&Cow` needed for `matches!`
 pub fn is_no_op_with_timer<A: Actor>(state: &Cow<A::State>, out: &Out<A>, timer: &A::Timer) -> bool {
     let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(t, _) if t == timer));
-    let unmodified_out = out.0.is_empty() || (out.0.len() == 1 && keep_timer);
+    let unmodified_out = out.0.len() == 1 && keep_timer;
     matches!(state, Cow::Borrowed(_)) && unmodified_out
 }
 
