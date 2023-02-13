@@ -11,7 +11,7 @@ mod rewrite_plan;
 mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
-use crate::{Expectation, Model, Fingerprint};
+use crate::{Expectation, Fingerprint, Model};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -275,10 +275,10 @@ pub trait Checker<M: Model> {
     fn max_depth(&self) -> usize;
 
     /// Average number of actions a state generates.
-    fn average_out_degree(&self) -> f64;
+    fn out_degrees(&self) -> Vec<usize>;
 
     /// Average number of actions pointing that generate a particular state.
-    fn average_in_degree(&self) -> f64;
+    fn in_degrees(&self) -> Vec<usize>;
 
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
@@ -314,8 +314,8 @@ pub trait Checker<M: Model> {
                 total_states: self.state_count(),
                 unique_states: self.unique_state_count(),
                 max_depth: self.max_depth(),
-                average_out_degree: self.average_out_degree(),
-                average_in_degree: self.average_in_degree(),
+                out_degrees: self.out_degrees(),
+                in_degrees: self.in_degrees(),
                 duration: method_start.elapsed(),
                 done: false,
             });
@@ -325,8 +325,8 @@ pub trait Checker<M: Model> {
             total_states: self.state_count(),
             unique_states: self.unique_state_count(),
             max_depth: self.max_depth(),
-            average_out_degree: self.average_out_degree(),
-            average_in_degree: self.average_in_degree(),
+            out_degrees: self.out_degrees(),
+            in_degrees: self.in_degrees(),
             duration: method_start.elapsed(),
             done: true,
         });

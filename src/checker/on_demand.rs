@@ -28,7 +28,6 @@ pub(crate) struct OnDemandChecker<M: Model> {
     state_count: Arc<AtomicUsize>,
     max_depth: Arc<AtomicUsize>,
     // total degree, to be divided by total number of states to get the average degree per state
-    total_out_degree: Arc<AtomicUsize>,
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
@@ -284,7 +283,6 @@ where
             job_market,
             state_count,
             max_depth,
-            total_out_degree,
             generated,
             discoveries,
             control_flow: controlflow_to_check_sender,
@@ -479,14 +477,12 @@ where
         self.max_depth.load(Ordering::Relaxed)
     }
 
-    fn average_out_degree(&self) -> f64 {
-        let total = self.total_out_degree.load(Ordering::Relaxed);
-        let state_count = self.state_count();
-        total as f64 / state_count as f64
+    fn out_degrees(&self) -> Vec<usize> {
+        Vec::new()
     }
 
-    fn average_in_degree(&self) -> f64 {
-        0.
+    fn in_degrees(&self) -> Vec<usize> {
+        Vec::new()
     }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {

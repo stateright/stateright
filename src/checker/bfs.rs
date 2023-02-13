@@ -15,6 +15,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
 
+#[derive(Default)]
+struct NodeData {
+    in_degree: usize,
+    out_degree: usize,
+    parent_fingerprint: Option<Fingerprint>,
+}
+
 pub(crate) struct BfsChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
@@ -25,9 +32,7 @@ pub(crate) struct BfsChecker<M: Model> {
     job_market: Arc<Mutex<JobMarket<M::State>>>,
     state_count: Arc<AtomicUsize>,
     max_depth: Arc<AtomicUsize>,
-    // total degree, to be divided by total number of states to get the average degree per state
-    total_out_degree: Arc<AtomicUsize>,
-    generated: Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
+    generated: Arc<DashMap<Fingerprint, NodeData, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
 }
 struct JobMarket<State> { wait_count: usize, jobs: Vec<Job<State>> }
@@ -50,10 +55,9 @@ where M: Model + Send + Sync + 'static,
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let max_depth = Arc::new(AtomicUsize::new(0));
-        let total_out_degree = Arc::new(AtomicUsize::new(0));
         let generated = Arc::new({
             let generated = DashMap::default();
-            for s in &init_states { generated.insert(fingerprint(s), None); }
+            for s in &init_states { generated.insert(fingerprint(s), NodeData::default()); }
             generated
         });
         let ebits = {
@@ -86,7 +90,6 @@ where M: Model + Send + Sync + 'static,
             let job_market = Arc::clone(&job_market);
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
-            let total_out_degree = Arc::clone(&total_out_degree);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
             handles.push(std::thread::Builder::new()
@@ -131,7 +134,6 @@ where M: Model + Send + Sync + 'static,
                         1500,
                         target_max_depth,
                         &max_depth,
-                        &total_out_degree,
                     );
                     if discoveries.len() == property_count {
                         log::debug!("{}: Discovery complete. Shutting down... gen={}", t, generated.len());
@@ -173,7 +175,6 @@ where M: Model + Send + Sync + 'static,
             job_market,
             state_count,
             max_depth,
-            total_out_degree,
             generated,
             discoveries,
         }
@@ -182,14 +183,13 @@ where M: Model + Send + Sync + 'static,
     fn check_block(
         model: &M,
         state_count: &AtomicUsize,
-        generated: &DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
+        generated: &DashMap<Fingerprint, NodeData, BuildHasherDefault<NoHashHasher<u64>>>,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         mut max_count: usize,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
-        total_out_degree: &AtomicUsize,
     ) {
         let properties = model.properties();
 
@@ -262,7 +262,11 @@ where M: Model + Send + Sync + 'static,
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            total_out_degree.fetch_add(actions.len(), Ordering::Relaxed);
+            let generated_fingerprint = fingerprint(&state);
+            generated
+                .entry(generated_fingerprint)
+                .and_modify(|nd| nd.out_degree = actions.len());
+
             let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
             for next_state in next_states {
                 // Skip if outside boundary.
@@ -278,19 +282,29 @@ where M: Model + Send + Sync + 'static,
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
                 let next_fingerprint = fingerprint(&next_state);
-                if let Entry::Vacant(next_entry) = generated.entry(next_fingerprint) {
-                    next_entry.insert(Some(state_fp));
-                } else {
-                    // FIXME: arriving at an already-known state may be a loop (in which case it
-                    // could, in a fancier implementation, be considered a terminal state for
-                    // purposes of eventually-property checking) but it might also be a join in
-                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                    // some cost), but for now we just _don't_ treat them as terminal, and tell
-                    // users they need to explicitly ensure model path-acyclicality when they're
-                    // using eventually properties (using a boundary or empty actions or
-                    // whatever).
-                    is_terminal = false;
-                    continue
+                match generated.entry(next_fingerprint) {
+                    Entry::Occupied(mut o) => {
+                        let nd = o.get_mut();
+                        nd.in_degree += 1;
+                        // FIXME: arriving at an already-known state may be a loop (in which case it
+                        // could, in a fancier implementation, be considered a terminal state for
+                        // purposes of eventually-property checking) but it might also be a join in
+                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                        // some cost), but for now we just _don't_ treat them as terminal, and tell
+                        // users they need to explicitly ensure model path-acyclicality when they're
+                        // using eventually properties (using a boundary or empty actions or
+                        // whatever).
+                        is_terminal = false;
+                        continue
+                    },
+                    Entry::Vacant(v) => {
+                        let nd = NodeData {
+                            in_degree: 1,
+                            out_degree: 0,
+                            parent_fingerprint: Some(state_fp),
+                        };
+                        v.insert(nd);
+                    },
                 }
 
                 // Otherwise further checking is applicable.
@@ -330,14 +344,18 @@ where M: Model,
         self.max_depth.load(Ordering::Relaxed)
     }
 
-    fn average_out_degree(&self) -> f64 {
-        let total = self.total_out_degree.load(Ordering::Relaxed);
-        let state_count = self.state_count();
-        total as f64 / state_count as f64
+    fn out_degrees(&self) -> Vec<usize>{
+        self.generated
+            .iter()
+            .map(|kv| kv.value().out_degree)
+            .collect()
     }
 
-    fn average_in_degree(&self) -> f64 {
-        0.
+    fn in_degrees(&self) -> Vec<usize>{
+        self.generated
+            .iter()
+            .map(|kv| kv.value().in_degree)
+            .collect()
     }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
@@ -367,7 +385,7 @@ where M: Model,
 
 fn reconstruct_path<M>(
     model: &M,
-    generated: &DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
+    generated: &DashMap<Fingerprint, NodeData, BuildHasherDefault<NoHashHasher<u64>>>,
     fp: Fingerprint)
     -> Path<M::State, M::Action>
     where M: Model,
@@ -381,7 +399,7 @@ fn reconstruct_path<M>(
     let mut fingerprints = VecDeque::new();
     let mut next_fp = fp;
     while let Some(source) = generated.get(&next_fp) {
-        match *source {
+        match source.parent_fingerprint {
             Some(prev_fingerprint) => {
                 fingerprints.push_front(next_fp);
                 next_fp = prev_fingerprint;

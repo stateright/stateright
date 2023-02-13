@@ -14,9 +14,9 @@ pub struct ReportData {
     /// Maximum depth explored.
     pub max_depth: usize,
     /// The average number of actions each state generates.
-    pub average_out_degree: f64,
+    pub out_degrees: Vec<usize>,
     /// The average number of actions pointing to each state.
-    pub average_in_degree: f64,
+    pub in_degrees: Vec<usize>,
     /// The current duration checking has been running for.
     pub duration: Duration,
     /// Whether checking is done.
@@ -62,6 +62,11 @@ where
     W: Write,
 {
     fn report_checking(&mut self, data: ReportData) {
+        let total_out_degree: usize = data.out_degrees.iter().sum();
+        let average_out_degree = total_out_degree as f64 / data.total_states as f64;
+        let total_in_degree: usize = data.in_degrees.iter().sum();
+        let average_in_degree = total_in_degree as f64 / data.unique_states as f64;
+
         if data.done {
             let _ = writeln!(
                 self.writer,
@@ -69,15 +74,19 @@ where
                 data.total_states,
                 data.unique_states,
                 data.max_depth,
-                data.average_out_degree,
-                data.average_in_degree,
+                average_out_degree,
+                average_in_degree,
                 data.duration.as_secs(),
             );
         } else {
             let _ = writeln!(
                 self.writer,
                 "Checking. states={}, unique={}, depth={}, avg out degree={}, avg in degree={}",
-                data.total_states, data.unique_states, data.max_depth, data.average_out_degree, data.average_in_degree
+                data.total_states,
+                data.unique_states,
+                data.max_depth,
+                average_out_degree,
+                average_in_degree
             );
         }
     }
