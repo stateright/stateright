@@ -13,9 +13,9 @@ pub struct ReportData {
     pub unique_states: usize,
     /// Maximum depth explored.
     pub max_depth: usize,
-    /// The average number of actions each state generates.
+    /// The out degrees of states in the model.
     pub out_degrees: Vec<usize>,
-    /// The average number of actions pointing to each state.
+    /// The in degrees of states in the model.
     pub in_degrees: Vec<usize>,
     /// The current duration checking has been running for.
     pub duration: Duration,

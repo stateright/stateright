@@ -27,7 +27,6 @@ pub(crate) struct OnDemandChecker<M: Model> {
     job_market: Arc<Mutex<JobMarket<M::State>>>,
     state_count: Arc<AtomicUsize>,
     max_depth: Arc<AtomicUsize>,
-    // total degree, to be divided by total number of states to get the average degree per state
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
