@@ -13,9 +13,9 @@ pub struct ReportData {
     pub unique_states: usize,
     /// Maximum depth explored.
     pub max_depth: usize,
-    /// The out degrees of states in the model.
+    /// The out degrees of **unique** states in the model.
     pub out_degrees: Vec<usize>,
-    /// The in degrees of states in the model.
+    /// The in degrees of **unique** states in the model.
     pub in_degrees: Vec<usize>,
     /// The current duration checking has been running for.
     pub duration: Duration,
@@ -63,7 +63,7 @@ where
 {
     fn report_checking(&mut self, data: ReportData) {
         let total_out_degree: usize = data.out_degrees.iter().sum();
-        let average_out_degree = total_out_degree as f64 / data.total_states as f64;
+        let average_out_degree = total_out_degree as f64 / data.unique_states as f64;
         let total_in_degree: usize = data.in_degrees.iter().sum();
         let average_in_degree = total_in_degree as f64 / data.unique_states as f64;
 

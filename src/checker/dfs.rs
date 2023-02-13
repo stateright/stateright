@@ -352,12 +352,14 @@ where
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
             let fingerprint = Self::calculate_fingerprint(&state, symmetry);
+
+            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a)).collect::<Vec<_>>();
+
             let generated_fingerprint = fingerprint.generated_fingerprint();
             generated
                 .entry(generated_fingerprint)
-                .and_modify(|nd| nd.out_degree = actions.len());
+                .and_modify(|nd| nd.out_degree = next_states.len());
 
-            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
             for next_state in next_states {
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) {
