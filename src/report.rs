@@ -63,9 +63,9 @@ where
 {
     fn report_checking(&mut self, data: ReportData) {
         let total_out_degree: usize = data.out_degrees.iter().sum();
-        let average_out_degree = total_out_degree as f64 / data.unique_states as f64;
+        let average_out_degree = total_out_degree as f64 / data.out_degrees.len() as f64;
         let total_in_degree: usize = data.in_degrees.iter().sum();
-        let average_in_degree = total_in_degree as f64 / data.unique_states as f64;
+        let average_in_degree = total_in_degree as f64 / data.in_degrees.len() as f64;
 
         if data.done {
             let _ = writeln!(
