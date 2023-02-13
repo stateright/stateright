@@ -620,7 +620,7 @@ mod test_report {
             output.starts_with(
                 "\
                 Checking. states=1, unique=1, depth=0, avg out degree=0, avg in degree=0\n\
-                Done. states=15, unique=12, depth=4, avg out degree=0.9333333333333333, avg in degree=0, sec="
+                Done. states=15, unique=12, depth=4, avg out degree=0.9333333333333333, avg in degree=1.1666666666666667, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output
