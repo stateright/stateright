@@ -619,8 +619,8 @@ mod test_report {
         assert!(
             output.starts_with(
                 "\
-                Checking. states=1, unique=1, depth=0\n\
-                Done. states=15, unique=12, depth=4, sec="
+                Checking. states=1, unique=1, depth=0, avg out degree=0, avg in degree=0\n\
+                Done. states=15, unique=12, depth=4, avg out degree=0.9333333333333333, avg in degree=0, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output
@@ -647,8 +647,8 @@ mod test_report {
         assert!(
             output.starts_with(
                 "\
-                Checking. states=1, unique=1, depth=0\n\
-                Done. states=55, unique=55, depth=28, sec="
+                Checking. states=1, unique=1, depth=0, avg out degree=0, avg in degree=0\n\
+                Done. states=55, unique=55, depth=28, avg out degree=0.9818181818181818, avg in degree=0.9818181818181818, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output
