@@ -274,8 +274,11 @@ pub trait Checker<M: Model> {
     /// Indicates the maximum depth that has been explored.
     fn max_depth(&self) -> usize;
 
-    /// Average number of a actions a state generates.
+    /// Average number of actions a state generates.
     fn average_out_degree(&self) -> f64;
+
+    /// Average number of actions pointing that generate a particular state.
+    fn average_in_degree(&self) -> f64;
 
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
@@ -311,7 +314,8 @@ pub trait Checker<M: Model> {
                 total_states: self.state_count(),
                 unique_states: self.unique_state_count(),
                 max_depth: self.max_depth(),
-                average_out_degree:self.average_out_degree(),
+                average_out_degree: self.average_out_degree(),
+                average_in_degree: self.average_in_degree(),
                 duration: method_start.elapsed(),
                 done: false,
             });
@@ -321,7 +325,8 @@ pub trait Checker<M: Model> {
             total_states: self.state_count(),
             unique_states: self.unique_state_count(),
             max_depth: self.max_depth(),
-                average_out_degree:self.average_out_degree(),
+            average_out_degree: self.average_out_degree(),
+            average_in_degree: self.average_in_degree(),
             duration: method_start.elapsed(),
             done: true,
         });

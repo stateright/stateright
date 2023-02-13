@@ -15,6 +15,8 @@ pub struct ReportData {
     pub max_depth: usize,
     /// The average number of actions each state generates.
     pub average_out_degree: f64,
+    /// The average number of actions pointing to each state.
+    pub average_in_degree: f64,
     /// The current duration checking has been running for.
     pub duration: Duration,
     /// Whether checking is done.
@@ -63,18 +65,19 @@ where
         if data.done {
             let _ = writeln!(
                 self.writer,
-                "Done. states={}, unique={}, depth={}, avg degree={}, sec={}",
+                "Done. states={}, unique={}, depth={}, avg out degree={}, avg in degree={}, sec={}",
                 data.total_states,
                 data.unique_states,
                 data.max_depth,
                 data.average_out_degree,
+                data.average_in_degree,
                 data.duration.as_secs(),
             );
         } else {
             let _ = writeln!(
                 self.writer,
-                "Checking. states={}, unique={}, depth={}, avg degree={}",
-                data.total_states, data.unique_states, data.max_depth, data.average_out_degree
+                "Checking. states={}, unique={}, depth={}, avg out degree={}, avg in degree={}",
+                data.total_states, data.unique_states, data.max_depth, data.average_out_degree, data.average_in_degree
             );
         }
     }

@@ -485,6 +485,10 @@ where
         total as f64 / state_count as f64
     }
 
+    fn average_in_degree(&self) -> f64 {
+        0.
+    }
+
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
         self.discoveries
             .iter()

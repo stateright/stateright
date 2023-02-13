@@ -2,7 +2,7 @@
 
 use crate::{CheckerBuilder, CheckerVisitor, Fingerprint, fingerprint, Model, Property};
 use crate::checker::{Checker, EventuallyBits, Expectation, Path};
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use nohash_hasher::NoHashHasher;
 use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
@@ -26,7 +26,8 @@ pub(crate) struct DfsChecker<M: Model> {
     max_depth: Arc<AtomicUsize>,
     // total degree, to be divided by total number of states to get the average degree per state
     total_out_degree: Arc<AtomicUsize>,
-    generated: Arc<DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>>,
+    // mapping from fingerprints to in-degree for that state
+    generated: Arc<DashMap<Fingerprint, usize, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Vec<Fingerprint>>>,
 }
 struct JobMarket<State> { wait_count: usize, jobs: Vec<Job<State>> }
@@ -52,12 +53,12 @@ where M: Model + Send + Sync + 'static,
         let max_depth = Arc::new(AtomicUsize::new(0));
         let total_out_degree = Arc::new(AtomicUsize::new(0));
         let generated = Arc::new({
-            let generated = DashSet::default();
+            let generated = DashMap::default();
             for s in &init_states {
                 if let Some(representative) = symmetry {
-                    generated.insert(fingerprint(&representative(s)));
+                    generated.insert(fingerprint(&representative(s)), 0);
                 } else {
-                    generated.insert(fingerprint(s));
+                    generated.insert(fingerprint(s), 0);
                 }
             }
             generated
@@ -191,7 +192,7 @@ where M: Model + Send + Sync + 'static,
     fn check_block(
         model: &M,
         state_count: &AtomicUsize,
-        generated: &DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>,
+        generated: &DashMap<Fingerprint, usize, BuildHasherDefault<NoHashHasher<u64>>>,
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
@@ -293,9 +294,15 @@ where M: Model + Send + Sync + 'static,
                 // possible false-negative.
                 let next_fingerprint = if let Some(representative) = symmetry {
                     let representative_fingerprint = fingerprint(&representative(&next_state));
-                    if !generated.insert(representative_fingerprint) {
-                        is_terminal = false;
-                        continue
+                    match generated.entry(representative_fingerprint) {
+                        dashmap::mapref::entry::Entry::Occupied(mut o) =>  {
+                            o.insert(o.get() + 1);
+                            is_terminal = false;
+                            continue
+                        },
+                        dashmap::mapref::entry::Entry::Vacant(v) => {
+                            v.insert(1);
+                        },
                     }
                     // IMPORTANT: continue the path with the pre-canonicalized state/fingerprint to
                     // avoid jumping to another part of the state space for which there may not be
@@ -303,17 +310,23 @@ where M: Model + Send + Sync + 'static,
                     fingerprint(&next_state)
                 } else {
                     let next_fingerprint = fingerprint(&next_state);
-                    if !generated.insert(next_fingerprint) {
-                        // FIXME: arriving at an already-known state may be a loop (in which case it
-                        // could, in a fancier implementation, be considered a terminal state for
-                        // purposes of eventually-property checking) but it might also be a join in
-                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                        // some cost), but for now we just _don't_ treat them as terminal, and tell
-                        // users they need to explicitly ensure model path-acyclicality when they're
-                        // using eventually properties (using a boundary or empty actions or
-                        // whatever).
-                        is_terminal = false;
-                        continue
+                    match generated.entry(next_fingerprint) {
+                        dashmap::mapref::entry::Entry::Occupied(mut o) => {
+                            o.insert(o.get() + 1);
+                            // FIXME: arriving at an already-known state may be a loop (in which case it
+                            // could, in a fancier implementation, be considered a terminal state for
+                            // purposes of eventually-property checking) but it might also be a join in
+                            // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                            // some cost), but for now we just _don't_ treat them as terminal, and tell
+                            // users they need to explicitly ensure model path-acyclicality when they're
+                            // using eventually properties (using a boundary or empty actions or
+                            // whatever).
+                            is_terminal = false;
+                            continue
+                        },
+                        dashmap::mapref::entry::Entry::Vacant(v) => {
+                            v.insert(1);
+                        },
                     }
                     next_fingerprint
                 };
@@ -361,6 +374,12 @@ where M: Model,
     fn average_out_degree(&self) -> f64 {
         let total = self.total_out_degree.load(Ordering::Relaxed);
         let state_count = self.state_count();
+        total as f64 / state_count as f64
+    }
+
+    fn average_in_degree(&self) -> f64 {
+        let total: usize = self.generated.iter().map(|kv| *kv.value()).sum();
+        let state_count = self.unique_state_count();
         total as f64 / state_count as f64
     }
 
