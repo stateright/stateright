@@ -357,12 +357,8 @@ where
                 .entry(generated_fingerprint)
                 .and_modify(|nd| nd.out_degree = actions.len());
 
-            for action in actions.drain(..) {
-                let next_state = match model.next_state(&state, action) {
-                    None => continue,
-                    Some(next_state) => next_state,
-                };
-
+            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
+            for next_state in next_states {
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) {
                     continue;
