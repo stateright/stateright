@@ -24,6 +24,8 @@ pub(crate) struct DfsChecker<M: Model> {
     job_market: Arc<Mutex<JobMarket<M::State>>>,
     state_count: Arc<AtomicUsize>,
     max_depth: Arc<AtomicUsize>,
+    // total degree, to be divided by total number of states to get the average degree per state
+    total_out_degree: Arc<AtomicUsize>,
     generated: Arc<DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Vec<Fingerprint>>>,
 }
@@ -48,6 +50,7 @@ where M: Model + Send + Sync + 'static,
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
         let max_depth = Arc::new(AtomicUsize::new(0));
+        let total_out_degree = Arc::new(AtomicUsize::new(0));
         let generated = Arc::new({
             let generated = DashSet::default();
             for s in &init_states {
@@ -89,6 +92,7 @@ where M: Model + Send + Sync + 'static,
             let job_market = Arc::clone(&job_market);
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
+            let total_out_degree = Arc::clone(&total_out_degree);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
             handles.push(std::thread::Builder::new()
@@ -133,6 +137,7 @@ where M: Model + Send + Sync + 'static,
                         1500,
                         target_max_depth,
                         &max_depth,
+                        &total_out_degree,
                         symmetry,
                     );
                     if discoveries.len() == property_count {
@@ -175,6 +180,7 @@ where M: Model + Send + Sync + 'static,
             job_market,
             state_count,
             max_depth,
+            total_out_degree,
             generated,
             discoveries,
         }
@@ -192,6 +198,7 @@ where M: Model + Send + Sync + 'static,
         mut max_count: usize,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
+        total_out_degree: &AtomicUsize,
         symmetry: Option<fn(&M::State) -> M::State>,
     ) {
         let properties = model.properties();
@@ -265,6 +272,7 @@ where M: Model + Send + Sync + 'static,
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
+            total_out_degree.fetch_add(actions.len(), Ordering::Relaxed);
             for action in actions.drain(..) {
                 let next_state = match model.next_state(&state, action) {
                     None => continue,
@@ -348,6 +356,12 @@ where M: Model,
 
     fn max_depth(&self) -> usize {
         self.max_depth.load(Ordering::Relaxed)
+    }
+
+    fn average_out_degree(&self) -> f64 {
+        let total = self.total_out_degree.load(Ordering::Relaxed);
+        let state_count = self.state_count();
+        total as f64 / state_count as f64
     }
 
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
