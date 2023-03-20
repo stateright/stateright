@@ -297,21 +297,17 @@ where
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
-        mut max_count: usize,
+        max_count: usize,
         global_max_depth: &AtomicUsize,
     ) {
         let properties = model.properties();
 
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
-        let mut local_pending = pending.drain(..).collect::<Vec<_>>();
+        let mut local_pending = pending
+            .drain(..max_count.min(pending.len()))
+            .collect::<Vec<_>>();
         loop {
-            // Done if reached max count.
-            if max_count == 0 {
-                return;
-            }
-            max_count -= 1;
-
             // Done if none pending.
             let (state, state_fp, mut ebits, max_depth) = match local_pending.pop() {
                 None => return,
@@ -382,16 +378,13 @@ where
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            let next_states = actions.drain(..).flat_map(|a| {
-                model
-                    .next_state(&state, a)
-                    .map(|s| (fingerprint(&state), s))
-            });
-            for (old_state_fp, next_state) in next_states {
+            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
+            for next_state in next_states {
+                let next_fp = fingerprint(&next_state);
                 log::debug!(
                     "checker generated state transition: {} -> {}",
-                    old_state_fp,
-                    fingerprint(&next_state)
+                    state_fp,
+                    next_fp
                 );
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) {
@@ -407,8 +400,7 @@ where
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = fingerprint(&next_state);
-                if let Entry::Vacant(next_entry) = generated.entry(next_fingerprint) {
+                if let Entry::Vacant(next_entry) = generated.entry(next_fp) {
                     next_entry.insert(Some(state_fp));
                 } else {
                     // FIXME: arriving at an already-known state may be a loop (in which case it
@@ -425,8 +417,12 @@ where
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
-                pending.push_front((next_state, next_fingerprint, ebits.clone(),
-                        NonZeroUsize::new(max_depth.get() + 1).unwrap()));
+                pending.push_front((
+                    next_state,
+                    next_fp,
+                    ebits.clone(),
+                    NonZeroUsize::new(max_depth.get() + 1).unwrap(),
+                ));
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {
