@@ -151,38 +151,10 @@ fn main() -> Result<(), pico_args::Error> {
             .threads(num_cpus::get())
             .serve(address);
         }
-        // Some("spawn") => {
-        //     let port = 3000;
-        //
-        //     println!("  A set of servers that implement Single Decree Paxos.");
-        //     println!("  You can monitor and interact using tcpdump and netcat.");
-        //     println!("  Use `tcpdump -D` if you see error `lo0: No such device exists`.");
-        //     println!("Examples:");
-        //     println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
-        //     println!("$ nc -u localhost {}", port);
-        //     println!("{}", serde_json::to_string(&RegisterMsg::Put::<RequestId, Value, ()>(1, 'X')).unwrap());
-        //     println!("{}", serde_json::to_string(&RegisterMsg::Get::<RequestId, Value, ()>(2)).unwrap());
-        //     println!();
-        //
-        //     // WARNING: Omits `ordered_reliable_link` to keep the message
-        //     //          protocol simple for `nc`.
-        //     let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 0));
-        //     let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
-        //     let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
-        //     spawn(
-        //         serde_json::to_vec,
-        //         |bytes| serde_json::from_slice(bytes),
-        //         vec![
-        //             (id0, PingerActor { peer_ids: vec![id1, id2] }),
-        //             (id1, PingerActor { peer_ids: vec![id0, id2] }),
-        //             (id2, PingerActor { peer_ids: vec![id0, id1] }),
-        //         ]).unwrap();
-        // }
         _ => {
             println!("USAGE:");
-            // println!("  ./paxos check [CLIENT_COUNT] [NETWORK]");
+            println!("  ./timers check [CLIENT_COUNT] [NETWORK]");
             println!("  ./timers explore [CLIENT_COUNT] [ADDRESS] [NETWORK]");
-            // println!("  ./paxos spawn");
             println!(
                 "NETWORK: {}",
                 Network::<<PingerActor as Actor>::Msg>::names().join(" | ")
