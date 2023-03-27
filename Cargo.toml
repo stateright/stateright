@@ -3,7 +3,7 @@ name = "stateright"
 version = "0.29.0"
 authors = ["Jonathan Nadal <jon.nadal@gmail.com>"]
 license = "MIT"
-edition = "2018"
+edition = "2021"
 
 description = "A model checker for implementing distributed systems."
 homepage = "https://www.stateright.rs"
