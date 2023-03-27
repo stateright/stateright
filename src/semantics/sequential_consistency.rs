@@ -105,7 +105,9 @@ where
                     thread_id, occupied_op_entry.get(), self.history_by_thread));
         };
         in_flight_elem.or_insert(op);
-        self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new); // `serialize` requires entry
+        self.history_by_thread
+            .entry(thread_id)
+            .or_insert_with(VecDeque::new); // `serialize` requires entry
         Ok(self)
     }
 
@@ -124,11 +126,19 @@ where
                 return Err(format!(
                     "There is no in-flight invocation for this thread ID. \
                      thread_id={:?}, unexpected_return={:?}, history={:?}",
-                    thread_id, ret, self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new)));
+                    thread_id,
+                    ret,
+                    self.history_by_thread
+                        .entry(thread_id)
+                        .or_insert_with(VecDeque::new)
+                ));
             }
             Some(op) => op,
         };
-        self.history_by_thread.entry(thread_id).or_insert_with(VecDeque::new).push_back((op, ret));
+        self.history_by_thread
+            .entry(thread_id)
+            .or_insert_with(VecDeque::new)
+            .push_back((op, ret));
         Ok(self)
     }
 
@@ -154,39 +164,48 @@ where
         RefObj::Op: Clone,
         RefObj::Ret: Clone,
     {
-        if !self.is_valid_history { return None }
+        if !self.is_valid_history {
+            return None;
+        }
         Self::serialize(
             Vec::new(),
             &self.init_ref_obj,
             &self.history_by_thread,
-            &self.in_flight_by_thread)
+            &self.in_flight_by_thread,
+        )
     }
 
     #[allow(clippy::type_complexity)]
     fn serialize(
-         valid_history: Vec<(RefObj::Op, RefObj::Ret)>, // total order
-         ref_obj: &RefObj,
-         remaining_history_by_thread: &BTreeMap<T, VecDeque<(RefObj::Op, RefObj::Ret)>>, // partial order
-         in_flight_by_thread: &BTreeMap<T, RefObj::Op>) // potential extension of partial order
-        -> Option<Vec<(RefObj::Op, RefObj::Ret)>>
+        valid_history: Vec<(RefObj::Op, RefObj::Ret)>, // total order
+        ref_obj: &RefObj,
+        remaining_history_by_thread: &BTreeMap<T, VecDeque<(RefObj::Op, RefObj::Ret)>>, // partial order
+        in_flight_by_thread: &BTreeMap<T, RefObj::Op>,
+    ) -> Option<Vec<(RefObj::Op, RefObj::Ret)>>
     where
         RefObj: Clone,
         RefObj::Op: Clone,
         RefObj::Ret: Clone,
     {
         // Return collected total order when there is no remaining partial order to interleave.
-        let done = remaining_history_by_thread.iter().all(|(_id, h)| h.is_empty());
-        if done { return Some(valid_history); }
+        let done = remaining_history_by_thread
+            .iter()
+            .all(|(_id, h)| h.is_empty());
+        if done {
+            return Some(valid_history);
+        }
 
         // Otherwise try remaining interleavings.
         for (thread_id, remaining_history) in remaining_history_by_thread.iter() {
-            let mut remaining_history_by_thread = std::borrow::Cow::Borrowed(remaining_history_by_thread);
+            let mut remaining_history_by_thread =
+                std::borrow::Cow::Borrowed(remaining_history_by_thread);
             let mut in_flight_by_thread = std::borrow::Cow::Borrowed(in_flight_by_thread);
             let (ref_obj, valid_history) = if remaining_history.is_empty() {
                 // Case 1: No remaining history to interleave. Maybe in-flight.
-                if !in_flight_by_thread.contains_key(thread_id) { continue }
-                let op = in_flight_by_thread.to_mut()
-                    .remove(thread_id).unwrap(); // `contains_key` above
+                if !in_flight_by_thread.contains_key(thread_id) {
+                    continue;
+                }
+                let op = in_flight_by_thread.to_mut().remove(thread_id).unwrap(); // `contains_key` above
                 let mut ref_obj = ref_obj.clone();
                 let ret = ref_obj.invoke(&op);
                 let mut valid_history = valid_history.clone();
@@ -194,18 +213,27 @@ where
                 (ref_obj, valid_history)
             } else {
                 // Case 2: Has remaining history to interleave.
-                let (op, ret) = remaining_history_by_thread.to_mut()
-                    .get_mut(thread_id).unwrap() // iterator returned this thread ID
-                    .pop_front().unwrap();       // `!is_empty()` above
+                let (op, ret) = remaining_history_by_thread
+                    .to_mut()
+                    .get_mut(thread_id)
+                    .unwrap() // iterator returned this thread ID
+                    .pop_front()
+                    .unwrap(); // `!is_empty()` above
                 let mut ref_obj = ref_obj.clone();
-                if !ref_obj.is_valid_step(&op, &ret) { continue }
+                if !ref_obj.is_valid_step(&op, &ret) {
+                    continue;
+                }
                 let mut valid_history = valid_history.clone();
                 valid_history.push((op, ret));
                 (ref_obj, valid_history)
             };
             if let Some(valid_history) = Self::serialize(
-                        valid_history, &ref_obj, &remaining_history_by_thread, &in_flight_by_thread) {
-                return Some(valid_history)
+                valid_history,
+                &ref_obj,
+                &remaining_history_by_thread,
+                &in_flight_by_thread,
+            ) {
+                return Some(valid_history);
             }
         }
         None
@@ -213,7 +241,8 @@ where
 }
 
 impl<T: Ord, RefObj> Default for SequentialConsistencyTester<T, RefObj>
-where RefObj: Default + SequentialSpec
+where
+    RefObj: Default + SequentialSpec,
 {
     fn default() -> Self {
         Self::new(RefObj::default())
@@ -221,10 +250,11 @@ where RefObj: Default + SequentialSpec
 }
 
 impl<T, RefObj> serde::Serialize for SequentialConsistencyTester<T, RefObj>
-where RefObj: serde::Serialize + SequentialSpec,
-      RefObj::Op: serde::Serialize,
-      RefObj::Ret: serde::Serialize,
-      T: Ord + serde::Serialize,
+where
+    RefObj: serde::Serialize + SequentialSpec,
+    RefObj::Op: serde::Serialize,
+    RefObj::Ret: serde::Serialize,
+    T: Ord + serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         use serde::ser::SerializeStruct;
@@ -258,7 +288,9 @@ mod test {
             Err("There is no in-flight invocation for this thread ID. \
                  thread_id=99, \
                  unexpected_return=WriteOk, \
-                 history=[(Write('B'), WriteOk), (Write('C'), WriteOk)]".to_string()));
+                 history=[(Write('B'), WriteOk), (Write('C'), WriteOk)]"
+                .to_string())
+        );
         Ok(())
     }
 
@@ -269,18 +301,18 @@ mod test {
                 .on_invoke(0, RegisterOp::Write('B'))?
                 .on_invret(1, RegisterOp::Read, RegisterRet::ReadOk('A'))?
                 .serialized_history(),
-            Some(vec![
-                 (RegisterOp::Read,       RegisterRet::ReadOk('A')),
-            ]));
+            Some(vec![(RegisterOp::Read, RegisterRet::ReadOk('A')),])
+        );
         assert_eq!(
             SequentialConsistencyTester::new(Register('A'))
                 .on_invret(0, RegisterOp::Read, RegisterRet::ReadOk('B'))?
                 .on_invoke(1, RegisterOp::Write('B'))?
                 .serialized_history(),
             Some(vec![
-                 (RegisterOp::Write('B'), RegisterRet::WriteOk),
-                 (RegisterOp::Read,       RegisterRet::ReadOk('B')),
-            ]));
+                (RegisterOp::Write('B'), RegisterRet::WriteOk),
+                (RegisterOp::Read, RegisterRet::ReadOk('B')),
+            ])
+        );
         Ok(())
     }
 
@@ -290,7 +322,8 @@ mod test {
             SequentialConsistencyTester::new(Register('A'))
                 .on_invret(0, RegisterOp::Read, RegisterRet::ReadOk('B'))?
                 .serialized_history(),
-            None);
+            None
+        );
         Ok(())
     }
 
@@ -300,31 +333,32 @@ mod test {
             SequentialConsistencyTester::new(Vec::new())
                 .on_invoke(0, VecOp::Push(10))?
                 .serialized_history(),
-            Some(vec![]));
+            Some(vec![])
+        );
         assert_eq!(
             SequentialConsistencyTester::new(Vec::new())
                 .on_invoke(0, VecOp::Push(10))?
                 .on_invret(1, VecOp::Pop, VecRet::PopOk(None))?
                 .serialized_history(),
-            Some(vec![
-                (VecOp::Pop, VecRet::PopOk(None)),
-            ]));
+            Some(vec![(VecOp::Pop, VecRet::PopOk(None)),])
+        );
         assert_eq!(
             SequentialConsistencyTester::new(Vec::new())
-                .on_invret(1, VecOp::Pop,      VecRet::PopOk(Some(10)))?
+                .on_invret(1, VecOp::Pop, VecRet::PopOk(Some(10)))?
                 .on_invret(0, VecOp::Push(10), VecRet::PushOk)?
-                .on_invret(0, VecOp::Pop,      VecRet::PopOk(Some(20)))?
+                .on_invret(0, VecOp::Pop, VecRet::PopOk(Some(20)))?
                 .on_invoke(0, VecOp::Push(30))?
                 .on_invret(1, VecOp::Push(20), VecRet::PushOk)?
-                .on_invret(1, VecOp::Pop,      VecRet::PopOk(None))?
+                .on_invret(1, VecOp::Pop, VecRet::PopOk(None))?
                 .serialized_history(),
             Some(vec![
                 (VecOp::Push(10), VecRet::PushOk),
-                (VecOp::Pop,      VecRet::PopOk(Some(10))),
+                (VecOp::Pop, VecRet::PopOk(Some(10))),
                 (VecOp::Push(20), VecRet::PushOk),
-                (VecOp::Pop,      VecRet::PopOk(Some(20))),
-                (VecOp::Pop,      VecRet::PopOk(None)),
-            ]));
+                (VecOp::Pop, VecRet::PopOk(Some(20))),
+                (VecOp::Pop, VecRet::PopOk(None)),
+            ])
+        );
         Ok(())
     }
 
@@ -334,11 +368,12 @@ mod test {
             SequentialConsistencyTester::new(Vec::new())
                 .on_invret(0, VecOp::Push(10), VecRet::PushOk)?
                 .on_invoke(0, VecOp::Push(20))?
-                .on_invret(1, VecOp::Len,      VecRet::LenOk(2))?
-                .on_invret(1, VecOp::Pop,      VecRet::PopOk(Some(10)))?
-                .on_invret(1, VecOp::Pop,      VecRet::PopOk(Some(20)))?
+                .on_invret(1, VecOp::Len, VecRet::LenOk(2))?
+                .on_invret(1, VecOp::Pop, VecRet::PopOk(Some(10)))?
+                .on_invret(1, VecOp::Pop, VecRet::PopOk(Some(20)))?
                 .serialized_history(),
-            None);
+            None
+        );
         Ok(())
     }
 }

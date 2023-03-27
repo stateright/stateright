@@ -84,7 +84,10 @@ impl<K, V> DenseNatMap<K, V> {
     }
 
     /// Accepts a key, and returns [`None`] if invalid, otherwise [`Some`]`(value)`.
-    pub fn get(&self, key: K) -> Option<&V> where usize: From<K> {
+    pub fn get(&self, key: K) -> Option<&V>
+    where
+        usize: From<K>,
+    {
         let index = usize::from(key);
         self.values.get(index)
     }
@@ -93,8 +96,9 @@ impl<K, V> DenseNatMap<K, V> {
     /// otherwise [`Some`]`(previous_value)`. Panics if neither overwriting a key nor inserting at
     /// the end.
     pub fn insert(&mut self, key: K, mut value: V) -> Option<V>
-    where usize: From<K>,
-          K: From<usize>,
+    where
+        usize: From<K>,
+        K: From<usize>,
     {
         let index = usize::from(key);
         if index > self.values.len() {
@@ -111,22 +115,23 @@ impl<K, V> DenseNatMap<K, V> {
     /// Returns an iterator over pairs in the map whereby values are borrowed.
     ///
     /// See also [`DenseNatMap::values`].
-    pub fn iter(&self) -> impl Iterator<Item=(K, &V)>
-    where K: From<usize>,
+    pub fn iter(&self) -> impl Iterator<Item = (K, &V)>
+    where
+        K: From<usize>,
     {
-        self.values.iter()
-            .enumerate()
-            .map(|(i, v)| (K::from(i), v))
+        self.values.iter().enumerate().map(|(i, v)| (K::from(i), v))
     }
 
     /// Returns the number of elements in the map.
     #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize { self.values.len() }
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
 
     /// Returns an iterator over values in the map.
     ///
     /// See also [`DenseNatMap::iter`].
-    pub fn values(&self) -> impl Iterator<Item=&V> {
+    pub fn values(&self) -> impl Iterator<Item = &V> {
         self.values.iter()
     }
 }
@@ -146,19 +151,25 @@ impl<K, V> From<Vec<V>> for DenseNatMap<K, V> {
     }
 }
 
-impl<K, V> FromIterator<(K, V)> for DenseNatMap<K, V> where usize: From<K> {
-    fn from_iter<T: IntoIterator<Item=(K, V)>>(iter: T) -> Self {
+impl<K, V> FromIterator<(K, V)> for DenseNatMap<K, V>
+where
+    usize: From<K>,
+{
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self {
             values: {
-                let mut pairs: Vec<_> = iter.into_iter()
-                    .map(|(k, v)| (usize::from(k), v))
-                    .collect();
+                let mut pairs: Vec<_> =
+                    iter.into_iter().map(|(k, v)| (usize::from(k), v)).collect();
                 pairs.sort_by_key(|(k, _)| *k);
-                pairs.into_iter()
+                pairs
+                    .into_iter()
                     .enumerate()
                     .map(|(i_expected, (i, v))| {
                         if i != i_expected {
-                            panic!("Invalid key at index. index={}, expected_index={}", i, i_expected);
+                            panic!(
+                                "Invalid key at index. index={}, expected_index={}",
+                                i, i_expected
+                            );
                         }
                         v
                     })
@@ -170,7 +181,7 @@ impl<K, V> FromIterator<(K, V)> for DenseNatMap<K, V> where usize: From<K> {
 }
 
 impl<K, V> FromIterator<V> for DenseNatMap<K, V> {
-    fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
+    fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
         Self {
             values: iter.into_iter().collect(),
             _key: PhantomData,
@@ -179,7 +190,8 @@ impl<K, V> FromIterator<V> for DenseNatMap<K, V> {
 }
 
 impl<K, V> Index<K> for DenseNatMap<K, V>
-where usize: From<K>,
+where
+    usize: From<K>,
 {
     type Output = V;
     fn index(&self, key: K) -> &Self::Output {
@@ -188,28 +200,31 @@ where usize: From<K>,
 }
 
 impl<K, V> IndexMut<K> for DenseNatMap<K, V>
-where usize: From<K>,
+where
+    usize: From<K>,
 {
     fn index_mut(&mut self, key: K) -> &mut Self::Output {
         self.values.index_mut(usize::from(key))
     }
 }
 
-impl<K, V> IntoIterator for DenseNatMap<K, V> where K: From<usize> {
+impl<K, V> IntoIterator for DenseNatMap<K, V>
+where
+    K: From<usize>,
+{
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
-        IntoIter(
-            self.values.into_iter().enumerate(),
-            PhantomData)
+        IntoIter(self.values.into_iter().enumerate(), PhantomData)
     }
 }
 
 impl<R, K, V> Rewrite<R> for DenseNatMap<K, V>
-where K: From<usize> + Rewrite<R>,
-      V: Rewrite<R>,
-      usize: From<K>,
+where
+    K: From<usize> + Rewrite<R>,
+    V: Rewrite<R>,
+    usize: From<K>,
 {
     #[inline(always)]
     fn rewrite<S>(&self, plan: &RewritePlan<R, S>) -> Self {
@@ -223,11 +238,12 @@ where K: From<usize> + Rewrite<R>,
 }
 
 /// An iterator that moves out of a [`DenseNatMap`].
-pub struct IntoIter<K, V>(
-    std::iter::Enumerate<std::vec::IntoIter<V>>,
-    PhantomData<K>);
+pub struct IntoIter<K, V>(std::iter::Enumerate<std::vec::IntoIter<V>>, PhantomData<K>);
 
-impl<K, V> Iterator for IntoIter<K, V> where K: From<usize> {
+impl<K, V> Iterator for IntoIter<K, V>
+where
+    K: From<usize>,
+{
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -237,19 +253,24 @@ impl<K, V> Iterator for IntoIter<K, V> where K: From<usize> {
 
 #[cfg(test)]
 mod test {
-    use crate::actor::Id;
-    use std::collections::{BTreeSet, BTreeMap};
     use super::*;
+    use crate::actor::Id;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     pub fn can_construct_and_insert() {
         let mut m = DenseNatMap::new();
         m.insert(Id::from(0), "first");
         m.insert(Id::from(1), "second");
-        assert_eq!(m.into_iter().collect::<BTreeSet<_>>(), vec![
-            (Id::from(1), "second"), // out of order is fine here
-            (Id::from(0), "first"),
-        ].into_iter().collect());
+        assert_eq!(
+            m.into_iter().collect::<BTreeSet<_>>(),
+            vec![
+                (Id::from(1), "second"), // out of order is fine here
+                (Id::from(0), "first"),
+            ]
+            .into_iter()
+            .collect()
+        );
     }
 
     #[test]

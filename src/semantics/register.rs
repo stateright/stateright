@@ -1,24 +1,27 @@
 //! Implements [`SequentialSpec`] for [`Register`] operational semantics.
 
-use std::fmt::Debug;
 use super::SequentialSpec;
+use std::fmt::Debug;
 
 /// A simple register used to define reference operational semantics via
 /// [`SequentialSpec`].
-#[derive(Clone, Default, Debug, Hash, PartialEq)]
-#[derive(serde::Serialize)]
+#[derive(Clone, Default, Debug, Hash, PartialEq, serde::Serialize)]
 pub struct Register<T>(pub T);
 
 /// An operation that can be invoked upon a [`Register`], resulting in a
 /// [`RegisterRet`]
-#[derive(Clone, Debug, Hash, PartialEq)]
-#[derive(serde::Serialize)]
-pub enum RegisterOp<T> { Write(T), Read }
+#[derive(Clone, Debug, Hash, PartialEq, serde::Serialize)]
+pub enum RegisterOp<T> {
+    Write(T),
+    Read,
+}
 
 /// A return value for a [`RegisterOp`] invoked upon a [`Register`].
-#[derive(Clone, Debug, Hash, PartialEq)]
-#[derive(serde::Serialize)]
-pub enum RegisterRet<T> { WriteOk, ReadOk(T) }
+#[derive(Clone, Debug, Hash, PartialEq, serde::Serialize)]
+pub enum RegisterRet<T> {
+    WriteOk,
+    ReadOk(T),
+}
 
 impl<T: Clone + Debug + PartialEq> SequentialSpec for Register<T> {
     type Op = RegisterOp<T>;
@@ -39,9 +42,7 @@ impl<T: Clone + Debug + PartialEq> SequentialSpec for Register<T> {
                 self.0 = v.clone();
                 true
             }
-            (RegisterOp::Read, RegisterRet::ReadOk(v)) => {
-                &self.0 == v
-            }
+            (RegisterOp::Read, RegisterRet::ReadOk(v)) => &self.0 == v,
             _ => false,
         }
     }

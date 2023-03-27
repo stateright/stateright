@@ -1,10 +1,10 @@
 //! Private module for selective re-export.
 
-use crate::Rewrite;
 use crate::util::DenseNatMap;
+use crate::Rewrite;
+use std::fmt;
 use std::iter::FromIterator;
 use std::ops::Index;
-use std::fmt;
 
 /// A `RewritePlan<R>` is derived from a data structure instance and indicates how values of type
 /// `R` (short for "rewritten") should be rewritten. When that plan is recursively applied via
@@ -16,11 +16,14 @@ use std::fmt;
 ///
 /// [`Model::State`]: crate::Model::State
 /// [`Representative`]: crate::Representative
-pub struct RewritePlan<R,S> {s: S, f: fn(&R, &S) -> R}
+pub struct RewritePlan<R, S> {
+    s: S,
+    f: fn(&R, &S) -> R,
+}
 
-impl<R,S> RewritePlan<R,S> {
+impl<R, S> RewritePlan<R, S> {
     /// Applies the rewrite plan to a value of type R
-    pub fn rewrite(&self, x : &R) -> R {
+    pub fn rewrite(&self, x: &R) -> R {
         (self.f)(x, &self.s)
     }
 
@@ -30,13 +33,14 @@ impl<R,S> RewritePlan<R,S> {
     }
 
     /// Creates a new rewrite plan from a given state and function
-    pub fn new(s : S, f: fn(&R, &S) -> R) -> Self {
-        RewritePlan{s,f}
+    pub fn new(s: S, f: fn(&R, &S) -> R) -> Self {
+        RewritePlan { s, f }
     }
 }
 
-impl<R,S> fmt::Debug for RewritePlan<R, S>
-where S: fmt::Debug
+impl<R, S> fmt::Debug for RewritePlan<R, S>
+where
+    S: fmt::Debug,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("RewritePlan")
@@ -45,112 +49,113 @@ where S: fmt::Debug
     }
 }
 
-impl<R, V> From<DenseNatMap<R, V>> for RewritePlan<R,DenseNatMap<R,R>>
-where R: From<usize> + Copy,
-      usize: From<R>,
-      V: Ord,
+impl<R, V> From<DenseNatMap<R, V>> for RewritePlan<R, DenseNatMap<R, R>>
+where
+    R: From<usize> + Copy,
+    usize: From<R>,
+    V: Ord,
 {
-    fn from(s: DenseNatMap<R,V>) -> Self {
+    fn from(s: DenseNatMap<R, V>) -> Self {
         Self::from_values_to_sort(s.values())
     }
 }
 
-impl<R, V> From<&DenseNatMap<R, V>> for RewritePlan<R,DenseNatMap<R,R>>
-where R: From<usize> + Copy,
-      usize: From<R>,
-      V: Ord,
+impl<R, V> From<&DenseNatMap<R, V>> for RewritePlan<R, DenseNatMap<R, R>>
+where
+    R: From<usize> + Copy,
+    usize: From<R>,
+    V: Ord,
 {
-    fn from(s: &DenseNatMap<R,V>) -> Self {
+    fn from(s: &DenseNatMap<R, V>) -> Self {
         Self::from_values_to_sort(s.values())
     }
 }
 
 impl<R> RewritePlan<R, DenseNatMap<R, R>>
-where R: From<usize> + Copy,
-      usize: From<R>,
+where
+    R: From<usize> + Copy,
+    usize: From<R>,
 {
     /// Constructs a `RewritePlan` by sorting values in a specified iterator. Favor using the
     ///  [`RewritePlan::new`] constructor over this one as it provides additional type safety.
-    pub fn from_values_to_sort<'a, V: 'a>(to_sort: impl IntoIterator<Item=&'a V>) -> Self
-    where R: From<usize>,
-          usize: From<R>,
-          V: Ord,
+    pub fn from_values_to_sort<'a, V: 'a>(to_sort: impl IntoIterator<Item = &'a V>) -> Self
+    where
+        R: From<usize>,
+        usize: From<R>,
+        V: Ord,
     {
         // Example in comments
         // [B,C,A]
-        let mut combined = to_sort.into_iter()
-            .enumerate()
-            .collect::<Vec<_>>();
+        let mut combined = to_sort.into_iter().enumerate().collect::<Vec<_>>();
         // [(0,B), (1,C), (2,A)]
-        combined.sort_by_key(|(_,v)| *v);
+        combined.sort_by_key(|(_, v)| *v);
         // [(2,A), (0,B), (1,C)]
-        let mut combined : Vec<_>= combined.iter().enumerate().collect();
+        let mut combined: Vec<_> = combined.iter().enumerate().collect();
         // [(0,(2,A)), (1,(0,B)), (2,(1,C))]
-        combined.sort_by_key(|(_,(i,_))| i);
+        combined.sort_by_key(|(_, (i, _))| i);
         // [(1,(0,B)), (2,(1,C)), (0,(2,A))]
-        let map : DenseNatMap<R,R> = combined.iter()
+        let map: DenseNatMap<R, R> = combined
+            .iter()
             .map(|(sid, (_, _))| (*sid).into())
             .collect::<Vec<R>>()
             .into();
-        RewritePlan{s: map, f: (|&x, s| *s.get(x).unwrap())}
+        RewritePlan {
+            s: map,
+            f: (|&x, s| *s.get(x).unwrap()),
+        }
     }
 
     /// Permutes the elements of a [`Vec`]-like collection whose indices correspond with the
     /// indices of the `Vec`-like that was used to construct this `RewritePlan`.
     pub fn reindex<C>(&self, indexed: &C) -> C
-    where C: Index<usize>,
-          C: FromIterator<C::Output>,
-          C::Output: Rewrite<R> + Sized,
+    where
+        C: Index<usize>,
+        C: FromIterator<C::Output>,
+        C::Output: Rewrite<R> + Sized,
     {
-        let mut inverse_map = self.s.iter().map(|(i, &v)| (v,i)).collect::<Vec<_>>();
-        inverse_map.sort_by_key(|(k,_)| Into::<usize>::into(*k));
+        let mut inverse_map = self.s.iter().map(|(i, &v)| (v, i)).collect::<Vec<_>>();
+        inverse_map.sort_by_key(|(k, _)| Into::<usize>::into(*k));
 
-        inverse_map.iter()
-            .map(|(_,i)| indexed[(*i).into()].rewrite(self))
+        inverse_map
+            .iter()
+            .map(|(_, i)| indexed[(*i).into()].rewrite(self))
             .collect::<C>()
     }
-
 }
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::actor::Id;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
-    use super::*;
 
     #[test]
     fn from_sort_sorts() {
         let original = vec!['B', 'D', 'C', 'A'];
-        let plan = RewritePlan::<Id,_>::from_values_to_sort(&original);
-        assert_eq!(
-            plan.reindex(&original),
-            vec!['A', 'B', 'C', 'D']);
-        assert_eq!(
-            plan.reindex(&vec![1, 3, 2, 0]),
-            vec![0, 1, 2, 3]);
+        let plan = RewritePlan::<Id, _>::from_values_to_sort(&original);
+        assert_eq!(plan.reindex(&original), vec!['A', 'B', 'C', 'D']);
+        assert_eq!(plan.reindex(&vec![1, 3, 2, 0]), vec![0, 1, 2, 3]);
     }
 
     #[test]
     fn can_reindex() {
         use crate::actor::Id;
-        let swap_first_and_last = RewritePlan::<Id,_>::from_values_to_sort(&vec![2, 1, 0]);
-        let rotate_left = RewritePlan::<Id,_>::from_values_to_sort(&vec![2, 0, 1]);
+        let swap_first_and_last = RewritePlan::<Id, _>::from_values_to_sort(&vec![2, 1, 0]);
+        let rotate_left = RewritePlan::<Id, _>::from_values_to_sort(&vec![2, 0, 1]);
 
         let original = vec!['A', 'B', 'C'];
-        assert_eq!(
-            swap_first_and_last.reindex(&original),
-            vec!['C', 'B', 'A']);
-        assert_eq!(
-            rotate_left.reindex(&original),
-            vec!['B', 'C', 'A']);
+        assert_eq!(swap_first_and_last.reindex(&original), vec!['C', 'B', 'A']);
+        assert_eq!(rotate_left.reindex(&original), vec!['B', 'C', 'A']);
 
         let original: VecDeque<_> = vec!['A', 'B', 'C'].into_iter().collect();
         assert_eq!(
             swap_first_and_last.reindex(&original),
-            vec!['C', 'B', 'A'].into_iter().collect::<VecDeque<_>>());
+            vec!['C', 'B', 'A'].into_iter().collect::<VecDeque<_>>()
+        );
         assert_eq!(
             rotate_left.reindex(&original),
-            vec!['B', 'C', 'A'].into_iter().collect::<VecDeque<_>>());
+            vec!['B', 'C', 'A'].into_iter().collect::<VecDeque<_>>()
+        );
     }
 
     #[test]
@@ -179,16 +184,23 @@ mod test {
             process_states: DenseNatMap::from_iter(['B', 'A', 'A', 'C']),
             run_sequence: Id::vec_from([2, 2, 2, 2, 3]).into_iter().collect(),
             zombies1: Id::vec_from([0, 2]).into_iter().collect(),
-            zombies2: vec![(0.into(), true), (2.into(), true)].into_iter().collect(),
+            zombies2: vec![(0.into(), true), (2.into(), true)]
+                .into_iter()
+                .collect(),
             zombies3: vec![true, false, true, false].into_iter().collect(),
         };
         let plan = (&gs.process_states).into();
-        assert_eq!(gs.rewrite(&plan), GlobalState {
-            process_states: DenseNatMap::from_iter(['A', 'A', 'B', 'C']),
-            run_sequence: Id::vec_from([1, 1, 1, 1, 3]).into_iter().collect(),
-            zombies1: Id::vec_from([1, 2]).into_iter().collect(),
-            zombies2: vec![(1.into(), true), (2.into(), true)].into_iter().collect(),
-            zombies3: vec![false, true, true, false].into_iter().collect(),
-        });
+        assert_eq!(
+            gs.rewrite(&plan),
+            GlobalState {
+                process_states: DenseNatMap::from_iter(['A', 'A', 'B', 'C']),
+                run_sequence: Id::vec_from([1, 1, 1, 1, 3]).into_iter().collect(),
+                zombies1: Id::vec_from([1, 2]).into_iter().collect(),
+                zombies2: vec![(1.into(), true), (2.into(), true)]
+                    .into_iter()
+                    .collect(),
+                zombies3: vec![false, true, true, false].into_iter().collect(),
+            }
+        );
     }
 }

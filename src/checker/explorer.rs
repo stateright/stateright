@@ -1,13 +1,13 @@
-use actix_web::{*, web::Json};
 use crate::*;
+use actix_web::{web::Json, *};
 use parking_lot::RwLock;
 use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
-use std::collections::VecDeque;
 
 // (expectation, name, encoded path to discovery)
 type Property = (Expectation, String, Option<String>);
@@ -64,29 +64,35 @@ struct Snapshot<Action>(bool, Option<Vec<Action>>);
 impl<M: Model> CheckerVisitor<M> for Arc<RwLock<Snapshot<M::Action>>> {
     fn visit(&self, _: &M, path: Path<M::State, M::Action>) {
         let guard = self.read();
-        if !guard.0 { return }
+        if !guard.0 {
+            return;
+        }
         drop(guard);
 
         let mut guard = self.write();
-        if !guard.0 { return } // May be racing other threads.
+        if !guard.0 {
+            return;
+        } // May be racing other threads.
         guard.0 = false;
         guard.1 = Some(path.into_actions());
     }
 }
 
-pub(crate) fn serve<M>(checker_builder: CheckerBuilder<M>, addresses: impl ToSocketAddrs) -> Arc<impl Checker<M>>
-where M: 'static + Model + Send + Sync,
-      M::Action: Debug + Send + Sync,
-      M::State: Debug + Hash + Send + Sync,
+pub(crate) fn serve<M>(
+    checker_builder: CheckerBuilder<M>,
+    addresses: impl ToSocketAddrs,
+) -> Arc<impl Checker<M>>
+where
+    M: 'static + Model + Send + Sync,
+    M::Action: Debug + Send + Sync,
+    M::State: Debug + Hash + Send + Sync,
 {
     let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
     let snapshot_for_visitor = Arc::clone(&snapshot);
     let snapshot_for_server = Arc::clone(&snapshot);
-    spawn(move || {
-        loop {
-            sleep(Duration::from_secs(4));
-            snapshot.write().0 = true;
-        }
+    spawn(move || loop {
+        sleep(Duration::from_secs(4));
+        snapshot.write().0 = true;
     });
     let checker = checker_builder
         .visitor(snapshot_for_visitor)
@@ -97,12 +103,13 @@ where M: 'static + Model + Send + Sync,
 fn serve_checker<M, C>(
     checker: C,
     snapshot: Arc<RwLock<Snapshot<M::Action>>>,
-    addresses: impl ToSocketAddrs)
-    -> Arc<impl Checker<M>>
-where M: 'static + Model + Send + Sync,
-      M::Action: Debug + Send + Sync,
-      M::State: Debug + Hash + Send + Sync,
-      C: 'static + Checker<M> + Send + Sync,
+    addresses: impl ToSocketAddrs,
+) -> Arc<impl Checker<M>>
+where
+    M: 'static + Model + Send + Sync,
+    M::Action: Debug + Send + Sync,
+    M::State: Debug + Hash + Send + Sync,
+    C: 'static + Checker<M> + Send + Sync,
 {
     let checker = Arc::new(checker);
 
@@ -110,27 +117,36 @@ where M: 'static + Model + Send + Sync,
     HttpServer::new(move || {
         macro_rules! get_ui_file {
             ($filename:literal) => {
-                web::get().to(|| HttpResponse::Ok().body({
-                    if let Ok(content) = std::fs::read(concat!("./ui/", $filename)) {
-                        log::info!("Explorer dev mode. Loading {} from disk.", $filename);
-                        content
-                    } else {
-                        include_bytes!(concat!("../../ui/", $filename)).to_vec()
-                    }
-                }))
-            }
+                web::get().to(|| {
+                    HttpResponse::Ok().body({
+                        if let Ok(content) = std::fs::read(concat!("./ui/", $filename)) {
+                            log::info!("Explorer dev mode. Loading {} from disk.", $filename);
+                            content
+                        } else {
+                            include_bytes!(concat!("../../ui/", $filename)).to_vec()
+                        }
+                    })
+                })
+            };
         }
 
         App::new()
             .data(Arc::clone(&data))
             .route("/.status", web::get().to(status::<M, C>))
-            .route("/.runtocompletion", web::post().to(run_to_completion::<M, C>))
+            .route(
+                "/.runtocompletion",
+                web::post().to(run_to_completion::<M, C>),
+            )
             .route("/.states{fingerprints:.*}", web::get().to(states::<M, C>))
             .route("/", get_ui_file!("index.htm"))
             .route("/app.css", get_ui_file!("app.css"))
             .route("/app.js", get_ui_file!("app.js"))
             .route("/knockout-3.5.0.js", get_ui_file!("knockout-3.5.0.js"))
-    }).bind(addresses).unwrap().run().unwrap();
+    })
+    .bind(addresses)
+    .unwrap()
+    .run()
+    .unwrap();
 
     checker
 }
@@ -138,10 +154,11 @@ where M: 'static + Model + Send + Sync,
 type Data<Action, Checker> = web::Data<Arc<(Arc<RwLock<Snapshot<Action>>>, Arc<Checker>)>>;
 
 fn status<M, C>(_: HttpRequest, data: Data<M::Action, C>) -> Json<StatusView>
-where M: Model,
-      M::Action: Debug,
-      M::State: Hash,
-      C: Checker<M>,
+where
+    M: Model,
+    M::Action: Debug,
+    M::State: Hash,
+    C: Checker<M>,
 {
     let snapshot = &data.0;
     let checker = &data.1;
@@ -159,52 +176,67 @@ where M: Model,
 }
 
 fn run_to_completion<M, C>(_: HttpRequest, data: Data<M::Action, C>)
-where M: Model,
-      M::Action: Debug,
-      M::State: Hash,
-      C: Checker<M>,
+where
+    M: Model,
+    M::Action: Debug,
+    M::State: Hash,
+    C: Checker<M>,
 {
     let checker = &data.1;
     checker.run_to_completion();
 }
 
 fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property>
-where M: Model,
-      M::State: Hash,
-      C: Checker<M>,
+where
+    M: Model,
+    M::State: Hash,
+    C: Checker<M>,
 {
-    checker.model().properties().into_iter()
-        .map(|p| (
+    checker
+        .model()
+        .properties()
+        .into_iter()
+        .map(|p| {
+            (
                 p.expectation,
                 p.name.to_string(),
                 checker.discovery(p.name).map(|p| p.encode()),
-        ))
+            )
+        })
         .collect()
 }
 
-fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>)
-    -> Result<StateViewsJson<M::State>>
-where M: Model,
-      M::Action: Debug,
-      M::State: Debug + Hash,
-      C: Checker<M>,
+fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>) -> Result<StateViewsJson<M::State>>
+where
+    M: Model,
+    M::Action: Debug,
+    M::State: Debug + Hash,
+    C: Checker<M>,
 {
     let checker = &data.1;
     let model = &checker.model();
 
     // extract fingerprints
-    let mut fingerprints_str = req.match_info().get("fingerprints").expect("missing 'fingerprints' param").to_string();
+    let mut fingerprints_str = req
+        .match_info()
+        .get("fingerprints")
+        .expect("missing 'fingerprints' param")
+        .to_string();
     if fingerprints_str.ends_with('/') {
         let relevant_len = fingerprints_str.len() - 1;
         fingerprints_str.truncate(relevant_len);
     }
-    let fingerprints: VecDeque<_> = fingerprints_str.split('/').filter_map(|fp| fp.parse::<Fingerprint>().ok()).collect();
+    let fingerprints: VecDeque<_> = fingerprints_str
+        .split('/')
+        .filter_map(|fp| fp.parse::<Fingerprint>().ok())
+        .collect();
 
     // ensure all but the first string (which is empty) were parsed
     if fingerprints.len() + 1 != fingerprints_str.split('/').count() {
-        return Err(
-            actix_web::error::ErrorNotFound(
-                format!("Unable to parse fingerprints {}", fingerprints_str)));
+        return Err(actix_web::error::ErrorNotFound(format!(
+            "Unable to parse fingerprints {}",
+            fingerprints_str
+        )));
     }
 
     // now build up all the subsequent `StateView`s
@@ -238,7 +270,11 @@ where M: Model,
         for ((action, action2), action3) in actions1.into_iter().zip(actions2).zip(actions3) {
             let outcome = model.format_step(&last_state, action2);
             let state = model.next_state(&last_state, action3);
-            log::debug!("explorer generated state transition: {} -> {}", fingerprint(&last_state), fingerprint(&state));
+            log::debug!(
+                "explorer generated state transition: {} -> {}",
+                fingerprint(&last_state),
+                fingerprint(&state)
+            );
             if let Some(state) = state {
                 let fingerprint = fingerprint(&state);
                 checker.check_fingerprint(fingerprint);
@@ -266,9 +302,10 @@ where M: Model,
             }
         }
     } else {
-        return Err(
-            actix_web::error::ErrorNotFound(
-                format!("Unable to find state following fingerprints {}", fingerprints_str)));
+        return Err(actix_web::error::ErrorNotFound(format!(
+            "Unable to find state following fingerprints {}",
+            fingerprints_str
+        )));
     }
 
     Ok(Json(results))
@@ -277,17 +314,32 @@ where M: Model,
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_util::binary_clock::*;
     use crate::actor::Timers;
+    use crate::test_util::binary_clock::*;
     use lazy_static::lazy_static;
 
     #[test]
     fn can_init() {
         let checker = Arc::new(BinaryClock.checker().spawn_bfs());
-        assert_eq!(get_states(Arc::clone(&checker), "/").unwrap(), vec![
-            StateView { action: None, outcome: None, state: Some(0), properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)], svg: None },
-            StateView { action: None, outcome: None, state: Some(1), properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)], svg: None },
-        ]);
+        assert_eq!(
+            get_states(Arc::clone(&checker), "/").unwrap(),
+            vec![
+                StateView {
+                    action: None,
+                    outcome: None,
+                    state: Some(0),
+                    properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)],
+                    svg: None
+                },
+                StateView {
+                    action: None,
+                    outcome: None,
+                    state: Some(1),
+                    properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)],
+                    svg: None
+                },
+            ]
+        );
     }
 
     #[test]
@@ -301,30 +353,45 @@ mod test {
         // let path_name = format!("/{}/{}", first, second);
         // println!("New path name is: {}", path_name);
         // ```
-        assert_eq!(get_states(Arc::clone(&checker), "/2716592049047647680/9080728272894440685").unwrap(), vec![
-            StateView {
+        assert_eq!(
+            get_states(
+                Arc::clone(&checker),
+                "/2716592049047647680/9080728272894440685"
+            )
+            .unwrap(),
+            vec![StateView {
                 action: Some("GoHigh".to_string()),
                 outcome: Some("1".to_string()),
                 state: Some(1),
                 properties: vec![(Expectation::Always, "in [0, 1]".to_owned(), None)],
                 svg: None,
-            },
-        ]);
+            },]
+        );
     }
 
     #[test]
     fn err_for_invalid_fingerprint() {
         let checker = Arc::new(BinaryClock.checker().spawn_bfs());
-        assert_eq!(format!("{}", get_states(Arc::clone(&checker), "/one/two/three").unwrap_err()),
-            "Unable to parse fingerprints /one/two/three");
-        assert_eq!(format!("{}", get_states(Arc::clone(&checker), "/1/2/3").unwrap_err()),
-            "Unable to find state following fingerprints /1/2/3");
+        assert_eq!(
+            format!(
+                "{}",
+                get_states(Arc::clone(&checker), "/one/two/three").unwrap_err()
+            ),
+            "Unable to parse fingerprints /one/two/three"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                get_states(Arc::clone(&checker), "/1/2/3").unwrap_err()
+            ),
+            "Unable to find state following fingerprints /1/2/3"
+        );
     }
 
     #[test]
     fn smoke_test_states() {
-        use crate::actor::{ActorModelState, Envelope, Id, LossyNetwork, Network};
         use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
+        use crate::actor::{ActorModelState, Envelope, Id, LossyNetwork, Network};
 
         let checker = Arc::new(
             PingPongCfg {
@@ -335,7 +402,8 @@ mod test {
             .init_network(Network::new_unordered_nonduplicating([]))
             .lossy_network(LossyNetwork::Yes)
             .checker()
-            .spawn_bfs());
+            .spawn_bfs(),
+        );
         assert_eq!(
             get_states(Arc::clone(&checker), "/").unwrap(),
             vec![
@@ -369,9 +437,11 @@ mod test {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     timers_set: vec![Timers::new(); 2],
-                    network: Network::new_unordered_nonduplicating([
-                        Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
-                    ]),
+                    network: Network::new_unordered_nonduplicating([Envelope {
+                        src: Id::from(0),
+                        dst: Id::from(1),
+                        msg: Ping(0),
+                    }]),
                 });
                 format!("/{}", fp)
             };
@@ -429,59 +499,65 @@ mod test {
 
     #[test]
     fn smoke_test_status() {
-        use crate::actor::{LossyNetwork, Network};
         use crate::actor::actor_test_util::ping_pong::PingPongCfg;
+        use crate::actor::{LossyNetwork, Network};
 
         let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
         let checker = PingPongCfg {
-                max_nat: 2,
-                maintains_history: true,
-            }
-            .into_model()
-            .init_network(Network::new_unordered_nonduplicating([]))
-            .lossy_network(LossyNetwork::No)
-            .checker()
-            .visitor(Arc::clone(&snapshot)).spawn_bfs().join();
+            max_nat: 2,
+            maintains_history: true,
+        }
+        .into_model()
+        .init_network(Network::new_unordered_nonduplicating([]))
+        .lossy_network(LossyNetwork::No)
+        .checker()
+        .visitor(Arc::clone(&snapshot))
+        .spawn_bfs()
+        .join();
         let status = get_status(Arc::new(checker), snapshot).unwrap();
         assert_eq!(status.done, true);
         assert_eq!(
             status.model,
             "stateright::actor::model::ActorModel<\
                  stateright::actor::actor_test_util::ping_pong::PingPongActor, \
-                 stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>");
+                 stateright::actor::actor_test_util::ping_pong::PingPongCfg, (u32, u32)>"
+        );
         assert_eq!(status.state_count, 5);
         assert_eq!(status.unique_state_count, 5);
         assert_eq!(status.max_depth, 5);
-        let assert_discovery =
-            |status: &StatusView,
-             expectation: Expectation,
-             name: &'static str,
-             has_discovery: bool|
-        {
-            let match_found = status.properties.iter()
-                .any(|(e, n, d)| {
-                    e == &expectation && n == name && d.is_some() == has_discovery
-                });
+        let assert_discovery = |status: &StatusView,
+                                expectation: Expectation,
+                                name: &'static str,
+                                has_discovery: bool| {
+            let match_found = status
+                .properties
+                .iter()
+                .any(|(e, n, d)| e == &expectation && n == name && d.is_some() == has_discovery);
             if !match_found {
-                panic!("Not found. expectation={:?}, name={:?}, has_discovery={:?}, properties={:#?}",
-                       expectation, name, has_discovery, status.properties);
+                panic!(
+                    "Not found. expectation={:?}, name={:?}, has_discovery={:?}, properties={:#?}",
+                    expectation, name, has_discovery, status.properties
+                );
             }
         };
-        assert_discovery(&status, Expectation::Always,     "delta within 1",  false);
-        assert_discovery(&status, Expectation::Sometimes,  "can reach max",   true);
-        assert_discovery(&status, Expectation::Eventually, "must reach max",  false);
+        assert_discovery(&status, Expectation::Always, "delta within 1", false);
+        assert_discovery(&status, Expectation::Sometimes, "can reach max", true);
+        assert_discovery(&status, Expectation::Eventually, "must reach max", false);
         assert_discovery(&status, Expectation::Eventually, "must exceed max", true);
-        assert_discovery(&status, Expectation::Always,     "#in <= #out",     false);
+        assert_discovery(&status, Expectation::Always, "#in <= #out", false);
         assert_discovery(&status, Expectation::Eventually, "#out <= #in + 1", false);
         assert!(status.recent_path.unwrap().starts_with("["));
     }
 
-    fn get_states<M, C>(checker: Arc<C>, path_name: &'static str)
-                -> Result<Vec<StateView<M::State>>>
-    where M: Model,
-          M::Action: Debug,
-          M::State: Debug + Hash,
-          C: Checker<M>,
+    fn get_states<M, C>(
+        checker: Arc<C>,
+        path_name: &'static str,
+    ) -> Result<Vec<StateView<M::State>>>
+    where
+        M: Model,
+        M::Action: Debug,
+        M::State: Debug + Hash,
+        C: Checker<M>,
     {
         let req = actix_web::test::TestRequest::get()
             .param("fingerprints", &path_name)
@@ -494,12 +570,15 @@ mod test {
         }
     }
 
-    fn get_status<M, C>(checker: Arc<C>, snapshot: Arc<RwLock<Snapshot<M::Action>>>)
-    -> Result<StatusView>
-    where M: Model,
-          M::Action: Debug,
-          M::State: Debug + Hash,
-          C: Checker<M>,
+    fn get_status<M, C>(
+        checker: Arc<C>,
+        snapshot: Arc<RwLock<Snapshot<M::Action>>>,
+    ) -> Result<StatusView>
+    where
+        M: Model,
+        M::Action: Debug,
+        M::State: Debug + Hash,
+        C: Checker<M>,
     {
         let req = actix_web::test::TestRequest::get().to_http_request();
         let data = web::Data::new(Arc::new((snapshot, checker)));

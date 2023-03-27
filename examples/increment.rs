@@ -104,7 +104,7 @@
 //! State { i: 1, s: [{t: 0, pc: 3}, {t: 0, pc: 3}]}
 //! ```
 
-use stateright::{*, report::WriteReporter};
+use stateright::{report::WriteReporter, *};
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -127,18 +127,16 @@ pub struct State {
     /// The shared global state.
     i: u8,
     /// Each thread's internal state.
-    s: Vec<ProcState>
+    s: Vec<ProcState>,
 }
-
 
 impl State {
     pub fn new(n: usize) -> Self {
         Self {
             i: 0,
-            s: vec![ProcState {t:0,pc:1}; n],
+            s: vec![ProcState { t: 0, pc: 1 }; n],
         }
     }
-
 }
 
 impl Representative for State {
@@ -146,8 +144,8 @@ impl Representative for State {
         let mut main_array = self.s.clone();
         main_array.sort();
         Self {
-            i : self.i,
-            s : main_array,
+            i: self.i,
+            s: main_array,
         }
     }
 }
@@ -155,7 +153,6 @@ impl Representative for State {
 impl Model for State {
     type State = State;
     type Action = Action;
-
 
     fn init_states(&self) -> std::vec::Vec<<Self as stateright::Model>::State> {
         vec![self.clone()]
@@ -176,7 +173,10 @@ impl Model for State {
             Action::Read(n) => {
                 // Read the shared state into the specified thread's local state.
                 let mut state = last_state.clone();
-                state.s[n] = ProcState {pc : 2, t : last_state.i};
+                state.s[n] = ProcState {
+                    pc: 2,
+                    t: last_state.i,
+                };
                 Some(state)
             }
             Action::Write(n) => {
@@ -203,7 +203,10 @@ fn main() -> Result<(), pico_args::Error> {
     match args.subcommand()?.as_deref() {
         Some("check") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            println!("Model checking increment_lock with {} threads.", thread_count);
+            println!(
+                "Model checking increment_lock with {} threads.",
+                thread_count
+            );
 
             State::new(thread_count)
                 .checker()
@@ -215,7 +218,8 @@ fn main() -> Result<(), pico_args::Error> {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
             println!(
                 "Model checking increment_lock with {} threads using symmetry reduction.",
-                thread_count);
+                thread_count
+            );
 
             State::new(thread_count)
                 .checker()
@@ -226,11 +230,13 @@ fn main() -> Result<(), pico_args::Error> {
         }
         Some("explore") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            let address = args.opt_free_from_str()?
+            let address = args
+                .opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
             println!(
                 "Exploring the state space of increment_lock with {} threads on {}.",
-                thread_count, address);
+                thread_count, address
+            );
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())

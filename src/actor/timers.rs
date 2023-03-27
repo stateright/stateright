@@ -27,14 +27,14 @@ where
     }
 
     /// Iterate through the currently set timers.
-    pub fn iter(&self) -> impl Iterator<Item=&T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()
     }
 }
 
 impl<T> Rewrite<Id> for Timers<T>
 where
-    T: Eq + Hash + Clone ,
+    T: Eq + Hash + Clone,
 {
     fn rewrite<S>(&self, _plan: &RewritePlan<Id, S>) -> Self {
         self.clone()

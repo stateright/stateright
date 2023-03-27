@@ -1,13 +1,12 @@
 //! Private module for selective re-export.
 
 use std::cmp::{max, Ordering};
-use std::hash::{Hash, Hasher};
 use std::fmt::{self, Display, Formatter};
+use std::hash::{Hash, Hasher};
 
 /// A [vector clock](https://en.wikipedia.org/wiki/Vector_clock), which provides a partial causal
 /// order on events in a distributed sytem.
-#[derive(Clone, Debug, Default, Eq)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VectorClock(Vec<u32>);
 
 impl VectorClock {
@@ -53,7 +52,9 @@ impl Display for VectorClock {
 
 impl Hash for VectorClock {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let cutoff = self.0.iter()
+        let cutoff = self
+            .0
+            .iter()
             .rposition(|elem| elem != &0)
             .map(|i| i + 1)
             .unwrap_or(0);
@@ -67,7 +68,7 @@ impl PartialEq for VectorClock {
             let lhs_elem = self.0.get(i).unwrap_or(&0);
             let rhs_elem = rhs.0.get(i).unwrap_or(&0);
             if lhs_elem != rhs_elem {
-                return false
+                return false;
             }
         }
         true
@@ -98,7 +99,7 @@ impl PartialOrd for VectorClock {
             if expected_ordering == Ordering::Equal {
                 expected_ordering = ordering;
             } else if ordering != expected_ordering && ordering != Ordering::Equal {
-                return None
+                return None;
             }
         }
         Some(expected_ordering)
@@ -113,35 +114,22 @@ mod test {
     fn can_display() {
         assert_eq!(
             format!("{}", VectorClock::from(vec![1, 2, 3, 4])),
-            "<1, 2, 3, 4, ...>");
+            "<1, 2, 3, 4, ...>"
+        );
 
         // Notably equal vectors don't necessarily display the same.
-        assert_eq!(
-            format!("{}", VectorClock::from(vec![])),
-            "<...>");
-        assert_eq!(
-            format!("{}", VectorClock::from(vec![0])),
-            "<0, ...>");
+        assert_eq!(format!("{}", VectorClock::from(vec![])), "<...>");
+        assert_eq!(format!("{}", VectorClock::from(vec![0])), "<0, ...>");
     }
 
     #[test]
     fn can_equate() {
-        assert_eq!(
-            VectorClock::new(),
-            VectorClock::new());
-        assert_eq!(
-            VectorClock::from(vec![0]),
-            VectorClock::from(vec![]));
-        assert_eq!(
-            VectorClock::from(vec![]),
-            VectorClock::from(vec![0]));
+        assert_eq!(VectorClock::new(), VectorClock::new());
+        assert_eq!(VectorClock::from(vec![0]), VectorClock::from(vec![]));
+        assert_eq!(VectorClock::from(vec![]), VectorClock::from(vec![0]));
 
-        assert_ne!(
-            VectorClock::from(vec![]),
-            VectorClock::from(vec![1]));
-        assert_ne!(
-            VectorClock::from(vec![1]),
-            VectorClock::from(vec![]));
+        assert_ne!(VectorClock::from(vec![]), VectorClock::from(vec![1]));
+        assert_ne!(VectorClock::from(vec![1]), VectorClock::from(vec![]));
     }
 
     #[test]
@@ -155,7 +143,7 @@ mod test {
                 $v1.hash(&mut h1);
                 $v2.hash(&mut h2);
                 assert_eq!(h1.finish(), h2.finish());
-            }
+            };
         }
         macro_rules! assert_hash_ne {
             ($v1:expr, $v2:expr) => {
@@ -164,37 +152,32 @@ mod test {
                 $v1.hash(&mut h1);
                 $v2.hash(&mut h2);
                 assert_ne!(h1.finish(), h2.finish());
-            }
+            };
         }
 
         // same hash if equal
-        assert_hash_eq!(
-            VectorClock::new(),
-            VectorClock::new());
-        assert_hash_eq!(
-            VectorClock::from(vec![]),
-            VectorClock::from(vec![0, 0]));
-        assert_hash_eq!(
-            VectorClock::from(vec![1]),
-            VectorClock::from(vec![1, 0]));
+        assert_hash_eq!(VectorClock::new(), VectorClock::new());
+        assert_hash_eq!(VectorClock::from(vec![]), VectorClock::from(vec![0, 0]));
+        assert_hash_eq!(VectorClock::from(vec![1]), VectorClock::from(vec![1, 0]));
 
         // otherwise hash varies w/ high probability
-        assert_hash_ne!(
-            VectorClock::from(vec![]),
-            VectorClock::from(vec![1]));
-        assert_hash_ne!(
-            VectorClock::from(vec![1]),
-            VectorClock::from(vec![]));
+        assert_hash_ne!(VectorClock::from(vec![]), VectorClock::from(vec![1]));
+        assert_hash_ne!(VectorClock::from(vec![1]), VectorClock::from(vec![]));
     }
 
     #[test]
     fn can_increment() {
         assert_eq!(
             VectorClock::new().incremented(2),
-            VectorClock::from(vec![0, 0, 1]));
+            VectorClock::from(vec![0, 0, 1])
+        );
         assert_eq!(
-            VectorClock::new().incremented(2).incremented(0).incremented(2),
-            VectorClock::from(vec![1, 0, 2]));
+            VectorClock::new()
+                .incremented(2)
+                .incremented(0)
+                .incremented(2),
+            VectorClock::from(vec![1, 0, 2])
+        );
     }
 
     #[test]
@@ -202,13 +185,17 @@ mod test {
         assert_eq!(
             VectorClock::merge_max(
                 &VectorClock::from(vec![1, 2, 3, 4]),
-                &VectorClock::from(vec![5, 6, 0])),
-            VectorClock::from(vec![5, 6, 3, 4]));
+                &VectorClock::from(vec![5, 6, 0])
+            ),
+            VectorClock::from(vec![5, 6, 3, 4])
+        );
         assert_eq!(
             VectorClock::merge_max(
                 &VectorClock::from(vec![1, 0, 2]),
-                &VectorClock::from(vec![3, 1, 0, 4])),
-            VectorClock::from(vec![3, 1, 2, 4]));
+                &VectorClock::from(vec![3, 1, 0, 4])
+            ),
+            VectorClock::from(vec![3, 1, 2, 4])
+        );
     }
 
     #[test]
@@ -218,56 +205,71 @@ mod test {
         // Clocks with matching elements are equal. Missing elements are implicitly zero.
         assert_eq!(
             Some(Equal),
-            VectorClock::from(vec![]).partial_cmp(&vec![].into()));
+            VectorClock::from(vec![]).partial_cmp(&vec![].into())
+        );
         assert_eq!(
             Some(Equal),
-            VectorClock::from(vec![]).partial_cmp(&vec![0, 0].into()));
+            VectorClock::from(vec![]).partial_cmp(&vec![0, 0].into())
+        );
         assert_eq!(
             Some(Equal),
-            VectorClock::from(vec![0, 0]).partial_cmp(&vec![].into()));
+            VectorClock::from(vec![0, 0]).partial_cmp(&vec![].into())
+        );
         assert_eq!(
             Some(Equal),
-            VectorClock::from(vec![1, 2, 0]).partial_cmp(&vec![1, 2].into()));
+            VectorClock::from(vec![1, 2, 0]).partial_cmp(&vec![1, 2].into())
+        );
 
         // A clock is less if at least one element is less and the rest are
         // less-than-or-equal.
         assert_eq!(
             Some(Less),
-            VectorClock::from(vec![]).partial_cmp(&vec![1].into()));
+            VectorClock::from(vec![]).partial_cmp(&vec![1].into())
+        );
         assert_eq!(
             Some(Less),
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 4].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 4].into())
+        );
         assert_eq!(
             Some(Less),
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 3].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 3].into())
+        );
         assert_eq!(
             Some(Less),
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![2, 3, 3].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![2, 3, 3].into())
+        );
 
         // A clock is greater if at least one element is greater and the rest are
         // greater-than-or-equal.
         assert_eq!(
             Some(Greater),
-            VectorClock::from(vec![1]).partial_cmp(&vec![].into()));
+            VectorClock::from(vec![1]).partial_cmp(&vec![].into())
+        );
         assert_eq!(
             Some(Greater),
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 1, 2].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 1, 2].into())
+        );
         assert_eq!(
             Some(Greater),
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 1, 3].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 1, 3].into())
+        );
         assert_eq!(
             Some(Greater),
-            VectorClock::from(vec![1, 2, 4]).partial_cmp(&vec![0, 1, 3].into()));
+            VectorClock::from(vec![1, 2, 4]).partial_cmp(&vec![0, 1, 3].into())
+        );
 
         // If one element is greater while another is less, then the vectors are incomparable.
         assert_eq!(
             None,
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 2].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![1, 3, 2].into())
+        );
         assert_eq!(
             None,
-            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![3, 2, 1].into()));
+            VectorClock::from(vec![1, 2, 3]).partial_cmp(&vec![3, 2, 1].into())
+        );
         assert_eq!(
             None,
-            VectorClock::from(vec![1, 2, 2]).partial_cmp(&vec![2, 1, 2].into()));
+            VectorClock::from(vec![1, 2, 2]).partial_cmp(&vec![2, 1, 2].into())
+        );
     }
 }

@@ -91,9 +91,8 @@ pub trait SequentialSpec: Sized {
 
     /// Indicates whether a sequential history of operations and corresponding
     /// return values is valid for this reference object.
-    fn is_valid_history(
-        &mut self,
-        ops: impl IntoIterator<Item = (Self::Op, Self::Ret)>) -> bool {
-        ops.into_iter().all(|(op, ret)| self.is_valid_step(&op, &ret))
+    fn is_valid_history(&mut self, ops: impl IntoIterator<Item = (Self::Op, Self::Ret)>) -> bool {
+        ops.into_iter()
+            .all(|(op, ret)| self.is_valid_step(&op, &ret))
     }
 }

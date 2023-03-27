@@ -110,158 +110,164 @@ where
             let (controlflow_sender, controlflow_receiver) = std::sync::mpsc::channel();
             controlflow_channels.push(controlflow_sender);
 
-            handles.push(std::thread::Builder::new()
-                .name(format!("checker-{}", t))
-                .spawn(move || {
-                log::debug!("{}: Thread started.", t);
-                let mut pending = VecDeque::new();
-                let mut targetted_pending = VecDeque::new();
-                let mut wait_for_fingerprints = true;
-                loop {
-                    if pending.is_empty() {
-                        pending = {
-                            let mut job_market = job_market.lock();
-                            match job_market.jobs.pop() {
-                                None => {
-                                    // Done if all are waiting.
-                                    if job_market.wait_count == thread_count {
-                                        log::debug!(
-                                            "{}: No more work. Shutting down... gen={}",
-                                            t,
-                                            generated.len()
-                                        );
-                                        has_new_job.notify_all();
-                                        return;
-                                    }
-
-                                    // Otherwise more work may become available.
-                                    log::trace!(
-                                        "{}: No jobs. Awaiting. blocked={}",
-                                        t,
-                                        job_market.wait_count
-                                    );
-                                    has_new_job.wait(&mut job_market);
-                                    continue;
-                                }
-                                Some(job) => {
-                                    job_market.wait_count -= 1;
-                                    log::trace!(
-                                        "{}: Job found. size={}, blocked={}",
-                                        t,
-                                        job.len(),
-                                        job_market.wait_count
-                                    );
-                                    job
-                                }
-                            }
-                        };
-                        log::debug!(
-                            "got new pending states: {:?}",
-                            pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
-                        );
-                    }
-
-                    if wait_for_fingerprints {
-                        // Step 0: wait for someone to ask us to do work
+            handles.push(
+                std::thread::Builder::new()
+                    .name(format!("checker-{}", t))
+                    .spawn(move || {
+                        log::debug!("{}: Thread started.", t);
+                        let mut pending = VecDeque::new();
+                        let mut targetted_pending = VecDeque::new();
+                        let mut wait_for_fingerprints = true;
                         loop {
-                            let control_flow = controlflow_receiver.recv();
-                            if let Ok(control_flow) = control_flow {
-                                match control_flow {
-                                    ControlFlow::CheckFingerprint(fingerprint) => {
-                                        log::debug!(
+                            if pending.is_empty() {
+                                pending = {
+                                    let mut job_market = job_market.lock();
+                                    match job_market.jobs.pop() {
+                                        None => {
+                                            // Done if all are waiting.
+                                            if job_market.wait_count == thread_count {
+                                                log::debug!(
+                                                    "{}: No more work. Shutting down... gen={}",
+                                                    t,
+                                                    generated.len()
+                                                );
+                                                has_new_job.notify_all();
+                                                return;
+                                            }
+
+                                            // Otherwise more work may become available.
+                                            log::trace!(
+                                                "{}: No jobs. Awaiting. blocked={}",
+                                                t,
+                                                job_market.wait_count
+                                            );
+                                            has_new_job.wait(&mut job_market);
+                                            continue;
+                                        }
+                                        Some(job) => {
+                                            job_market.wait_count -= 1;
+                                            log::trace!(
+                                                "{}: Job found. size={}, blocked={}",
+                                                t,
+                                                job.len(),
+                                                job_market.wait_count
+                                            );
+                                            job
+                                        }
+                                    }
+                                };
+                                log::debug!(
+                                    "got new pending states: {:?}",
+                                    pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
+                                );
+                            }
+
+                            if wait_for_fingerprints {
+                                // Step 0: wait for someone to ask us to do work
+                                loop {
+                                    let control_flow = controlflow_receiver.recv();
+                                    if let Ok(control_flow) = control_flow {
+                                        match control_flow {
+                                            ControlFlow::CheckFingerprint(fingerprint) => {
+                                                log::debug!(
                                             "received fingerprint to check: {}, pending is {:?}",
                                             fingerprint,
                                             pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
                                         );
-                                        if pending.is_empty() {
-                                            break;
+                                                if pending.is_empty() {
+                                                    break;
+                                                }
+                                                if let Some(index) = pending
+                                                    .iter()
+                                                    .position(|(_, f, _, _)| *f == fingerprint)
+                                                {
+                                                    targetted_pending
+                                                        .push_back(pending.remove(index).unwrap());
+                                                    log::debug!("found matching fingerprint!");
+                                                    // found a matching fingerprint in our pending queue so we can
+                                                    // process this group
+                                                    break;
+                                                }
+                                            }
+                                            ControlFlow::RunToCompletion => {
+                                                log::debug!("{}: running to completion", t);
+                                                wait_for_fingerprints = false;
+                                                break;
+                                            }
                                         }
-                                        if let Some(index) =
-                                            pending.iter().position(|(_, f, _, _)| *f == fingerprint)
-                                        {
-                                            targetted_pending
-                                                .push_back(pending.remove(index).unwrap());
-                                            log::debug!("found matching fingerprint!");
-                                            // found a matching fingerprint in our pending queue so we can
-                                            // process this group
-                                            break;
-                                        }
-                                    }
-                                    ControlFlow::RunToCompletion => {
-                                        log::debug!("{}: running to completion", t);
-                                        wait_for_fingerprints = false;
-                                        break;
+                                    } else {
+                                        // no commands left so we can finish
+                                        return;
                                     }
                                 }
+                                log::debug!("after waiting for fingerprints");
                             } else {
-                                // no commands left so we can finish
+                                targetted_pending.append(&mut pending);
+                            }
+
+                            // Step 1: Do work.
+                            Self::check_block(
+                                &*model,
+                                &*state_count,
+                                &*generated,
+                                &mut targetted_pending,
+                                &*discoveries,
+                                &*visitor,
+                                1500,
+                                &max_depth,
+                            );
+                            pending.append(&mut targetted_pending);
+                            if discoveries.len() == property_count {
+                                log::debug!(
+                                    "{}: Discovery complete. Shutting down... gen={}",
+                                    t,
+                                    generated.len()
+                                );
+                                let mut job_market = job_market.lock();
+                                job_market.wait_count += 1;
+                                drop(job_market);
+                                has_new_job.notify_all();
                                 return;
                             }
-                        }
-                        log::debug!("after waiting for fingerprints");
-                    } else {
-                        targetted_pending.append(&mut pending);
-                    }
+                            if let Some(target_state_count) = target_state_count {
+                                if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
+                                    log::debug!(
+                                        "{}: Reached target state count. Shutting down... gen={}",
+                                        t,
+                                        generated.len()
+                                    );
+                                    return;
+                                }
+                            }
 
-                    // Step 1: Do work.
-                    Self::check_block(
-                        &*model,
-                        &*state_count,
-                        &*generated,
-                        &mut targetted_pending,
-                        &*discoveries,
-                        &*visitor,
-                        1500,
-                        &max_depth,
-                    );
-                    pending.append(&mut targetted_pending);
-                    if discoveries.len() == property_count {
-                        log::debug!(
-                            "{}: Discovery complete. Shutting down... gen={}",
-                            t,
-                            generated.len()
-                        );
-                        let mut job_market = job_market.lock();
-                        job_market.wait_count += 1;
-                        drop(job_market);
-                        has_new_job.notify_all();
-                        return;
-                    }
-                    if let Some(target_state_count) = target_state_count {
-                        if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
-                            log::debug!(
-                                "{}: Reached target state count. Shutting down... gen={}",
-                                t,
-                                generated.len()
-                            );
-                            return;
+                            // Step 2: Share work.
+                            if pending.len() > 1 && thread_count > 1 {
+                                let mut job_market = job_market.lock();
+                                let pieces = 1 + std::cmp::min(
+                                    job_market.wait_count as usize,
+                                    pending.len(),
+                                );
+                                let size = pending.len() / pieces;
+                                for _ in 1..pieces {
+                                    log::trace!(
+                                        "{}: Sharing work. blocked={}, size={}",
+                                        t,
+                                        job_market.wait_count,
+                                        size
+                                    );
+                                    job_market
+                                        .jobs
+                                        .push(pending.split_off(pending.len() - size));
+                                    has_new_job.notify_one();
+                                }
+                            } else if pending.is_empty() {
+                                let mut job_market = job_market.lock();
+                                job_market.wait_count += 1;
+                            }
                         }
-                    }
-
-                    // Step 2: Share work.
-                    if pending.len() > 1 && thread_count > 1 {
-                        let mut job_market = job_market.lock();
-                        let pieces =
-                            1 + std::cmp::min(job_market.wait_count as usize, pending.len());
-                        let size = pending.len() / pieces;
-                        for _ in 1..pieces {
-                            log::trace!(
-                                "{}: Sharing work. blocked={}, size={}",
-                                t,
-                                job_market.wait_count,
-                                size
-                            );
-                            job_market
-                                .jobs
-                                .push(pending.split_off(pending.len() - size));
-                            has_new_job.notify_one();
-                        }
-                    } else if pending.is_empty() {
-                        let mut job_market = job_market.lock();
-                        job_market.wait_count += 1;
-                    }
-                }
-            }).expect("Failed to spawn a thread"));
+                    })
+                    .expect("Failed to spawn a thread"),
+            );
         }
 
         // spawn a thread to forward the fingerprints to check
@@ -315,7 +321,12 @@ where
             };
 
             if max_depth.get() > current_max_depth {
-                let _ = global_max_depth.compare_exchange(current_max_depth, max_depth.get(), Ordering::Relaxed, Ordering::Relaxed);
+                let _ = global_max_depth.compare_exchange(
+                    current_max_depth,
+                    max_depth.get(),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
                 current_max_depth = max_depth.get();
             }
 
@@ -480,7 +491,7 @@ where
             .collect()
     }
 
-    fn handles(&mut self) -> Vec<JoinHandle<()>>{
+    fn handles(&mut self) -> Vec<JoinHandle<()>> {
         std::mem::take(&mut self.handles)
     }
 

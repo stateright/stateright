@@ -11,24 +11,28 @@
 // }
 // ```
 
-use crate::{Rewrite, RewritePlan};
 use crate::actor::Id;
 use crate::util::{HashableHashMap, HashableHashSet};
-use std::collections::{BTreeMap, VecDeque};
+use crate::{Rewrite, RewritePlan};
 use std::collections::btree_map::Entry;
-use std::collections::{btree_map, hash_set, hash_map};
+use std::collections::{btree_map, hash_map, hash_set};
+use std::collections::{BTreeMap, VecDeque};
 use std::hash::Hash;
 use std::str::FromStr;
 
 /// Indicates the source and destination for a message.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Serialize)]
-pub struct Envelope<Msg> { pub src: Id, pub dst: Id, pub msg: Msg }
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize)]
+pub struct Envelope<Msg> {
+    pub src: Id,
+    pub dst: Id,
+    pub msg: Msg,
+}
 
 impl<Msg> Envelope<&Msg> {
     /// Converts an [`Envelope`] with a message reference to one that owns the message.
     pub fn to_cloned_msg(&self) -> Envelope<Msg>
-    where Msg: Clone,
+    where
+        Msg: Clone,
     {
         Envelope {
             src: self.src,
@@ -39,10 +43,10 @@ impl<Msg> Envelope<&Msg> {
 }
 
 /// Represents a network of messages.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize)]
 pub enum Network<Msg>
-where Msg: Eq + Hash
+where
+    Msg: Eq + Hash,
 {
     /// Indicates that messages have no ordering (racing one another), and can be redelivered.
     UnorderedDuplicating(HashableHashSet<Envelope<Msg>>),
@@ -64,7 +68,8 @@ where Msg: Eq + Hash
 }
 
 impl<Msg> Network<Msg>
-where Msg: Eq + Hash,
+where
+    Msg: Eq + Hash,
 {
     /// Indicates that directed message flows between pairs of actors are ordered. Does not
     /// indicate any ordering across different flows. Each direction for a pair of actors is a
@@ -88,9 +93,8 @@ where Msg: Eq + Hash,
     ///
     /// See also: [`Self::new_unordered_nonduplicating`]
     pub fn new_unordered_duplicating(envelopes: impl IntoIterator<Item = Envelope<Msg>>) -> Self {
-        let mut this = Self::UnorderedDuplicating(
-            HashableHashSet::with_hasher(
-                crate::stable::build_hasher()));
+        let mut this =
+            Self::UnorderedDuplicating(HashableHashSet::with_hasher(crate::stable::build_hasher()));
         for env in envelopes {
             this.send(env);
         }
@@ -100,10 +104,12 @@ where Msg: Eq + Hash,
     /// Indicates that messages have no ordering (racing one another), and will not be redelivered.
     ///
     /// See also: [`Self::new_unordered_duplicating`]
-    pub fn new_unordered_nonduplicating(envelopes: impl IntoIterator<Item = Envelope<Msg>>) -> Self {
-        let mut this = Self::UnorderedNonDuplicating(
-            HashableHashMap::with_hasher(
-                crate::stable::build_hasher()));
+    pub fn new_unordered_nonduplicating(
+        envelopes: impl IntoIterator<Item = Envelope<Msg>>,
+    ) -> Self {
+        let mut this = Self::UnorderedNonDuplicating(HashableHashMap::with_hasher(
+            crate::stable::build_hasher(),
+        ));
         for env in envelopes {
             this.send(env);
         }
@@ -142,15 +148,11 @@ where Msg: Eq + Hash,
     /// Returns an iterator over all envelopes in the network.
     pub fn iter_all(&self) -> NetworkIter<Msg> {
         match self {
-            Network::UnorderedDuplicating(set) => {
-                NetworkIter::UnorderedDuplicating(set.iter())
-            }
+            Network::UnorderedDuplicating(set) => NetworkIter::UnorderedDuplicating(set.iter()),
             Network::UnorderedNonDuplicating(multiset) => {
                 NetworkIter::UnorderedNonDuplicating(None, multiset.iter())
             }
-            Network::Ordered(map) => {
-                NetworkIter::Ordered(None, map.iter())
-            }
+            Network::Ordered(map) => NetworkIter::Ordered(None, map.iter()),
         }
     }
 
@@ -163,9 +165,7 @@ where Msg: Eq + Hash,
             Network::UnorderedNonDuplicating(multiset) => {
                 NetworkDeliverableIter::UnorderedNonDuplicating(multiset.keys())
             }
-            Network::Ordered(map) => {
-                NetworkDeliverableIter::Ordered(map.iter())
-            }
+            Network::Ordered(map) => NetworkDeliverableIter::Ordered(map.iter()),
         }
     }
 
@@ -197,35 +197,44 @@ where Msg: Eq + Hash,
     }
 
     pub(crate) fn on_deliver(&mut self, envelope: Envelope<Msg>)
-    where Msg: PartialEq,
+    where
+        Msg: PartialEq,
     {
         match self {
             Network::UnorderedDuplicating(_) => {
                 // This is a no-op as the message can be redelivered.
             }
-            Network::UnorderedNonDuplicating(multiset) => {
-                match multiset.entry(envelope) {
-                    hash_map::Entry::Occupied(mut entry) => {
-                        let value = *entry.get();
-                        assert!(value > 0);
-                        if value == 1 { entry.remove(); }
-                        else { *entry.get_mut() -= 1; }
-                    }
-                    hash_map::Entry::Vacant(_) => {
-                        panic!("envelope not found");
+            Network::UnorderedNonDuplicating(multiset) => match multiset.entry(envelope) {
+                hash_map::Entry::Occupied(mut entry) => {
+                    let value = *entry.get();
+                    assert!(value > 0);
+                    if value == 1 {
+                        entry.remove();
+                    } else {
+                        *entry.get_mut() -= 1;
                     }
                 }
-            }
+                hash_map::Entry::Vacant(_) => {
+                    panic!("envelope not found");
+                }
+            },
             Network::Ordered(map) => {
                 // Find the flow, then find the message in the flow, and finally remove the message
                 // from the flow. Flows must be non-empty (to ensure removing a message is the
                 // inverse of adding it), so also canonicalize by deleting the entire flow if it
                 // would be empty after removing the message.
                 let flow_entry = match map.entry((envelope.src, envelope.dst)) {
-                    Entry::Vacant(_) => panic!("flow not found. src={:?}, dst={:?}", envelope.src, envelope.dst),
+                    Entry::Vacant(_) => panic!(
+                        "flow not found. src={:?}, dst={:?}",
+                        envelope.src, envelope.dst
+                    ),
                     Entry::Occupied(flow) => flow,
                 };
-                let i = flow_entry.get().iter().position(|x| x == &envelope.msg).expect("message not found");
+                let i = flow_entry
+                    .get()
+                    .iter()
+                    .position(|x| x == &envelope.msg)
+                    .expect("message not found");
                 if flow_entry.get().len() > 1 {
                     flow_entry.into_mut().remove(i);
                 } else {
@@ -236,35 +245,44 @@ where Msg: Eq + Hash,
     }
 
     pub(crate) fn on_drop(&mut self, envelope: Envelope<Msg>)
-    where Msg: PartialEq,
+    where
+        Msg: PartialEq,
     {
         match self {
             Network::UnorderedDuplicating(set) => {
                 set.remove(&envelope);
             }
-            Network::UnorderedNonDuplicating(multiset) => {
-                match multiset.entry(envelope) {
-                    hash_map::Entry::Occupied(mut entry) => {
-                        let value = *entry.get();
-                        assert!(value > 0);
-                        if value == 1 { entry.remove(); }
-                        else { *entry.get_mut() -= 1; }
-                    }
-                    hash_map::Entry::Vacant(_) => {
-                        panic!("envelope not found");
+            Network::UnorderedNonDuplicating(multiset) => match multiset.entry(envelope) {
+                hash_map::Entry::Occupied(mut entry) => {
+                    let value = *entry.get();
+                    assert!(value > 0);
+                    if value == 1 {
+                        entry.remove();
+                    } else {
+                        *entry.get_mut() -= 1;
                     }
                 }
-            }
+                hash_map::Entry::Vacant(_) => {
+                    panic!("envelope not found");
+                }
+            },
             Network::Ordered(map) => {
                 // Find the flow, then find the message in the flow, and finally remove the message
                 // from the flow. Flows must be non-empty (to ensure removing a message is the
                 // inverse of adding it), so also canonicalize by deleting the entire flow if it
                 // would be empty after removing the message.
                 let flow_entry = match map.entry((envelope.src, envelope.dst)) {
-                    Entry::Vacant(_) => panic!("flow not found. src={:?}, dst={:?}", envelope.src, envelope.dst),
+                    Entry::Vacant(_) => panic!(
+                        "flow not found. src={:?}, dst={:?}",
+                        envelope.src, envelope.dst
+                    ),
                     Entry::Occupied(flow) => flow,
                 };
-                let i = flow_entry.get().iter().position(|x| x == &envelope.msg).expect("message not found");
+                let i = flow_entry
+                    .get()
+                    .iter()
+                    .position(|x| x == &envelope.msg)
+                    .expect("message not found");
                 if flow_entry.get().len() > 1 {
                     flow_entry.into_mut().remove(i);
                 } else {
@@ -276,7 +294,8 @@ where Msg: Eq + Hash,
 }
 
 impl<Msg> FromStr for Network<Msg>
-where Msg: Eq + Hash,
+where
+    Msg: Eq + Hash,
 {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -290,13 +309,15 @@ where Msg: Eq + Hash,
 }
 
 impl<Msg> Rewrite<Id> for Network<Msg>
-where Msg: Eq + Hash + Rewrite<Id>,
+where
+    Msg: Eq + Hash + Rewrite<Id>,
 {
-    fn rewrite<S>(&self, plan: &RewritePlan<Id,S>) -> Self {
+    fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
         match self {
             Network::UnorderedDuplicating(set) => Network::UnorderedDuplicating(set.rewrite(plan)),
-            Network::UnorderedNonDuplicating(multiset) =>
-                Network::UnorderedNonDuplicating(multiset.rewrite(plan)),
+            Network::UnorderedNonDuplicating(multiset) => {
+                Network::UnorderedNonDuplicating(multiset.rewrite(plan))
+            }
             Network::Ordered(map) => Network::Ordered(map.rewrite(plan)),
         }
     }
@@ -306,30 +327,33 @@ pub enum NetworkIter<'a, Msg> {
     UnorderedDuplicating(hash_set::Iter<'a, Envelope<Msg>>),
     UnorderedNonDuplicating(
         // active env/count to iterate over repeated sends
-        Option<(Envelope<&'a Msg>, usize)>, 
-        std::collections::hash_map::Iter<'a, Envelope<Msg>, usize>),
+        Option<(Envelope<&'a Msg>, usize)>,
+        std::collections::hash_map::Iter<'a, Envelope<Msg>, usize>,
+    ),
     Ordered(
         // active channel/cursor to iterate over all messages of a channel
         Option<(Id, Id, &'a VecDeque<Msg>, usize)>,
-        btree_map::Iter<'a, (Id, Id), VecDeque<Msg>>),
+        btree_map::Iter<'a, (Id, Id), VecDeque<Msg>>,
+    ),
 }
 
 impl<'a, Msg> Iterator for NetworkIter<'a, Msg> {
     type Item = Envelope<&'a Msg>;
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            NetworkIter::UnorderedDuplicating(it) => {
-                it.next().map(|env| Envelope {
-                    src: env.src,
-                    dst: env.dst,
-                    msg: &env.msg,
-                })
-            }
+            NetworkIter::UnorderedDuplicating(it) => it.next().map(|env| Envelope {
+                src: env.src,
+                dst: env.dst,
+                msg: &env.msg,
+            }),
             NetworkIter::UnorderedNonDuplicating(active, it) => {
-                if let Some((env, count)) = active { // invariant: count > 1
+                if let Some((env, count)) = active {
+                    // invariant: count > 1
                     let env = *env; // to avoid holding a reference inside active
                     *count -= 1;
-                    if *count == 0 { *active = None; }
+                    if *count == 0 {
+                        *active = None;
+                    }
                     return Some(env);
                 }
                 it.next().map(|(env, count)| {
@@ -338,15 +362,15 @@ impl<'a, Msg> Iterator for NetworkIter<'a, Msg> {
                         dst: env.dst,
                         msg: &env.msg,
                     };
-                    if *count > 1 { *active = Some((env, *count)); }
+                    if *count > 1 {
+                        *active = Some((env, *count));
+                    }
                     env
                 })
             }
             NetworkIter::Ordered(active, it) => {
                 if let Some((src, dst, messages, index)) = active {
-                    let msg = messages
-                                .get(*index)
-                                .unwrap(); // messages.len() > 1
+                    let msg = messages.get(*index).unwrap(); // messages.len() > 1
                     return Some(Envelope {
                         src: *src,
                         dst: *dst,
@@ -373,26 +397,20 @@ impl<'a, Msg> Iterator for NetworkDeliverableIter<'a, Msg> {
     type Item = Envelope<&'a Msg>;
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            NetworkDeliverableIter::UnorderedDuplicating(it) => {
-                it.next().map(|env| Envelope {
-                    src: env.src,
-                    dst: env.dst,
-                    msg: &env.msg,
-                })
-            },
-            NetworkDeliverableIter::UnorderedNonDuplicating(it) => {
-                it.next().map(|env| Envelope {
-                    src: env.src,
-                    dst: env.dst,
-                    msg: &env.msg,
-                })
-            },
-            NetworkDeliverableIter::Ordered(it) => {
-                it.next().map(|(&(src, dst), messages)|{
-                    let msg = messages.get(0).expect("empty channel");
-                    Envelope { src, dst, msg }
-                })
-            }
+            NetworkDeliverableIter::UnorderedDuplicating(it) => it.next().map(|env| Envelope {
+                src: env.src,
+                dst: env.dst,
+                msg: &env.msg,
+            }),
+            NetworkDeliverableIter::UnorderedNonDuplicating(it) => it.next().map(|env| Envelope {
+                src: env.src,
+                dst: env.dst,
+                msg: &env.msg,
+            }),
+            NetworkDeliverableIter::Ordered(it) => it.next().map(|(&(src, dst), messages)| {
+                let msg = messages.get(0).expect("empty channel");
+                Envelope { src, dst, msg }
+            }),
         }
     }
 }
@@ -413,6 +431,9 @@ mod test {
                 Network::new_ordered([]),
                 Network::new_unordered_duplicating([]),
                 Network::new_unordered_nonduplicating([]),
-            ].into_iter().collect());
+            ]
+            .into_iter()
+            .collect()
+        );
     }
 }

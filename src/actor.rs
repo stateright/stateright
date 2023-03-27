@@ -85,8 +85,8 @@ use choice::{Choice, Never};
 mod model;
 mod model_state;
 mod network;
-mod timers;
 mod spawn;
+mod timers;
 use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
@@ -245,8 +245,14 @@ pub fn is_no_op<A: Actor>(state: &Cow<A::State>, out: &Out<A>) -> bool {
 /// If true, then the actor did not update its state or output commands, besides renewing the same
 /// timer.
 #[allow(clippy::ptr_arg)] // `&Cow` needed for `matches!`
-pub fn is_no_op_with_timer<A: Actor>(state: &Cow<A::State>, out: &Out<A>, timer: &A::Timer) -> bool {
-    let keep_timer = out.iter().any(|c| matches!(c, Command::SetTimer(t, _) if t == timer));
+pub fn is_no_op_with_timer<A: Actor>(
+    state: &Cow<A::State>,
+    out: &Out<A>,
+    timer: &A::Timer,
+) -> bool {
+    let keep_timer = out
+        .iter()
+        .any(|c| matches!(c, Command::SetTimer(t, _) if t == timer));
     let unmodified_out = out.0.len() == 1 && keep_timer;
     matches!(state, Cow::Borrowed(_)) && unmodified_out
 }
@@ -310,7 +316,13 @@ pub trait Actor: Sized {
     }
 
     /// Indicates the next state and commands when a timeout is encountered. See [`Out::set_timer`].
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, _timer: &Self::Timer, o: &mut Out<Self>) {
+    fn on_timeout(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        _timer: &Self::Timer,
+        o: &mut Out<Self>,
+    ) {
         // no-op by default
         let _ = id;
         let _ = state;
@@ -354,7 +366,13 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
+    fn on_timeout(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        timer: &Self::Timer,
+        o: &mut Out<Self>,
+    ) {
         let actor = self.get();
         let mut state_prime = Cow::Borrowed(state.get());
         let mut o_prime = Out::new();
@@ -426,7 +444,13 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, timer: &Self::Timer, o: &mut Out<Self>) {
+    fn on_timeout(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        timer: &Self::Timer,
+        o: &mut Out<Self>,
+    ) {
         match (self, &**state) {
             (Choice::L(actor), Choice::L(state_prime)) => {
                 let mut state_prime = Cow::Borrowed(state_prime);
