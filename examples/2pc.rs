@@ -78,28 +78,28 @@ impl Model for TwoPhaseSys {
         }
         for rm in self.rms.clone() {
             if state.tm_state == TmState::Init
-                && state.msgs.contains(&Message::Prepared { rm: rm.clone() })
+                && state.msgs.contains(&Message::Prepared { rm })
             {
-                actions.push(Action::TmRcvPrepared(rm.clone()));
+                actions.push(Action::TmRcvPrepared(rm));
             }
             if state.rm_state.get(rm) == Some(&RmState::Working) {
-                actions.push(Action::RmPrepare(rm.clone()));
+                actions.push(Action::RmPrepare(rm));
             }
             if state.rm_state.get(rm) == Some(&RmState::Working) {
-                actions.push(Action::RmChooseToAbort(rm.clone()));
+                actions.push(Action::RmChooseToAbort(rm));
             }
             if state.msgs.contains(&Message::Commit) {
-                actions.push(Action::RmRcvCommitMsg(rm.clone()));
+                actions.push(Action::RmRcvCommitMsg(rm));
             }
             if state.msgs.contains(&Message::Abort) {
-                actions.push(Action::RmRcvAbortMsg(rm.clone()));
+                actions.push(Action::RmRcvAbortMsg(rm));
             }
         }
     }
 
     fn next_state(&self, last_state: &Self::State, action: Self::Action) -> Option<Self::State> {
         let mut state = last_state.clone();
-        match action.clone() {
+        match action {
             Action::TmRcvPrepared(rm) => {
                 state.tm_prepared[rm] = true;
             }

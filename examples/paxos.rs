@@ -357,8 +357,7 @@ fn main() -> Result<(), pico_args::Error> {
             let client_count = args.opt_free_from_str()?.unwrap_or(2);
             let network = args
                 .opt_free_from_str()?
-                .unwrap_or(Network::new_unordered_nonduplicating([]))
-                .into();
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
                 "Model checking Single Decree Paxos with {} clients.",
                 client_count
@@ -381,8 +380,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or("localhost:3000".to_string());
             let network = args
                 .opt_free_from_str()?
-                .unwrap_or(Network::new_unordered_nonduplicating([]))
-                .into();
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
                 "Exploring state space for Single Decree Paxos with {} clients on {}.",
                 client_count, address
@@ -418,7 +416,7 @@ fn main() -> Result<(), pico_args::Error> {
 
             // WARNING: Omits `ordered_reliable_link` to keep the message
             //          protocol simple for `nc`.
-            let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 0));
+            let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             spawn(

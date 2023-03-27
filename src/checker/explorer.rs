@@ -515,7 +515,7 @@ mod test {
         .spawn_bfs()
         .join();
         let status = get_status(Arc::new(checker), snapshot).unwrap();
-        assert_eq!(status.done, true);
+        assert!(status.done);
         assert_eq!(
             status.model,
             "stateright::actor::model::ActorModel<\
@@ -546,7 +546,7 @@ mod test {
         assert_discovery(&status, Expectation::Eventually, "must exceed max", true);
         assert_discovery(&status, Expectation::Always, "#in <= #out", false);
         assert_discovery(&status, Expectation::Eventually, "#out <= #in + 1", false);
-        assert!(status.recent_path.unwrap().starts_with("["));
+        assert!(status.recent_path.unwrap().starts_with('['));
     }
 
     fn get_states<M, C>(
@@ -560,7 +560,7 @@ mod test {
         C: Checker<M>,
     {
         let req = actix_web::test::TestRequest::get()
-            .param("fingerprints", &path_name)
+            .param("fingerprints", path_name)
             .to_http_request();
         let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
         let data = web::Data::new(Arc::new((snapshot, checker)));

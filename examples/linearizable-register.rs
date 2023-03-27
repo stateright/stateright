@@ -91,7 +91,7 @@ impl Actor for AbdActor {
                     write: Some(val),
                     responses: {
                         let mut responses = HashableHashMap::default();
-                        responses.insert(id, (state.seq, state.val.clone()));
+                        responses.insert(id, (state.seq, state.val));
                         responses
                     },
                 });
@@ -104,7 +104,7 @@ impl Actor for AbdActor {
                     write: None,
                     responses: {
                         let mut responses = HashableHashMap::default();
-                        responses.insert(id, (state.seq, state.val.clone()));
+                        responses.insert(id, (state.seq, state.val));
                         responses
                     },
                 });
@@ -112,7 +112,7 @@ impl Actor for AbdActor {
             Internal(Query(req_id)) => {
                 o.send(
                     src,
-                    Internal(AckQuery(req_id, state.seq, state.val.clone())),
+                    Internal(AckQuery(req_id, state.seq, state.val)),
                 );
             }
             Internal(AckQuery(expected_req_id, seq, val))
@@ -134,12 +134,12 @@ impl Actor for AbdActor {
                         // Quorum reached. Move to phase 2.
 
                         // Determine sequencer and value.
-                        let (_, (seq, val)) = responses
-                            .into_iter()
+                        let (seq, val) = responses
+                            .values()
                             // The following relies on the fact that sequencers are distinct.
                             // Otherwise the chosen response can vary even when given the same
                             // inputs due to the underlying `HashMap`'s random seed.
-                            .max_by_key(|(_, (seq, _))| seq)
+                            .max_by_key(|(seq, _)| seq)
                             .unwrap();
                         let mut seq = *seq;
                         let mut read = None;
@@ -147,13 +147,13 @@ impl Actor for AbdActor {
                             seq = (seq.0 + 1, id);
                             val
                         } else {
-                            read = Some(val.clone());
-                            val.clone()
+                            read = Some(*val);
+                            *val
                         };
 
                         // A future optimization could skip the recording phase if the replicas
                         // agree.
-                        o.broadcast(&self.peers, &Internal(Record(*req_id, seq, val.clone())));
+                        o.broadcast(&self.peers, &Internal(Record(*req_id, seq, val)));
 
                         // Self-send `Record`.
                         if seq > state.seq {
@@ -328,8 +328,7 @@ fn main() -> Result<(), pico_args::Error> {
             let client_count = args.opt_free_from_str()?.unwrap_or(2);
             let network = args
                 .opt_free_from_str()?
-                .unwrap_or(Network::new_unordered_nonduplicating([]))
-                .into();
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
                 "Model checking a linearizable register with {} clients.",
                 client_count
@@ -352,8 +351,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or("localhost:3000".to_string());
             let network = args
                 .opt_free_from_str()?
-                .unwrap_or(Network::new_unordered_nonduplicating([]))
-                .into();
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
                 "Exploring state space for linearizable register with {} clients on {}.",
                 client_count, address
@@ -387,7 +385,7 @@ fn main() -> Result<(), pico_args::Error> {
             );
             println!();
 
-            let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 0));
+            let id0 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             spawn(

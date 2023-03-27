@@ -496,7 +496,7 @@ mod test {
             .checker()
             .spawn_bfs()
             .join();
-        assert_eq!(checker.is_done(), true);
+        assert!(checker.is_done());
         checker.assert_no_discovery("solvable");
         assert_eq!(checker.unique_state_count(), 256 * 256);
     }

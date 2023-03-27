@@ -191,7 +191,7 @@ impl Model for State {
 
     fn properties(&self) -> Vec<Property<Self>> {
         vec![Property::<Self>::always("fin", |_, state| {
-            state.s.iter().filter(|&s| s.pc == (3 as u8)).count() as u8 == state.i
+            state.s.iter().filter(|&s| s.pc == 3).count() as u8 == state.i
         })]
     }
 }
