@@ -153,7 +153,7 @@ where
                         op_count: 0,
                     }
                 } else {
-                    let unique_request_id = 1 * index as u64; // next will be 2 * index
+                    let unique_request_id = 1 * index; // next will be 2 * index
                     let value = (b'A' + (index - server_count) as u8) as char;
                     o.send(
                         Id((index + 0) % server_count),
@@ -225,7 +225,7 @@ where
                 match msg {
                     WORegisterMsg::PutOk(request_id) if &request_id == awaiting => {
                         let index = id.0;
-                        let unique_request_id = ((op_count + 1) * index) as u64;
+                        let unique_request_id = (op_count + 1) * index;
                         if *op_count < *put_count as u64 {
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
@@ -245,7 +245,7 @@ where
                     }
                     WORegisterMsg::PutFail(request_id) if &request_id == awaiting => {
                         let index = id.0;
-                        let unique_request_id = ((op_count + 1) * index) as u64;
+                        let unique_request_id = (op_count + 1) * index;
                         if *op_count < *put_count as u64 {
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(

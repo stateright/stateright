@@ -322,7 +322,7 @@ pub trait Checker<M: Model> {
         std::thread::scope(|s| {
             let method_start = Instant::now();
             let slf = &self;
-            let method_start2 = method_start.clone();
+            let method_start2 = method_start;
             s.spawn(move || {
                 // Loop checking the status until we're done.
                 while !slf.is_done() {
