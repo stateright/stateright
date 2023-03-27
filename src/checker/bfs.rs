@@ -221,6 +221,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_block(
         model: &M,
         state_count: &AtomicUsize,
