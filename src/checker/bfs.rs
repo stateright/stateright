@@ -147,12 +147,12 @@ where
                                 };
                             }
                             Self::check_block(
-                                &*model,
-                                &*state_count,
-                                &*generated,
+                                &model,
+                                &state_count,
+                                &generated,
                                 &mut pending,
-                                &*discoveries,
-                                &*visitor,
+                                &discoveries,
+                                &visitor,
                                 1500,
                                 target_max_depth,
                                 &max_depth,
@@ -184,7 +184,7 @@ where
                             if pending.len() > 1 && thread_count > 1 {
                                 let mut job_market = job_market.lock();
                                 let pieces = 1 + std::cmp::min(
-                                    job_market.wait_count as usize,
+                                    job_market.wait_count,
                                     pending.len(),
                                 );
                                 let size = pending.len() / pieces;
@@ -409,7 +409,7 @@ where
             .map(|mapref| {
                 (
                     <&'static str>::clone(mapref.key()),
-                    reconstruct_path(self.model(), &*self.generated, *mapref.value()),
+                    reconstruct_path(self.model(), &self.generated, *mapref.value()),
                 )
             })
             .collect()

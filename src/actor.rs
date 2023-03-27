@@ -169,6 +169,12 @@ pub enum Command<Msg, Timer> {
 /// Holds [`Command`]s output by an actor.
 pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer>>);
 
+impl<A:Actor> Default for Out<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<A: Actor> Out<A> {
     /// Constructs an empty `Out`.
     pub fn new() -> Self {

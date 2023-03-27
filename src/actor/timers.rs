@@ -7,6 +7,12 @@ use super::Id;
 #[derive(Clone, Debug, Hash, PartialEq, Eq, serde::Serialize)]
 pub struct Timers<T: Hash + Eq>(HashableHashSet<T>);
 
+impl<T: Hash + Eq> Default for Timers<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Timers<T>
 where
     T: Hash + Eq,

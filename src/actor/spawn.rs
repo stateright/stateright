@@ -92,7 +92,7 @@ where
                 loop {
                     // Apply an interrupt if present, otherwise wait for a message.
                     let mut out = Out::new();
-                    if let Some((min_timer, min_instant)) = next_interrupts.iter().min_by_key(|(_, instant)| *instant).map(|(t, i)| (t.clone(), i.clone())) {
+                    if let Some((min_timer, min_instant)) = next_interrupts.iter().min_by_key(|(_, instant)| *instant).map(|(t, i)| (t.clone(), *i)) {
                         if let Some(max_wait) = min_instant.checked_duration_since(Instant::now()) {
                             socket.set_read_timeout(Some(max_wait)).expect("set_read_timeout failed");
                             match socket.recv_from(&mut in_buf) {
