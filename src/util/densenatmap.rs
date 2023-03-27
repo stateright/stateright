@@ -260,6 +260,7 @@ mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
     pub fn can_rewrite() {
         // This test relies on having a second rewritten type besides `Id`, which we call `Id2`.
         #[derive(Clone, Copy, Debug, PartialEq)]
@@ -300,7 +301,8 @@ mod test {
             DenseNatMap::from_iter(['W', 'X', 'Y', 'Z']));
         assert_eq!(
             f3.rewrite(&plan),
-            DenseNatMap::from_iter(['X', 'Y', 'W', 'Z'])); // *not* reindexed
+            DenseNatMap::from_iter(['X', 'Y', 'W', 'Z']) // *not* reindexed
+        );
         assert_eq!(
             f4.rewrite(&plan),
             BTreeMap::from_iter([('!', Id::from(1))]));
@@ -312,18 +314,22 @@ mod test {
         let plan = RewritePlan::from(&f3);
         assert_eq!(
             f1.rewrite(&plan),
-            DenseNatMap::from_iter(['B', 'C', 'A', 'D'])); // *not* reindexed
+            DenseNatMap::from_iter(['B', 'C', 'A', 'D']) // *not* reindexed
+        );
         assert_eq!(
             f2.rewrite(&plan),
-            DenseNatMap::from_iter(['X', 'Y', 'W', 'Z'])); // *not* reindexed
+            DenseNatMap::from_iter(['X', 'Y', 'W', 'Z']) // *not* reindexed
+        );
         assert_eq!(
             f3.rewrite(&plan),
             DenseNatMap::from_iter(['W', 'X', 'Y', 'Z']));
         assert_eq!(
             f4.rewrite(&plan),
-            BTreeMap::from_iter([('!', Id::from(0))])); // Id is *not* rewritten
+            BTreeMap::from_iter([('!', Id::from(0))]) // Id is *not* rewritten
+        );
         assert_eq!(
             f5.rewrite(&plan),
-            BTreeMap::from_iter([(Id::from(0), '!')])); // Id is *not* rewritten
+            BTreeMap::from_iter([(Id::from(0), '!')]) // Id is *not* rewritten
+        );
     }
 }

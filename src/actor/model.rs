@@ -393,9 +393,10 @@ where A: Actor,
         // SVG wrapper.
         let (mut svg_w, svg_h) = plot(actor_count, path.len());
         svg_w += 300; // KLUDGE: extra width for event labels
-        let mut svg = format!("<svg version='1.1' baseProfile='full' \
-                                    width='{}' height='{}' viewbox='-20 -20 {} {}' \
-                                    xmlns='http://www.w3.org/2000/svg'>",
+        let mut svg = format!(
+            "<svg version='1.1' baseProfile='full' \
+                  width='{}' height='{}' viewbox='-20 -20 {} {}' \
+                  xmlns='http://www.w3.org/2000/svg'>",
             svg_w, svg_h, svg_w + 20, svg_h + 20);
 
         // Definitions.
@@ -531,6 +532,7 @@ mod test {
 
         let state_space = accessor();
         assert_eq!(state_space.len(), 14); // same as the generated count
+        #[rustfmt::skip]
         assert_eq!(HashSet::<_>::from_iter(state_space), HashSet::from_iter(vec![
             // When the network loses no messages...
             states_and_network(

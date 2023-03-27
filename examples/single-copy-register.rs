@@ -94,6 +94,7 @@ fn can_model_single_copy_register() {
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
+    #[rustfmt::skip]
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'B') },
         Deliver { src: Id::from(0), dst: Id::from(2), msg: PutOk(2) },
@@ -108,12 +109,14 @@ fn can_model_single_copy_register() {
             network: Network::new_unordered_nonduplicating([]),
         }
         .into_model().checker().spawn_bfs().join();
+    #[rustfmt::skip]
     checker.assert_discovery("linearizable", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },
         Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
         Deliver { src: Id::from(0), dst: Id::from(3), msg: GetOk(6, '\u{0}') },
     ]);
+    #[rustfmt::skip]
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(3), msg: PutOk(3) },

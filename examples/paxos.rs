@@ -280,6 +280,7 @@ fn can_model_paxos() {
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
+    #[rustfmt::skip]
     checker.assert_discovery("value chosen", vec![
         Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
         Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },
@@ -300,6 +301,7 @@ fn can_model_paxos() {
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
+    #[rustfmt::skip]
     checker.assert_discovery("value chosen", vec![
         Deliver { src: 4.into(), dst: 1.into(), msg: Put(4, 'B') },
         Deliver { src: 1.into(), dst: 0.into(), msg: Internal(Prepare { ballot: (1, 1.into()) }) },

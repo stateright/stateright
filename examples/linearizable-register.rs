@@ -244,6 +244,7 @@ fn can_model_linearizable_register() {
         }
         .into_model().checker().spawn_bfs().join();
     checker.assert_properties();
+    #[rustfmt::skip]
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(3)) },
@@ -267,6 +268,7 @@ fn can_model_linearizable_register() {
         }
         .into_model().checker().spawn_dfs().join();
     checker.assert_properties();
+    #[rustfmt::skip]
     checker.assert_discovery("value chosen", vec![
         Deliver { src: Id::from(3), dst: Id::from(1), msg: Put(3, 'B') },
         Deliver { src: Id::from(1), dst: Id::from(0), msg: Internal(Query(3)) },

@@ -390,10 +390,14 @@ mod test {
         assert_eq!(
             accessor(),
             vec![
-                (0, 0),                 // distance == 0
-                (1, 0), (0, 1),         // distance == 1
-                (2, 0), (1, 1), (0, 2), // distance == 2
-                (3, 0), (2, 1),         // distance == 3
+                // distance == 0
+                (0, 0),
+                // distance == 1
+                (1, 0), (0, 1),
+                // distance == 2
+                (2, 0), (1, 1), (0, 2),
+                // distance == 3
+                (3, 0), (2, 1),
             ]);
     }
 

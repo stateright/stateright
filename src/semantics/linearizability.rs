@@ -325,7 +325,8 @@ mod test {
                 .on_invret(0, RegisterOp::Read, RegisterRet::ReadOk('B'))?
                 .on_invoke(1, RegisterOp::Write('B'))?
                 .serialized_history(),
-            None); // SC but not lineariable
+            None // SC but not lineariable
+        );
         Ok(())
     }
 
@@ -431,7 +432,8 @@ mod test {
                 .on_invret(0, VecOp::Push(10), VecRet::PushOk)?
                 .on_invret(1, VecOp::Pop,      VecRet::PopOk(None))?
                 .serialized_history(),
-            None); // SC but not lineariable
+            None // SC but not lineariable
+        );
         assert_eq!(
             LinearizabilityTester::new(Vec::new())
                 .on_invret(0, VecOp::Push(10), VecRet::PushOk)?

@@ -132,6 +132,7 @@ mod test {
         let empty_timers = Timers::new();
         let mut non_empty_timers = Timers::new();
         non_empty_timers.set(());
+        #[rustfmt::skip]
         let state = ActorModelState::<A, History> {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![Id::from(1), Id::from(2)]}),
@@ -168,6 +169,7 @@ mod test {
         // The chosen rewrite plan is:
         // - reindexing: x[0] <- x[1], x[1] <- x[2], x[2] <- x[0]
         // - rewriting:  Id(0) -> Id(2), Id(1) -> Id(0), Id(2) -> Id(1)
+        #[rustfmt::skip]
         assert_eq!(representative_state, ActorModelState {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![]}),

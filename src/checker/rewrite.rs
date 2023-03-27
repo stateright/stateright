@@ -151,6 +151,7 @@ mod test {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn can_rewrite_network() {
         let original: Network<_> = Network::new_unordered_duplicating([
             // Id(0) sends peers "Write(X)" and receives two acks.

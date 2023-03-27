@@ -48,6 +48,7 @@ impl<T: Clone + Debug + PartialEq> SequentialSpec for Register<T> {
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod test {
     use super::*;
 
