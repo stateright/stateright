@@ -554,7 +554,7 @@ mod test {
 
     #[test]
     fn peer_ids_are_computed_correctly() {
-        let ids: Vec<Id> = (0..3).into_iter().map(Id::from).collect();
+        let ids: Vec<Id> = (0..3).map(Id::from).collect();
         assert_eq!(
             peer_ids(ids[1], &ids).collect::<Vec<&Id>>(),
             vec![&Id::from(0), &Id::from(2)]
@@ -580,7 +580,7 @@ mod test {
                 let mut messages: Vec<_> = s
                     .network
                     .iter_deliverable()
-                    .map(|e| e.msg.clone())
+                    .map(|e| *e.msg)
                     .collect();
                 messages.sort();
                 messages

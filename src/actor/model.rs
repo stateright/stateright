@@ -574,7 +574,7 @@ mod test {
         let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>| {
             let timers_set = vec![Timers::new(); states.len()];
             ActorModelState {
-                actor_states: states.into_iter().map(|s| Arc::new(s)).collect::<Vec<_>>(),
+                actor_states: states.into_iter().map(Arc::new).collect::<Vec<_>>(),
                 network: Network::new_unordered_duplicating(envelopes),
                 timers_set,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
@@ -842,7 +842,6 @@ mod test {
         // More states if network is not ordered.
         let (recorder, accessor) = StateRecorder::new_with_accessor();
         model
-            .clone()
             .init_network(Network::new_unordered_nonduplicating([]))
             .checker()
             .visitor(recorder)
@@ -973,7 +972,6 @@ mod test {
             type Timer = ();
             fn on_start(&self, _: Id, o: &mut Out<Self>) {
                 o.set_timer((), model_timeout());
-                ()
             }
             fn on_msg(
                 &self,
@@ -1090,11 +1088,15 @@ mod choice_test {
             .record_msg_out(|_, out_count, _| Some(out_count + 1))
             .property(Expectation::Always, "true", |_, _| true)
             .within_boundary(|_, state| state.history < 8);
+
         let (recorder, accessor) = StateRecorder::new_with_accessor();
+
         sys.checker().visitor(recorder).spawn_dfs().join();
-        let states: Vec<Vec<choice![u8, char, String]>> = accessor()
+
+        type StateVector = choice![u8, char, String];
+        let states: Vec<Vec<StateVector>> = accessor()
             .into_iter()
-            .map(|s| s.actor_states.into_iter().map(|a| (&*a).clone()).collect())
+            .map(|s| s.actor_states.into_iter().map(|a| (*a).clone()).collect())
             .collect();
         assert_eq!(
             states,

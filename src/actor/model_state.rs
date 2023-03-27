@@ -196,7 +196,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ]),
-            timers_set: vec![empty_timers.clone(), non_empty_timers.clone(), non_empty_timers.clone()],
+            timers_set: vec![empty_timers, non_empty_timers.clone(), non_empty_timers.clone()],
             history: History {
                 send_sequence: vec![
                     // Id(2) sends two writes

@@ -148,8 +148,7 @@ fn main() -> Result<(), pico_args::Error> {
             let client_count = args.opt_free_from_str()?.unwrap_or(2);
             let network = args
                 .opt_free_from_str()?
-                .unwrap_or(Network::new_unordered_nonduplicating([]))
-                .into();
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
                 "Model checking a single-copy register with {} clients.",
                 client_count
@@ -172,8 +171,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .unwrap_or("localhost:3000".to_string());
             let network = args
                 .opt_free_from_str()?
-                .unwrap_or(Network::new_unordered_nonduplicating([]))
-                .into();
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
                 "Exploring state space for single-copy register with {} clients on {}.",
                 client_count, address
