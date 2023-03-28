@@ -1,31 +1,35 @@
 //! Private module for selective re-export.
 
-use crate::{Representative, Rewrite, RewritePlan};
 use crate::actor::{Actor, Id, Network};
+use crate::{Representative, Rewrite, RewritePlan};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+use super::timers::Timers;
 
 /// Represents a snapshot in time for the entire actor system.
 pub struct ActorModelState<A: Actor, H = ()> {
     pub actor_states: Vec<Arc<A::State>>,
     pub network: Network<A::Msg>,
-    pub is_timer_set: Vec<bool>,
+    pub timers_set: Vec<Timers<A::Timer>>,
     pub history: H,
 }
 
 impl<A, H> serde::Serialize for ActorModelState<A, H>
-where A: Actor,
-      A::State: serde::Serialize,
-      A::Msg: serde::Serialize,
-      H: serde::Serialize,
+where
+    A: Actor,
+    A::State: serde::Serialize,
+    A::Msg: serde::Serialize,
+    A::Timer: serde::Serialize,
+    H: serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         use serde::ser::SerializeStruct;
         let mut out = ser.serialize_struct("ActorModelState", 4)?;
         out.serialize_field("actor_states", &self.actor_states)?;
         out.serialize_field("network", &self.network)?;
-        out.serialize_field("is_timer_set", &self.is_timer_set)?;
+        out.serialize_field("is_timer_set", &self.timers_set)?;
         out.serialize_field("history", &self.history)?;
         out.end()
     }
@@ -34,14 +38,15 @@ where A: Actor,
 // Manual implementation to avoid `Clone` constraint that `#derive(Clone)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Clone for ActorModelState<A, H>
-where A: Actor,
-      H: Clone,
+where
+    A: Actor,
+    H: Clone,
 {
     fn clone(&self) -> Self {
         ActorModelState {
             actor_states: self.actor_states.clone(),
             history: self.history.clone(),
-            is_timer_set: self.is_timer_set.clone(),
+            timers_set: self.timers_set.clone(),
             network: self.network.clone(),
         }
     }
@@ -50,14 +55,15 @@ where A: Actor,
 // Manual implementation to avoid `Debug` constraint that `#derive(Debug)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Debug for ActorModelState<A, H>
-where A: Actor,
-      H: Debug,
+where
+    A: Actor,
+    H: Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut builder = f.debug_struct("ActorModelState");
         builder.field("actor_states", &self.actor_states);
         builder.field("history", &self.history);
-        builder.field("is_timer_set", &self.is_timer_set);
+        builder.field("is_timer_set", &self.timers_set);
         builder.field("network", &self.network);
         builder.finish()
     }
@@ -66,21 +72,24 @@ where A: Actor,
 // Manual implementation to avoid `Eq` constraint that `#derive(Eq)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Eq for ActorModelState<A, H>
-where A: Actor,
-      A::State: Eq,
-      H: Eq,
-{}
+where
+    A: Actor,
+    A::State: Eq,
+    H: Eq,
+{
+}
 
 // Manual implementation to avoid `Hash` constraint that `#derive(Hash)` would introduce on
 // `ActorModelState<A, H>` type parameters.
 impl<A, H> Hash for ActorModelState<A, H>
-where A: Actor,
-      H: Hash,
+where
+    A: Actor,
+    H: Hash,
 {
     fn hash<Hash: Hasher>(&self, state: &mut Hash) {
         self.actor_states.hash(state);
         self.history.hash(state);
-        self.is_timer_set.hash(state);
+        self.timers_set.hash(state);
         self.network.hash(state);
     }
 }
@@ -88,30 +97,32 @@ where A: Actor,
 // Manual implementation to avoid `PartialEq` constraint that `#derive(PartialEq)` would
 // introduce on `ActorModelState<A, H>` type parameters.
 impl<A, H> PartialEq for ActorModelState<A, H>
-where A: Actor,
-      A::State: PartialEq,
-      H: PartialEq,
+where
+    A: Actor,
+    A::State: PartialEq,
+    H: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.actor_states.eq(&other.actor_states)
             && self.history.eq(&other.history)
-            && self.is_timer_set.eq(&other.is_timer_set)
+            && self.timers_set.eq(&other.timers_set)
             && self.network.eq(&other.network)
     }
 }
 
 impl<A, H> Representative for ActorModelState<A, H>
-    where A: Actor,
-          A::Msg: Rewrite<Id>,
-          A::State: Ord + Rewrite<Id>,
-          H: Rewrite<Id>,
+where
+    A: Actor,
+    A::Msg: Rewrite<Id>,
+    A::State: Ord + Rewrite<Id>,
+    H: Rewrite<Id>,
 {
     fn representative(&self) -> Self {
         let plan = RewritePlan::from_values_to_sort(&self.actor_states);
         Self {
             actor_states: plan.reindex(&self.actor_states),
             network: self.network.rewrite(&plan),
-            is_timer_set: plan.reindex(&self.is_timer_set),
+            timers_set: plan.reindex(&self.timers_set),
             history: self.history.rewrite(&plan),
         }
     }
@@ -119,12 +130,17 @@ impl<A, H> Representative for ActorModelState<A, H>
 
 #[cfg(test)]
 mod test {
-    use crate::{Rewrite, Representative, RewritePlan};
+    use crate::actor::timers::Timers;
     use crate::actor::{Actor, ActorModelState, Envelope, Id, Network, Out};
+    use crate::{Representative, Rewrite, RewritePlan};
     use std::sync::Arc;
 
     #[test]
     fn can_find_representative_from_equivalence_class() {
+        let empty_timers = Timers::new();
+        let mut non_empty_timers = Timers::new();
+        non_empty_timers.set(());
+        #[rustfmt::skip]
         let state = ActorModelState::<A, History> {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![Id::from(1), Id::from(2)]}),
@@ -143,7 +159,7 @@ mod test {
                 Envelope { src: 2.into(), dst: 1.into(), msg: "Write(Y)" },
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
             ]),
-            is_timer_set: vec![true, false, true],
+            timers_set: vec![non_empty_timers.clone(), empty_timers.clone(), non_empty_timers.clone()],
             history: History {
                 send_sequence: vec![
                     // Id(0) sends two writes
@@ -161,6 +177,7 @@ mod test {
         // The chosen rewrite plan is:
         // - reindexing: x[0] <- x[1], x[1] <- x[2], x[2] <- x[0]
         // - rewriting:  Id(0) -> Id(2), Id(1) -> Id(0), Id(2) -> Id(1)
+        #[rustfmt::skip]
         assert_eq!(representative_state, ActorModelState {
             actor_states: vec![
                 Arc::new(ActorState { acks: vec![]}),
@@ -179,7 +196,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 0.into(), msg: "Write(Y)" },
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ]),
-            is_timer_set: vec![false, true, true],
+            timers_set: vec![empty_timers, non_empty_timers.clone(), non_empty_timers.clone()],
             history: History {
                 send_sequence: vec![
                     // Id(2) sends two writes
@@ -199,24 +216,33 @@ mod test {
     impl Actor for A {
         type Msg = &'static str;
         type State = ActorState;
+        type Timer = ();
         fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
             unimplemented!();
         }
     }
 
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    struct ActorState { acks: Vec<Id> }
+    struct ActorState {
+        acks: Vec<Id>,
+    }
     impl Rewrite<Id> for ActorState {
         fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
-            Self { acks: self.acks.rewrite(plan) }
+            Self {
+                acks: self.acks.rewrite(plan),
+            }
         }
     }
 
     #[derive(Debug, PartialEq)]
-    struct History { send_sequence: Vec<Id> }
+    struct History {
+        send_sequence: Vec<Id>,
+    }
     impl Rewrite<Id> for History {
         fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
-            Self { send_sequence: self.send_sequence.rewrite(plan) }
+            Self {
+                send_sequence: self.send_sequence.rewrite(plan),
+            }
         }
     }
 }

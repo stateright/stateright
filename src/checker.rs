@@ -11,11 +11,13 @@ mod rewrite_plan;
 mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
-use crate::{Expectation, Model, Fingerprint};
-use std::collections::HashMap;
+use crate::{Expectation, Fingerprint, Model};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub use path::*;
@@ -62,6 +64,7 @@ pub struct CheckerBuilder<M: Model> {
     #[allow(clippy::type_complexity)]
     symmetry: Option<fn(&M::State) -> M::State>,
     target_state_count: Option<NonZeroUsize>,
+    target_max_depth: Option<NonZeroUsize>,
     thread_count: usize,
     visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
 }
@@ -70,6 +73,7 @@ impl<M: Model> CheckerBuilder<M> {
         Self {
             model,
             target_state_count: None,
+            target_max_depth: None,
             symmetry: None,
             thread_count: 1,
             visitor: None,
@@ -217,6 +221,14 @@ impl<M: Model> CheckerBuilder<M> {
         }
     }
 
+    /// Sets the maximum depth that the checker should aim to explore.
+    pub fn target_max_depth(self, depth: usize) -> Self {
+        Self {
+            target_max_depth: NonZeroUsize::new(depth),
+            ..self
+        }
+    }
+
     /// Sets the number of threads available for model checking. For maximum performance this
     /// should match the number of cores.
     pub fn threads(self, thread_count: usize) -> Self {
@@ -261,6 +273,9 @@ pub trait Checker<M: Model> {
     /// [`Checker::state_count`].
     fn unique_state_count(&self) -> usize;
 
+    /// Indicates the maximum depth that has been explored.
+    fn max_depth(&self) -> usize;
+
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>;
@@ -269,7 +284,18 @@ pub trait Checker<M: Model> {
     /// a specified maximum number of states.
     ///
     /// [`is_done`]: Self::is_done
-    fn join(self) -> Self;
+    fn join(mut self) -> Self
+    where
+        Self: Sized,
+    {
+        for h in self.handles() {
+            h.join().expect("Failed to join checker thread");
+        }
+        self
+    }
+
+    /// Extract the thread handles from this checker.
+    fn handles(&mut self) -> Vec<JoinHandle<()>>;
 
     /// Indicates that either all properties have associated discoveries or all reachable states
     /// have been visited.
@@ -278,6 +304,68 @@ pub trait Checker<M: Model> {
     /// Looks up a discovery by property name. Panics if the property does not exist.
     fn discovery(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
         self.discoveries().remove(name)
+    }
+
+    /// Wait for all threads to finish whilst reporting, reporting the finish more accurately than
+    /// the interval used for the reporting.
+    fn join_and_report<R>(mut self, reporter: &mut R) -> Self
+    where
+        M::Action: Debug,
+        M::State: Debug,
+        Self: Sized + Send + Sync,
+        R: Reporter<M> + Send,
+    {
+        let handles = self.handles();
+        let reporter_mutex = Arc::new(Mutex::new(reporter));
+        let reporter_mutex2 = Arc::clone(&reporter_mutex);
+
+        std::thread::scope(|s| {
+            let method_start = Instant::now();
+            let slf = &self;
+            let method_start2 = method_start;
+            s.spawn(move || {
+                // Loop checking the status until we're done.
+                while !slf.is_done() {
+                    reporter_mutex.lock().unwrap().report_checking(ReportData {
+                        total_states: slf.state_count(),
+                        unique_states: slf.unique_state_count(),
+                        max_depth: slf.max_depth(),
+                        duration: method_start.elapsed(),
+                        done: false,
+                    });
+                    let delay = reporter_mutex.lock().unwrap().delay();
+                    std::thread::sleep(delay);
+                }
+            });
+
+            for h in handles {
+                h.join().expect("Failed to join checker thread");
+            }
+
+            // Send a final report to say we're done.
+            reporter_mutex2.lock().unwrap().report_checking(ReportData {
+                total_states: self.state_count(),
+                unique_states: self.unique_state_count(),
+                max_depth: self.max_depth(),
+                duration: method_start2.elapsed(),
+                done: true,
+            });
+
+            // Finish with a discovery summary.
+            let mut discoveries = BTreeMap::new();
+            for (name, path) in slf.discoveries() {
+                let discovery = ReportDiscovery {
+                    path,
+                    classification: slf.discovery_classification(name),
+                };
+                discoveries.insert(name, discovery);
+            }
+            reporter_mutex2
+                .lock()
+                .unwrap()
+                .report_discoveries(discoveries);
+        });
+        self
     }
 
     /// Periodically emits a status message.
@@ -294,20 +382,23 @@ pub trait Checker<M: Model> {
             reporter.report_checking(ReportData {
                 total_states: self.state_count(),
                 unique_states: self.unique_state_count(),
+                max_depth: self.max_depth(),
                 duration: method_start.elapsed(),
                 done: false,
             });
-            std::thread::sleep(std::time::Duration::from_millis(1_000));
+            let delay = reporter.delay();
+            std::thread::sleep(delay);
         }
         reporter.report_checking(ReportData {
             total_states: self.state_count(),
             unique_states: self.unique_state_count(),
+            max_depth: self.max_depth(),
             duration: method_start.elapsed(),
             done: true,
         });
 
         // Finish with a discovery summary.
-        let mut discoveries = HashMap::new();
+        let mut discoveries = BTreeMap::new();
         for (name, path) in self.discoveries() {
             let discovery = ReportDiscovery {
                 path,
@@ -594,8 +685,8 @@ mod test_report {
         assert!(
             output.starts_with(
                 "\
-                Checking. states=1, unique=1\n\
-                Done. states=15, unique=12, sec="
+                Checking. states=1, unique=1, depth=0\n\
+                Done. states=15, unique=12, depth=4, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output
@@ -622,8 +713,8 @@ mod test_report {
         assert!(
             output.starts_with(
                 "\
-                Checking. states=1, unique=1\n\
-                Done. states=55, unique=55, sec="
+                Checking. states=1, unique=1, depth=0\n\
+                Done. states=55, unique=55, depth=28, sec="
             ),
             "Output did not start as expected (see test). output={:?}`",
             output

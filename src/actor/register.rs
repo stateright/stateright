@@ -4,15 +4,16 @@
 #[cfg(doc)]
 use crate::actor::ActorModel;
 use crate::actor::{Actor, Envelope, Id, Out};
-use crate::semantics::ConsistencyTester;
 use crate::semantics::register::{Register, RegisterOp, RegisterRet};
+use crate::semantics::ConsistencyTester;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Defines an interface for a register-like actor.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum RegisterMsg<RequestId, Value, InternalMsg> {
     /// A message specific to the register system's internal protocol.
     Internal(InternalMsg),
@@ -37,10 +38,11 @@ impl<RequestId, Value, InternalMsg> RegisterMsg<RequestId, Value, InternalMsg> {
     pub fn record_invocations<C, H>(
         _cfg: &C,
         history: &H,
-        env: Envelope<&RegisterMsg<RequestId, Value, InternalMsg>>)
-        -> Option<H>
-    where H: Clone + ConsistencyTester<Id, Register<Value>>,
-          Value: Clone + Debug + PartialEq,
+        env: Envelope<&RegisterMsg<RequestId, Value, InternalMsg>>,
+    ) -> Option<H>
+    where
+        H: Clone + ConsistencyTester<Id, Register<Value>>,
+        Value: Clone + Debug + PartialEq,
     {
         // Currently throws away useful information about invalid histories. Ideally
         // checking would continue, but the property would be labeled with an error.
@@ -64,10 +66,11 @@ impl<RequestId, Value, InternalMsg> RegisterMsg<RequestId, Value, InternalMsg> {
     pub fn record_returns<C, H>(
         _cfg: &C,
         history: &H,
-        env: Envelope<&RegisterMsg<RequestId, Value, InternalMsg>>)
-        -> Option<H>
-    where H: Clone + ConsistencyTester<Id, Register<Value>>,
-          Value: Clone + Debug + PartialEq,
+        env: Envelope<&RegisterMsg<RequestId, Value, InternalMsg>>,
+    ) -> Option<H>
+    where
+        H: Clone + ConsistencyTester<Id, Register<Value>>,
+        Value: Clone + Debug + PartialEq,
     {
         // Currently throws away useful information about invalid histories. Ideally
         // checking would continue, but the property would be labeled with an error.
@@ -82,7 +85,7 @@ impl<RequestId, Value, InternalMsg> RegisterMsg<RequestId, Value, InternalMsg> {
                 let _ = history.on_return(env.dst, RegisterRet::WriteOk);
                 Some(history)
             }
-            _ => None
+            _ => None,
         }
     }
 }
@@ -100,8 +103,7 @@ pub enum RegisterActor<ServerActor> {
     Server(ServerActor),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[derive(serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 pub enum RegisterActorState<ServerState, RequestId> {
     /// A client that sends a sequence of [`RegisterMsg::Put`] messages before sending a
     /// [`RegisterMsg::Get`].
@@ -123,11 +125,15 @@ where
 {
     type Msg = RegisterMsg<u64, char, InternalMsg>;
     type State = RegisterActorState<ServerActor::State, u64>;
+    type Timer = ServerActor::Timer;
 
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
-            RegisterActor::Client { put_count, server_count } => {
+            RegisterActor::Client {
+                put_count,
+                server_count,
+            } => {
                 let server_count = *server_count as u64;
 
                 let index = id.0;
@@ -141,11 +147,12 @@ where
                         op_count: 0,
                     }
                 } else {
-                    let unique_request_id = 1 * index as u64; // next will be 2 * index
+                    let unique_request_id = 1 * index; // next will be 2 * index
                     let value = (b'A' + (index - server_count) as u8) as char;
                     o.send(
                         Id((index + 0) % server_count),
-                        Put(unique_request_id, value));
+                        Put(unique_request_id, value),
+                    );
                     RegisterActorState::Client {
                         awaiting: Some(unique_request_id),
                         op_count: 1,
@@ -161,29 +168,44 @@ where
         }
     }
 
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         use RegisterActor as A;
         use RegisterActorState as S;
 
         match (self, &**state) {
             (
-                A::Client { put_count, server_count },
-                S::Client { awaiting: Some(awaiting), op_count },
+                A::Client {
+                    put_count,
+                    server_count,
+                },
+                S::Client {
+                    awaiting: Some(awaiting),
+                    op_count,
+                },
             ) => {
                 let server_count = *server_count as u64;
                 match msg {
                     RegisterMsg::PutOk(request_id) if &request_id == awaiting => {
                         let index = id.0;
-                        let unique_request_id = ((op_count + 1) * index) as u64;
+                        let unique_request_id = (op_count + 1) * index;
                         if *op_count < *put_count as u64 {
                             let value = (b'Z' - (index - server_count) as u8) as char;
                             o.send(
                                 Id((index + op_count) % server_count),
-                                Put(unique_request_id, value));
+                                Put(unique_request_id, value),
+                            );
                         } else {
                             o.send(
                                 Id((index + op_count) % server_count),
-                                Get(unique_request_id));
+                                Get(unique_request_id),
+                            );
                         }
                         *state = Cow::Owned(RegisterActorState::Client {
                             awaiting: Some(unique_request_id),
@@ -199,10 +221,7 @@ where
                     _ => {}
                 }
             }
-            (
-                A::Server(server_actor),
-                S::Server(server_state),
-            ) => {
+            (A::Server(server_actor), S::Server(server_state)) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
                 server_actor.on_msg(id, &mut server_state, src, msg, &mut server_out);
@@ -215,21 +234,21 @@ where
         }
     }
 
-    fn on_timeout(&self, id: Id, state: &mut Cow<Self::State>, o: &mut Out<Self>) {
+    fn on_timeout(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        timer: &Self::Timer,
+        o: &mut Out<Self>,
+    ) {
         use RegisterActor as A;
         use RegisterActorState as S;
         match (self, &**state) {
-            (
-                A::Client { .. },
-                S::Client { .. }
-            ) => {},
-            (
-                A::Server(server_actor),
-                S::Server(server_state)
-            ) => {
+            (A::Client { .. }, S::Client { .. }) => {}
+            (A::Server(server_actor), S::Server(server_state)) => {
                 let mut server_state = Cow::Borrowed(server_state);
                 let mut server_out = Out::new();
-                server_actor.on_timeout(id, &mut server_state, &mut server_out);
+                server_actor.on_timeout(id, &mut server_state, timer, &mut server_out);
                 if let Cow::Owned(server_state) = server_state {
                     *state = Cow::Owned(RegisterActorState::Server(server_state))
                 }

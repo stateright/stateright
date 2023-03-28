@@ -10,8 +10,10 @@ use nohash_hasher::NoHashHasher;
 use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hash};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
@@ -25,6 +27,7 @@ pub(crate) struct OnDemandChecker<M: Model> {
     // Mutable state.
     job_market: Arc<Mutex<JobMarket<M::State>>>,
     state_count: Arc<AtomicUsize>,
+    max_depth: Arc<AtomicUsize>,
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
     discoveries: Arc<DashMap<&'static str, Fingerprint>>,
@@ -34,7 +37,7 @@ struct JobMarket<State> {
     wait_count: usize,
     jobs: Vec<Job<State>>,
 }
-type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits)>;
+type Job<State> = VecDeque<(State, Fingerprint, EventuallyBits, NonZeroUsize)>;
 
 impl<M> OnDemandChecker<M>
 where
@@ -58,6 +61,7 @@ where
             .filter(|s| model.within_boundary(s))
             .collect();
         let state_count = Arc::new(AtomicUsize::new(init_states.len()));
+        let max_depth = Arc::new(AtomicUsize::new(0));
         let generated = Arc::new({
             let generated = DashMap::default();
             for s in &init_states {
@@ -82,7 +86,7 @@ where
             .into_iter()
             .map(|s| {
                 let fp = fingerprint(&s);
-                (s, fp, ebits.clone())
+                (s, fp, ebits.clone(), NonZeroUsize::new(1).unwrap())
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -99,161 +103,171 @@ where
             let has_new_job = Arc::clone(&has_new_job);
             let job_market = Arc::clone(&job_market);
             let state_count = Arc::clone(&state_count);
+            let max_depth = Arc::clone(&max_depth);
             let generated = Arc::clone(&generated);
             let discoveries = Arc::clone(&discoveries);
 
             let (controlflow_sender, controlflow_receiver) = std::sync::mpsc::channel();
             controlflow_channels.push(controlflow_sender);
 
-            handles.push(std::thread::spawn(move || {
-                log::debug!("{}: Thread started.", t);
-                let mut pending = VecDeque::new();
-                let mut targetted_pending = VecDeque::new();
-                let mut wait_for_fingerprints = true;
-                loop {
-                    if pending.is_empty() {
-                        pending = {
-                            let mut job_market = job_market.lock();
-                            match job_market.jobs.pop() {
-                                None => {
-                                    // Done if all are waiting.
-                                    if job_market.wait_count == thread_count {
-                                        log::debug!(
-                                            "{}: No more work. Shutting down... gen={}",
-                                            t,
-                                            generated.len()
-                                        );
-                                        has_new_job.notify_all();
-                                        return;
-                                    }
-
-                                    // Otherwise more work may become available.
-                                    log::trace!(
-                                        "{}: No jobs. Awaiting. blocked={}",
-                                        t,
-                                        job_market.wait_count
-                                    );
-                                    has_new_job.wait(&mut job_market);
-                                    continue;
-                                }
-                                Some(job) => {
-                                    job_market.wait_count -= 1;
-                                    log::trace!(
-                                        "{}: Job found. size={}, blocked={}",
-                                        t,
-                                        job.len(),
-                                        job_market.wait_count
-                                    );
-                                    job
-                                }
-                            }
-                        };
-                        log::debug!(
-                            "got new pending states: {:?}",
-                            pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
-                        );
-                    }
-
-                    if wait_for_fingerprints {
-                        // Step 0: wait for someone to ask us to do work
+            handles.push(
+                std::thread::Builder::new()
+                    .name(format!("checker-{}", t))
+                    .spawn(move || {
+                        log::debug!("{}: Thread started.", t);
+                        let mut pending = VecDeque::new();
+                        let mut targetted_pending = VecDeque::new();
+                        let mut wait_for_fingerprints = true;
                         loop {
-                            let control_flow = controlflow_receiver.recv();
-                            if let Ok(control_flow) = control_flow {
-                                match control_flow {
-                                    ControlFlow::CheckFingerprint(fingerprint) => {
-                                        log::debug!(
+                            if pending.is_empty() {
+                                pending = {
+                                    let mut job_market = job_market.lock();
+                                    match job_market.jobs.pop() {
+                                        None => {
+                                            // Done if all are waiting.
+                                            if job_market.wait_count == thread_count {
+                                                log::debug!(
+                                                    "{}: No more work. Shutting down... gen={}",
+                                                    t,
+                                                    generated.len()
+                                                );
+                                                has_new_job.notify_all();
+                                                return;
+                                            }
+
+                                            // Otherwise more work may become available.
+                                            log::trace!(
+                                                "{}: No jobs. Awaiting. blocked={}",
+                                                t,
+                                                job_market.wait_count
+                                            );
+                                            has_new_job.wait(&mut job_market);
+                                            continue;
+                                        }
+                                        Some(job) => {
+                                            job_market.wait_count -= 1;
+                                            log::trace!(
+                                                "{}: Job found. size={}, blocked={}",
+                                                t,
+                                                job.len(),
+                                                job_market.wait_count
+                                            );
+                                            job
+                                        }
+                                    }
+                                };
+                                log::debug!(
+                                    "got new pending states: {:?}",
+                                    pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
+                                );
+                            }
+
+                            if wait_for_fingerprints {
+                                // Step 0: wait for someone to ask us to do work
+                                loop {
+                                    let control_flow = controlflow_receiver.recv();
+                                    if let Ok(control_flow) = control_flow {
+                                        match control_flow {
+                                            ControlFlow::CheckFingerprint(fingerprint) => {
+                                                log::debug!(
                                             "received fingerprint to check: {}, pending is {:?}",
                                             fingerprint,
-                                            pending.iter().map(|(_, f, _)| f).collect::<Vec<_>>()
+                                            pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
                                         );
-                                        if pending.is_empty() {
-                                            break;
+                                                if pending.is_empty() {
+                                                    break;
+                                                }
+                                                if let Some(index) = pending
+                                                    .iter()
+                                                    .position(|(_, f, _, _)| *f == fingerprint)
+                                                {
+                                                    targetted_pending
+                                                        .push_back(pending.remove(index).unwrap());
+                                                    log::debug!("found matching fingerprint!");
+                                                    // found a matching fingerprint in our pending queue so we can
+                                                    // process this group
+                                                    break;
+                                                }
+                                            }
+                                            ControlFlow::RunToCompletion => {
+                                                log::debug!("{}: running to completion", t);
+                                                wait_for_fingerprints = false;
+                                                break;
+                                            }
                                         }
-                                        if let Some(index) =
-                                            pending.iter().position(|(_, f, _)| *f == fingerprint)
-                                        {
-                                            targetted_pending
-                                                .push_back(pending.remove(index).unwrap());
-                                            log::debug!("found matching fingerprint!");
-                                            // found a matching fingerprint in our pending queue so we can
-                                            // process this group
-                                            break;
-                                        }
-                                    }
-                                    ControlFlow::RunToCompletion => {
-                                        log::debug!("{}: running to completion", t);
-                                        wait_for_fingerprints = false;
-                                        break;
+                                    } else {
+                                        // no commands left so we can finish
+                                        return;
                                     }
                                 }
+                                log::debug!("after waiting for fingerprints");
                             } else {
-                                // no commands left so we can finish
+                                targetted_pending.append(&mut pending);
+                            }
+
+                            // Step 1: Do work.
+                            Self::check_block(
+                                &model,
+                                &state_count,
+                                &generated,
+                                &mut targetted_pending,
+                                &discoveries,
+                                &visitor,
+                                1500,
+                                &max_depth,
+                            );
+                            pending.append(&mut targetted_pending);
+                            if discoveries.len() == property_count {
+                                log::debug!(
+                                    "{}: Discovery complete. Shutting down... gen={}",
+                                    t,
+                                    generated.len()
+                                );
+                                let mut job_market = job_market.lock();
+                                job_market.wait_count += 1;
+                                drop(job_market);
+                                has_new_job.notify_all();
                                 return;
                             }
-                        }
-                        log::debug!("after waiting for fingerprints");
-                    } else {
-                        targetted_pending.append(&mut pending);
-                    }
+                            if let Some(target_state_count) = target_state_count {
+                                if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
+                                    log::debug!(
+                                        "{}: Reached target state count. Shutting down... gen={}",
+                                        t,
+                                        generated.len()
+                                    );
+                                    return;
+                                }
+                            }
 
-                    // Step 1: Do work.
-                    Self::check_block(
-                        &*model,
-                        &*state_count,
-                        &*generated,
-                        &mut targetted_pending,
-                        &*discoveries,
-                        &*visitor,
-                        1500,
-                    );
-                    pending.append(&mut targetted_pending);
-                    if discoveries.len() == property_count {
-                        log::debug!(
-                            "{}: Discovery complete. Shutting down... gen={}",
-                            t,
-                            generated.len()
-                        );
-                        let mut job_market = job_market.lock();
-                        job_market.wait_count += 1;
-                        drop(job_market);
-                        has_new_job.notify_all();
-                        return;
-                    }
-                    if let Some(target_state_count) = target_state_count {
-                        if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
-                            log::debug!(
-                                "{}: Reached target state count. Shutting down... gen={}",
-                                t,
-                                generated.len()
-                            );
-                            return;
+                            // Step 2: Share work.
+                            if pending.len() > 1 && thread_count > 1 {
+                                let mut job_market = job_market.lock();
+                                let pieces = 1 + std::cmp::min(
+                                    job_market.wait_count,
+                                    pending.len(),
+                                );
+                                let size = pending.len() / pieces;
+                                for _ in 1..pieces {
+                                    log::trace!(
+                                        "{}: Sharing work. blocked={}, size={}",
+                                        t,
+                                        job_market.wait_count,
+                                        size
+                                    );
+                                    job_market
+                                        .jobs
+                                        .push(pending.split_off(pending.len() - size));
+                                    has_new_job.notify_one();
+                                }
+                            } else if pending.is_empty() {
+                                let mut job_market = job_market.lock();
+                                job_market.wait_count += 1;
+                            }
                         }
-                    }
-
-                    // Step 2: Share work.
-                    if pending.len() > 1 && thread_count > 1 {
-                        let mut job_market = job_market.lock();
-                        let pieces =
-                            1 + std::cmp::min(job_market.wait_count as usize, pending.len());
-                        let size = pending.len() / pieces;
-                        for _ in 1..pieces {
-                            log::trace!(
-                                "{}: Sharing work. blocked={}, size={}",
-                                t,
-                                job_market.wait_count,
-                                size
-                            );
-                            job_market
-                                .jobs
-                                .push(pending.split_off(pending.len() - size));
-                            has_new_job.notify_one();
-                        }
-                    } else if pending.is_empty() {
-                        let mut job_market = job_market.lock();
-                        job_market.wait_count += 1;
-                    }
-                }
-            }));
+                    })
+                    .expect("Failed to spawn a thread"),
+            );
         }
 
         // spawn a thread to forward the fingerprints to check
@@ -271,12 +285,14 @@ where
             handles,
             job_market,
             state_count,
+            max_depth,
             generated,
             discoveries,
             control_flow: controlflow_to_check_sender,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_block(
         model: &M,
         state_count: &AtomicUsize,
@@ -288,24 +304,33 @@ where
         pending: &mut Job<M::State>,
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
-        mut max_count: usize,
+        max_count: usize,
+        global_max_depth: &AtomicUsize,
     ) {
         let properties = model.properties();
 
+        let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
-        let mut local_pending = pending.drain(..).collect::<Vec<_>>();
+        let mut local_pending = pending
+            .drain(..max_count.min(pending.len()))
+            .collect::<Vec<_>>();
         loop {
-            // Done if reached max count.
-            if max_count == 0 {
-                return;
-            }
-            max_count -= 1;
-
             // Done if none pending.
-            let (state, state_fp, mut ebits) = match local_pending.pop() {
+            let (state, state_fp, mut ebits, max_depth) = match local_pending.pop() {
                 None => return,
                 Some(pair) => pair,
             };
+
+            if max_depth.get() > current_max_depth {
+                let _ = global_max_depth.compare_exchange(
+                    current_max_depth,
+                    max_depth.get(),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
+                current_max_depth = max_depth.get();
+            }
+
             if let Some(visitor) = visitor {
                 visitor.visit(model, reconstruct_path(model, generated, state_fp));
             }
@@ -365,16 +390,13 @@ where
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            let next_states = actions.drain(..).flat_map(|a| {
-                model
-                    .next_state(&state, a)
-                    .map(|s| (fingerprint(&state), s))
-            });
-            for (old_state_fp, next_state) in next_states {
+            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
+            for next_state in next_states {
+                let next_fp = fingerprint(&next_state);
                 log::debug!(
                     "checker generated state transition: {} -> {}",
-                    old_state_fp,
-                    fingerprint(&next_state)
+                    state_fp,
+                    next_fp
                 );
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) {
@@ -390,8 +412,7 @@ where
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = fingerprint(&next_state);
-                if let Entry::Vacant(next_entry) = generated.entry(next_fingerprint) {
+                if let Entry::Vacant(next_entry) = generated.entry(next_fp) {
                     next_entry.insert(Some(state_fp));
                 } else {
                     // FIXME: arriving at an already-known state may be a loop (in which case it
@@ -408,7 +429,12 @@ where
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
-                pending.push_front((next_state, next_fingerprint, ebits.clone()));
+                pending.push_front((
+                    next_state,
+                    next_fp,
+                    ebits.clone(),
+                    NonZeroUsize::new(max_depth.get() + 1).unwrap(),
+                ));
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {
@@ -450,23 +476,24 @@ where
         self.generated.len()
     }
 
+    fn max_depth(&self) -> usize {
+        self.max_depth.load(Ordering::Relaxed)
+    }
+
     fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
         self.discoveries
             .iter()
             .map(|mapref| {
                 (
                     <&'static str>::clone(mapref.key()),
-                    reconstruct_path(self.model(), &*self.generated, *mapref.value()),
+                    reconstruct_path(self.model(), &self.generated, *mapref.value()),
                 )
             })
             .collect()
     }
 
-    fn join(mut self) -> Self {
-        for h in self.handles.drain(0..) {
-            h.join().unwrap();
-        }
-        self
+    fn handles(&mut self) -> Vec<JoinHandle<()>> {
+        std::mem::take(&mut self.handles)
     }
 
     fn is_done(&self) -> bool {
@@ -524,14 +551,18 @@ mod test {
         assert_eq!(
             accessor(),
             vec![
-                (0, 0), // distance == 0
+                // distance == 0
+                (0, 0),
+                // distance == 1
                 (1, 0),
-                (0, 1), // distance == 1
+                (0, 1),
+                // distance == 2
                 (2, 0),
                 (1, 1),
-                (0, 2), // distance == 2
+                (0, 2),
+                // distance == 3
                 (3, 0),
-                (2, 1), // distance == 3
+                (2, 1),
             ]
         );
     }
@@ -542,7 +573,7 @@ mod test {
             .checker()
             .spawn_bfs()
             .join();
-        assert_eq!(checker.is_done(), true);
+        assert!(checker.is_done());
         checker.assert_no_discovery("solvable");
         assert_eq!(checker.unique_state_count(), 256 * 256);
     }

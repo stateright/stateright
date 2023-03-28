@@ -14,13 +14,15 @@
 //! [`Network::new_ordered`] can be used to reduce the state space of models that will use this
 //! abstraction.
 
+use serde::Serialize;
+
 use crate::actor::*;
 use crate::util::HashableHashMap;
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::time::Duration;
-use std::ops::Range;
 use std::hash::Hash;
+use std::ops::Range;
+use std::time::Duration;
 
 /// Wraps an actor with logic to:
 /// 1. Maintain message order.
@@ -33,8 +35,9 @@ pub struct ActorWrapper<A: Actor> {
 }
 
 /// An envelope for ORL messages.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum MsgWrapper<Msg> {
     Deliver(Sequencer, Msg),
     Ack(Sequencer),
@@ -56,6 +59,13 @@ pub struct StateWrapper<Msg, State> {
     wrapped_state: State,
 }
 
+/// Wrapper for timers.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+pub enum TimerWrapper<Timer> {
+    Network,
+    User(Timer),
+}
+
 impl<A: Actor> ActorWrapper<A> {
     pub fn with_default_timeout(wrapped_actor: A) -> Self {
         Self {
@@ -66,13 +76,15 @@ impl<A: Actor> ActorWrapper<A> {
 }
 
 impl<A: Actor> Actor for ActorWrapper<A>
-    where A::Msg: Hash
+where
+    A::Msg: Hash,
 {
     type Msg = MsgWrapper<A::Msg>;
     type State = StateWrapper<A::Msg, A::State>;
+    type Timer = TimerWrapper<A::Timer>;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
-        o.set_timer(self.resend_interval.clone());
+        o.set_timer(TimerWrapper::Network, self.resend_interval.clone());
 
         let mut wrapped_out = Out::new();
         let mut state = StateWrapper {
@@ -85,19 +97,35 @@ impl<A: Actor> Actor for ActorWrapper<A>
         state
     }
 
-    fn on_msg(&self, id: Id, state: &mut Cow<Self::State>, src: Id, msg: Self::Msg, o: &mut Out<Self>) {
+    fn on_msg(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
         match msg {
             MsgWrapper::Deliver(seq, wrapped_msg) => {
                 // Always ack the message to prevent re-sends, and early exit if already delivered.
                 o.send(src, MsgWrapper::Ack(seq));
-                if seq <= *state.last_delivered_seqs.get(&src).unwrap_or(&0) { return }
+                if seq <= *state.last_delivered_seqs.get(&src).unwrap_or(&0) {
+                    return;
+                }
 
                 // Process the message, and early exit if ignored.
                 let mut wrapped_state = Cow::Borrowed(&state.wrapped_state);
                 let mut wrapped_out = Out::new();
                 self.wrapped_actor.on_msg(
-                    id, &mut wrapped_state, src, wrapped_msg, &mut wrapped_out);
-                if is_no_op(&wrapped_state, &wrapped_out) { return }
+                    id,
+                    &mut wrapped_state,
+                    src,
+                    wrapped_msg,
+                    &mut wrapped_out,
+                );
+                if is_no_op(&wrapped_state, &wrapped_out) {
+                    return;
+                }
 
                 // Never delivered, and not ignored by actor, so update the sequencer and process the original output.
                 if let Cow::Owned(wrapped_state) = wrapped_state {
@@ -112,48 +140,77 @@ impl<A: Actor> Actor for ActorWrapper<A>
                 }
                 state.to_mut().last_delivered_seqs.insert(src, seq);
                 process_output(state.to_mut(), wrapped_out, o);
-            },
+            }
             MsgWrapper::Ack(seq) => {
                 state.to_mut().msgs_pending_ack.remove(&seq);
-            },
+            }
         }
     }
 
-    fn on_timeout(&self, _id: Id, state: &mut std::borrow::Cow<Self::State>, o: &mut Out<Self>) {
-        o.set_timer(self.resend_interval.clone());
-        for (seq, (dst, msg)) in &state.msgs_pending_ack {
-            o.send(*dst, MsgWrapper::Deliver(*seq, msg.clone()));
+    fn on_timeout(
+        &self,
+        id: Id,
+        state: &mut std::borrow::Cow<Self::State>,
+        timer: &Self::Timer,
+        o: &mut Out<Self>,
+    ) {
+        match timer {
+            TimerWrapper::Network => {
+                o.set_timer(TimerWrapper::Network, self.resend_interval.clone());
+                for (seq, (dst, msg)) in &state.msgs_pending_ack {
+                    o.send(*dst, MsgWrapper::Deliver(*seq, msg.clone()));
+                }
+            }
+            TimerWrapper::User(timer) => {
+                let mut wrapped_state = Cow::Borrowed(&state.wrapped_state);
+                let mut wrapped_out = Out::new();
+                self.wrapped_actor
+                    .on_timeout(id, &mut wrapped_state, timer, &mut wrapped_out);
+                if is_no_op(&wrapped_state, &wrapped_out) {
+                    return;
+                }
+                process_output(state.to_mut(), wrapped_out, o);
+            }
         }
     }
 }
 
-fn process_output<A: Actor>(state: &mut StateWrapper<A::Msg, A::State>, wrapped_out: Out<A>, o: &mut Out<ActorWrapper<A>>)
-where A::Msg: Hash
+fn process_output<A: Actor>(
+    state: &mut StateWrapper<A::Msg, A::State>,
+    wrapped_out: Out<A>,
+    o: &mut Out<ActorWrapper<A>>,
+) where
+    A::Msg: Hash,
 {
     for command in wrapped_out {
         match command {
-            Command::CancelTimer => {
+            Command::CancelTimer(_) => {
                 todo!("CancelTimer is not supported at this time");
-            },
-            Command::SetTimer(_) => {
+            }
+            Command::SetTimer(_, _) => {
                 todo!("SetTimer is not supported at this time");
-            },
+            }
             Command::Send(dst, inner_msg) => {
-                o.send(dst, MsgWrapper::Deliver(state.next_send_seq, inner_msg.clone()));
-                state.msgs_pending_ack.insert(state.next_send_seq, (dst, inner_msg));
+                o.send(
+                    dst,
+                    MsgWrapper::Deliver(state.next_send_seq, inner_msg.clone()),
+                );
+                state
+                    .msgs_pending_ack
+                    .insert(state.next_send_seq, (dst, inner_msg));
                 state.next_send_seq += 1;
-            },
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::borrow::Cow;
-    use crate::{Checker, Expectation, Model};
-    use crate::actor::{Actor, Id, Out};
     use crate::actor::ordered_reliable_link::{ActorWrapper, MsgWrapper};
+    use crate::actor::{Actor, Id, Out};
     use crate::actor::{ActorModel, ActorModelAction, LossyNetwork, Network};
+    use crate::{Checker, Expectation, Model};
+    use std::borrow::Cow;
 
     pub enum TestActor {
         Sender { receiver_id: Id },
@@ -167,6 +224,7 @@ mod test {
     impl Actor for TestActor {
         type Msg = TestMsg;
         type State = Received;
+        type Timer = ();
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let TestActor::Sender { receiver_id } = self {
@@ -176,19 +234,24 @@ mod test {
             Received(Vec::new())
         }
 
-        fn on_msg(&self, _id: Id, received: &mut Cow<Self::State>, src: Id, msg: Self::Msg, _o: &mut Out<Self>) {
+        fn on_msg(
+            &self,
+            _id: Id,
+            received: &mut Cow<Self::State>,
+            src: Id,
+            msg: Self::Msg,
+            _o: &mut Out<Self>,
+        ) {
             received.to_mut().0.push((src, msg));
         }
     }
 
     fn model() -> ActorModel<ActorWrapper<TestActor>> {
         ActorModel::new((), ())
-            .actor(
-                ActorWrapper::with_default_timeout(
-                    TestActor::Sender { receiver_id: Id::from(1) }))
-            .actor(
-                ActorWrapper::with_default_timeout(
-                    TestActor::Receiver))
+            .actor(ActorWrapper::with_default_timeout(TestActor::Sender {
+                receiver_id: Id::from(1),
+            }))
+            .actor(ActorWrapper::with_default_timeout(TestActor::Receiver))
             .init_network(Network::new_unordered_duplicating([]))
             .lossy_network(LossyNetwork::Yes)
             .property(Expectation::Always, "no redelivery", |_, state| {
@@ -197,49 +260,57 @@ mod test {
                     && received.iter().filter(|(_, TestMsg(v))| *v == 43).count() < 2
             })
             .property(Expectation::Always, "ordered", |_, state| {
-                state.actor_states[1].wrapped_state.0.iter()
+                state.actor_states[1]
+                    .wrapped_state
+                    .0
+                    .iter()
                     .map(|(_, TestMsg(v))| *v)
                     .fold((true, 0), |(acc, last), next| (acc && last <= next, next))
                     .0
             })
             // FIXME: convert to an eventually property once the liveness checker is complete
             .property(Expectation::Sometimes, "delivered", |_, state| {
-                state.actor_states[1].wrapped_state.0 == vec![
-                    (Id::from(0), TestMsg(42)),
-                    (Id::from(0), TestMsg(43)),
-                ]
+                state.actor_states[1].wrapped_state.0
+                    == vec![(Id::from(0), TestMsg(42)), (Id::from(0), TestMsg(43))]
             })
-            .within_boundary(|_, state| {
-                state.network.len() < 4
-            })
+            .within_boundary(|_, state| state.network.len() < 4)
     }
 
     #[test]
     fn messages_are_not_delivered_twice() {
-        model().checker().spawn_bfs().join()
+        model()
+            .checker()
+            .spawn_bfs()
+            .join()
             .assert_no_discovery("no redelivery");
     }
 
     #[test]
     fn messages_are_delivered_in_order() {
-        model().checker().spawn_bfs().join()
+        model()
+            .checker()
+            .spawn_bfs()
+            .join()
             .assert_no_discovery("ordered");
     }
 
     #[test]
     fn messages_are_eventually_delivered() {
         let checker = model().checker().spawn_bfs().join();
-        checker.assert_discovery("delivered", vec![
-            ActorModelAction::Deliver {
-                src: Id(0),
-                dst: Id(1),
-                msg: MsgWrapper::Deliver(1, TestMsg(42)),
-            },
-            ActorModelAction::Deliver {
-                src: Id(0),
-                dst: Id(1),
-                msg: MsgWrapper::Deliver(2, TestMsg(43)),
-            },
-        ]);
+        checker.assert_discovery(
+            "delivered",
+            vec![
+                ActorModelAction::Deliver {
+                    src: Id(0),
+                    dst: Id(1),
+                    msg: MsgWrapper::Deliver(1, TestMsg(42)),
+                },
+                ActorModelAction::Deliver {
+                    src: Id(0),
+                    dst: Id(1),
+                    msg: MsgWrapper::Deliver(2, TestMsg(43)),
+                },
+            ],
+        );
     }
 }

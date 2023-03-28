@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::io::Write;
 use std::time::Duration;
@@ -12,6 +12,8 @@ pub struct ReportData {
     pub total_states: usize,
     /// The number of unique states found.
     pub unique_states: usize,
+    /// Maximum depth explored.
+    pub max_depth: usize,
     /// The current duration checking has been running for.
     pub duration: Duration,
     /// Whether checking is done.
@@ -35,10 +37,14 @@ pub trait Reporter<M: Model> {
     fn report_checking(&mut self, data: ReportData);
 
     /// Report the discoveries at the end of the checking run.
-    fn report_discoveries(&mut self, discoveries: HashMap<&'static str, ReportDiscovery<M>>)
+    fn report_discoveries(&mut self, discoveries: BTreeMap<&'static str, ReportDiscovery<M>>)
     where
         M::Action: Debug,
         M::State: Debug + Hash;
+
+    fn delay(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(1_000)
+    }
 }
 
 pub struct WriteReporter<'a, W> {
@@ -60,21 +66,22 @@ where
         if data.done {
             let _ = writeln!(
                 self.writer,
-                "Done. states={}, unique={}, sec={}",
+                "Done. states={}, unique={}, depth={}, sec={}",
                 data.total_states,
                 data.unique_states,
-                data.duration.as_secs()
+                data.max_depth,
+                data.duration.as_secs(),
             );
         } else {
             let _ = writeln!(
                 self.writer,
-                "Checking. states={}, unique={}",
-                data.total_states, data.unique_states
+                "Checking. states={}, unique={}, depth={}",
+                data.total_states, data.unique_states, data.max_depth
             );
         }
     }
 
-    fn report_discoveries(&mut self, discoveries: HashMap<&'static str, ReportDiscovery<M>>)
+    fn report_discoveries(&mut self, discoveries: BTreeMap<&'static str, ReportDiscovery<M>>)
     where
         M::Action: Debug,
         M::State: Debug,

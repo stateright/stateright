@@ -1,4 +1,4 @@
-use stateright::{*, report::WriteReporter};
+use stateright::{report::WriteReporter, *};
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -38,9 +38,9 @@ impl Representative for State {
         let mut main_array = self.s.clone();
         main_array.sort();
         Self {
-            i : self.i,
-            lock : self.lock,
-            s : main_array,
+            i: self.i,
+            lock: self.lock,
+            s: main_array,
         }
     }
 }
@@ -125,7 +125,8 @@ fn main() -> Result<(), pico_args::Error> {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
             println!(
                 "Model checking increment with {} threads using symmetry reduction.",
-                thread_count);
+                thread_count
+            );
 
             State::new(thread_count)
                 .checker()
@@ -136,11 +137,13 @@ fn main() -> Result<(), pico_args::Error> {
         }
         Some("explore") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            let address = args.opt_free_from_str()?
+            let address = args
+                .opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
             println!(
                 "Exploring the state space of increment with {} threads on {}.",
-                thread_count, address);
+                thread_count, address
+            );
             State::new(thread_count)
                 .checker()
                 .threads(num_cpus::get())

@@ -8,7 +8,10 @@ pub mod binary_clock {
     pub struct BinaryClock;
 
     #[derive(Clone, Debug, PartialEq)]
-    pub enum BinaryClockAction { GoLow, GoHigh }
+    pub enum BinaryClockAction {
+        GoLow,
+        GoHigh,
+    }
 
     pub type BinaryClockState = i8;
 
@@ -30,17 +33,15 @@ pub mod binary_clock {
 
         fn next_state(&self, _state: &Self::State, action: Self::Action) -> Option<Self::State> {
             match action {
-                BinaryClockAction::GoLow  => Some(0),
+                BinaryClockAction::GoLow => Some(0),
                 BinaryClockAction::GoHigh => Some(1),
             }
         }
 
         fn properties(&self) -> Vec<Property<Self>> {
-            vec![
-                Property::always("in [0, 1]", |_, state| {
-                    0 <= *state && *state <= 1
-                }),
-            ]
+            vec![Property::always("in [0, 1]", |_, state| {
+                0 <= *state && *state <= 1
+            })]
         }
     }
 }
@@ -48,8 +49,8 @@ pub mod binary_clock {
 /// A directed graph, specified via paths from initial states.
 pub mod dgraph {
     use crate::Checker;
-    use std::collections::{BTreeMap, BTreeSet};
     use crate::*;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[derive(Clone)]
     pub struct DGraph {
@@ -143,10 +144,17 @@ pub mod linear_equation_solver {
 
     /// Given `a`, `b`, and `c`, finds `x` and `y` such that `a*x + b*y = c` where all values are
     /// in `u8`.
-    pub struct LinearEquation { pub a: u8, pub b: u8, pub c: u8 }
+    pub struct LinearEquation {
+        pub a: u8,
+        pub b: u8,
+        pub c: u8,
+    }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
-    pub enum Guess { IncreaseX, IncreaseY }
+    pub enum Guess {
+        IncreaseX,
+        IncreaseY,
+    }
 
     impl Model for LinearEquation {
         type State = (u8, u8);
@@ -170,19 +178,17 @@ pub mod linear_equation_solver {
         }
 
         fn properties(&self) -> Vec<Property<Self>> {
-            vec![
-                Property::sometimes("solvable", |equation, solution| {
-                    let LinearEquation { a, b, c } = equation;
-                    let (x, y) = solution;
+            vec![Property::sometimes("solvable", |equation, solution| {
+                let LinearEquation { a, b, c } = equation;
+                let (x, y) = solution;
 
-                    // dereference and enable wrapping so the equation is succinct
-                    use std::num::Wrapping;
-                    let (x, y) = (Wrapping(*x), Wrapping(*y));
-                    let (a, b, c) = (Wrapping(*a), Wrapping(*b), Wrapping(*c));
+                // dereference and enable wrapping so the equation is succinct
+                use std::num::Wrapping;
+                let (x, y) = (Wrapping(*x), Wrapping(*y));
+                let (a, b, c) = (Wrapping(*a), Wrapping(*b), Wrapping(*c));
 
-                    a*x + b*y == c
-                }),
-            ]
+                a * x + b * y == c
+            })]
         }
     }
 }

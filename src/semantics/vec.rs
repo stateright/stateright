@@ -5,14 +5,23 @@ use crate::semantics::SequentialSpec;
 /// An operation that can be invoked upon a [`Vec`], resulting in a
 /// [`VecRet`].
 #[derive(Clone, Debug, Hash, PartialEq)]
-pub enum VecOp<T> { Push(T), Pop, Len }
+pub enum VecOp<T> {
+    Push(T),
+    Pop,
+    Len,
+}
 
 /// A return value for a [`VecOp`] invoked upon a [`Vec`].
 #[derive(Clone, Debug, Hash, PartialEq)]
-pub enum VecRet<T> { PushOk, PopOk(Option<T>), LenOk(usize) }
+pub enum VecRet<T> {
+    PushOk,
+    PopOk(Option<T>),
+    LenOk(usize),
+}
 
 impl<T> SequentialSpec for Vec<T>
-    where T: Clone + PartialEq
+where
+    T: Clone + PartialEq,
 {
     type Op = VecOp<T>;
     type Ret = VecRet<T>;
@@ -33,12 +42,8 @@ impl<T> SequentialSpec for Vec<T>
                 self.push(v.clone());
                 true
             }
-            (VecOp::Pop, VecRet::PopOk(v)) => {
-                &self.pop() == v
-            }
-            (VecOp::Len, VecRet::LenOk(l)) => {
-                &self.len() == l
-            }
+            (VecOp::Pop, VecRet::PopOk(v)) => &self.pop() == v,
+            (VecOp::Len, VecRet::LenOk(l)) => &self.len() == l,
             _ => false,
         }
     }
@@ -51,15 +56,15 @@ mod test {
     #[test]
     fn models_expected_semantics() {
         let mut v = vec!['A'];
-        assert_eq!(v.invoke(&VecOp::Len),       VecRet::LenOk(1));
+        assert_eq!(v.invoke(&VecOp::Len), VecRet::LenOk(1));
         assert_eq!(v.invoke(&VecOp::Push('B')), VecRet::PushOk);
-        assert_eq!(v.invoke(&VecOp::Len),       VecRet::LenOk(2));
-        assert_eq!(v.invoke(&VecOp::Pop),       VecRet::PopOk(Some('B')));
-        assert_eq!(v.invoke(&VecOp::Len),       VecRet::LenOk(1));
-        assert_eq!(v.invoke(&VecOp::Pop),       VecRet::PopOk(Some('A')));
-        assert_eq!(v.invoke(&VecOp::Len),       VecRet::LenOk(0));
-        assert_eq!(v.invoke(&VecOp::Pop),       VecRet::PopOk(None));
-        assert_eq!(v.invoke(&VecOp::Len),       VecRet::LenOk(0));
+        assert_eq!(v.invoke(&VecOp::Len), VecRet::LenOk(2));
+        assert_eq!(v.invoke(&VecOp::Pop), VecRet::PopOk(Some('B')));
+        assert_eq!(v.invoke(&VecOp::Len), VecRet::LenOk(1));
+        assert_eq!(v.invoke(&VecOp::Pop), VecRet::PopOk(Some('A')));
+        assert_eq!(v.invoke(&VecOp::Len), VecRet::LenOk(0));
+        assert_eq!(v.invoke(&VecOp::Pop), VecRet::PopOk(None));
+        assert_eq!(v.invoke(&VecOp::Len), VecRet::LenOk(0));
     }
 
     #[test]

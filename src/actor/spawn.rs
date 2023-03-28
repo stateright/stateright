@@ -2,6 +2,7 @@
 
 use crate::actor::*;
 use crossbeam_utils::thread;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
@@ -63,7 +64,7 @@ fn practically_never() -> Instant {
 pub fn spawn<A, E: Debug + 'static>(
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     deserialize: fn(&[u8]) -> Result<A::Msg, E>,
-    actors: Vec<(impl Into<Id>, A)>
+    actors: Vec<(impl Into<Id>, A)>,
 ) -> Result<(), Box<dyn std::any::Any + Send + 'static>>
 where
     A: 'static + Send + Actor,
@@ -79,60 +80,62 @@ where
             s.spawn(move |_| {
                 let socket = UdpSocket::bind(addr).unwrap(); // panic if unable to bind
                 let mut in_buf = [0; 65_535];
-                let mut next_interrupt = practically_never();
+                let mut next_interrupts = HashMap::new();
 
                 let mut out = Out::new();
                 let mut state = Cow::Owned(actor.on_start(id, &mut out));
                 log::info!("Actor started. id={}, state={:?}, out={:?}", addr, state, out);
                 for c in out {
-                    on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupt);
+                    on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupts);
                 }
 
                 loop {
                     // Apply an interrupt if present, otherwise wait for a message.
                     let mut out = Out::new();
-                    if let Some(max_wait) = next_interrupt.checked_duration_since(Instant::now()) {
-                        socket.set_read_timeout(Some(max_wait)).expect("set_read_timeout failed");
-                        match socket.recv_from(&mut in_buf) {
-                            Err(e) => {
-                                // Timeout (`WouldBlock`) ignored since next iteration will apply interrupt.
-                                if e.kind() != std::io::ErrorKind::WouldBlock {
-                                    log::warn!("Unable to read socket. Ignoring. id={}, err={:?}", addr, e);
-                                }
-                                continue;
-                            },
-                            Ok((count, src_addr)) => {
-                                match deserialize(&in_buf[..count]) {
-                                    Ok(msg) => {
-                                        if let SocketAddr::V4(src_addr) = src_addr {
-                                            log::info!("Received message. id={}, src={}, msg={}",
-                                                        addr, src_addr, format!("{:?}", msg));
-                                            actor.on_msg(id, &mut state, Id::from(src_addr), msg, &mut out);
-                                        } else {
-                                            log::debug!("Received non-IPv4 message. Ignoring. id={}, src={}, msg={}",
-                                                       addr, src_addr, format!("{:?}", msg));
+                    if let Some((min_timer, min_instant)) = next_interrupts.iter().min_by_key(|(_, instant)| *instant).map(|(t, i)| (t.clone(), *i)) {
+                        if let Some(max_wait) = min_instant.checked_duration_since(Instant::now()) {
+                            socket.set_read_timeout(Some(max_wait)).expect("set_read_timeout failed");
+                            match socket.recv_from(&mut in_buf) {
+                                Err(e) => {
+                                    // Timeout (`WouldBlock`) ignored since next iteration will apply interrupt.
+                                    if e.kind() != std::io::ErrorKind::WouldBlock {
+                                        log::warn!("Unable to read socket. Ignoring. id={}, err={:?}", addr, e);
+                                    }
+                                    continue;
+                                },
+                                Ok((count, src_addr)) => {
+                                    match deserialize(&in_buf[..count]) {
+                                        Ok(msg) => {
+                                            if let SocketAddr::V4(src_addr) = src_addr {
+                                                log::info!("Received message. id={}, src={}, msg={}",
+                                                            addr, src_addr, format!("{:?}", msg));
+                                                actor.on_msg(id, &mut state, Id::from(src_addr), msg, &mut out);
+                                            } else {
+                                                log::debug!("Received non-IPv4 message. Ignoring. id={}, src={}, msg={}",
+                                                           addr, src_addr, format!("{:?}", msg));
+                                                continue;
+                                            }
+                                        },
+                                        Err(e) => {
+                                            log::debug!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={:?}",
+                                                       addr, src_addr, &in_buf[..count], e);
                                             continue;
                                         }
-                                    },
-                                    Err(e) => {
-                                        log::debug!("Unable to parse message. Ignoring. id={}, src={}, buf={:?}, err={:?}",
-                                                   addr, src_addr, &in_buf[..count], e);
-                                        continue;
                                     }
-                                }
-                            },
+                                },
+                            }
+                        } else {
+                            next_interrupts.remove(&min_timer); // timer is no longer valid
+                            actor.on_timeout(id, &mut state, &min_timer, &mut out);
                         }
-                    } else {
-                        next_interrupt = practically_never(); // timer is no longer valid
-                        actor.on_timeout(id, &mut state, &mut out);
-                    };
+                    }
 
                     // Handle commands and update state.
                     if !is_no_op(&state, &out) {
                         log::debug!("Acted. id={}, state={:?}, out={:?}",
                                     addr, state, out);
                     }
-                    for c in out { on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupt); }
+                    for c in out { on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupts); }
                 }
             });
         }
@@ -142,64 +145,76 @@ where
 /// The effect to perform in response to spawned actor outputs.
 fn on_command<A, E>(
     addr: SocketAddrV4,
-    command: Command<A::Msg>,
+    command: Command<A::Msg, A::Timer>,
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     socket: &UdpSocket,
-    next_interrupt: &mut Instant)
-where A: Actor,
-      A::Msg: Debug,
-      E: Debug,
+    next_interrupts: &mut HashMap<A::Timer, Instant>,
+) where
+    A: Actor,
+    A::Msg: Debug,
+    E: Debug,
 {
     match command {
         Command::Send(dst, msg) => {
             let dst_addr = SocketAddrV4::from(dst);
             match serialize(&msg) {
                 Err(e) => {
-                    log::warn!("Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
-                             addr, dst_addr, msg, e);
-                },
+                    log::warn!(
+                        "Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
+                        addr,
+                        dst_addr,
+                        msg,
+                        e
+                    );
+                }
                 Ok(out_buf) => {
                     if let Err(e) = socket.send_to(&out_buf, dst_addr) {
-                        log::warn!("Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
-                                 addr, dst_addr, msg, e);
+                        log::warn!(
+                            "Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
+                            addr,
+                            dst_addr,
+                            msg,
+                            e
+                        );
                     }
-                },
+                }
             }
-        },
-        Command::SetTimer(range) => {
-            let duration =
-                if range.start < range.end {
-                    use rand::Rng;
-                    rand::thread_rng().gen_range(range.start, range.end)
-                } else {
-                    range.start
-                };
-            *next_interrupt = Instant::now() + duration;
-        },
-        Command::CancelTimer => {
-            *next_interrupt = practically_never();
-        },
+        }
+        Command::SetTimer(timer, range) => {
+            let duration = if range.start < range.end {
+                use rand::Rng;
+                rand::thread_rng().gen_range(range.start, range.end)
+            } else {
+                range.start
+            };
+            next_interrupts
+                .entry(timer)
+                .and_modify(|d| *d = Instant::now() + duration)
+                .or_insert_with(|| Instant::now() + duration);
+        }
+        Command::CancelTimer(timer) => {
+            // if not already set then that's fine to leave
+            next_interrupts
+                .entry(timer)
+                .and_modify(|d| *d = practically_never());
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::actor::*;
-    use std::net::{SocketAddrV4, Ipv4Addr};
+    use std::net::{Ipv4Addr, SocketAddrV4};
 
     #[test]
     fn can_encode_id() {
-        let addr = SocketAddrV4::new(Ipv4Addr::new(1,2,3,4), 5);
-        assert_eq!(
-            Id::from(addr).0.to_be_bytes(),
-            [0, 0, 1, 2, 3, 4, 0, 5]);
+        let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
+        assert_eq!(Id::from(addr).0.to_be_bytes(), [0, 0, 1, 2, 3, 4, 0, 5]);
     }
 
     #[test]
     fn can_decode_id() {
-        let addr = SocketAddrV4::new(Ipv4Addr::new(1,2,3,4), 5);
-        assert_eq!(
-            SocketAddrV4::from(Id::from(addr)),
-            addr);
+        let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
+        assert_eq!(SocketAddrV4::from(Id::from(addr)), addr);
     }
 }
