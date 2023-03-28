@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::io::Write;
 use std::time::Duration;
-use std::hash::Hash;
 
 use crate::{DiscoveryClassification, Model, Path};
 
@@ -84,7 +84,7 @@ where
     fn report_discoveries(&mut self, discoveries: BTreeMap<&'static str, ReportDiscovery<M>>)
     where
         M::Action: Debug,
-        M::State: Debug,
+        M::State: Debug + Hash,
     {
         for (name, discovery) in discoveries {
             let _ = write!(
@@ -92,6 +92,7 @@ where
                 "Discovered \"{}\" {} {}",
                 name, discovery.classification, discovery.path,
             );
+            let _ = writeln!(self.writer, "Fingerprint path: {}", discovery.path.encode());
         }
     }
 }
