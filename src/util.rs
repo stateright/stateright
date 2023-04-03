@@ -77,12 +77,22 @@ impl<V> HashableHashSet<V> {
     pub fn new() -> HashableHashSet<V> {
         Default::default()
     }
+
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> HashableHashSet<V> {
+        HashableHashSet(HashSet::with_capacity_and_hasher(capacity, Default::default()))
+    }
 }
 
 impl<V, S> HashableHashSet<V, S> {
     #[inline]
     pub fn with_hasher(hasher: S) -> Self {
         HashableHashSet(HashSet::with_hasher(hasher))
+    }
+
+    #[inline]
+    pub fn with_capacity_and_hasher(capacity: usize, hasher: S) -> Self {
+        HashableHashSet(HashSet::with_capacity_and_hasher(capacity, hasher))
     }
 }
 
@@ -264,12 +274,22 @@ impl<K, V> HashableHashMap<K, V> {
     pub fn new() -> HashableHashMap<K, V, ahash::RandomState> {
         Default::default()
     }
+
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> HashableHashMap<K, V, ahash::RandomState> {
+        HashableHashMap(HashMap::with_capacity_and_hasher(capacity, Default::default()))
+    }
 }
 
 impl<K, V, S> HashableHashMap<K, V, S> {
     #[inline]
     pub fn with_hasher(hasher: S) -> Self {
         HashableHashMap(HashMap::with_hasher(hasher))
+    }
+
+    #[inline]
+    pub fn with_capacity_and_hasher(capacity: usize, hasher: S) -> Self {
+        HashableHashMap(HashMap::with_capacity_and_hasher(capacity, hasher))
     }
 }
 
