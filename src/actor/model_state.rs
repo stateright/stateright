@@ -13,6 +13,7 @@ pub struct ActorModelState<A: Actor, H = ()> {
     pub actor_states: Vec<Arc<A::State>>,
     pub network: Network<A::Msg>,
     pub timers_set: Vec<Timers<A::Timer>>,
+    pub crashed: Vec<bool>,
     pub history: H,
 }
 
@@ -48,6 +49,7 @@ where
             history: self.history.clone(),
             timers_set: self.timers_set.clone(),
             network: self.network.clone(),
+            crashed: self.crashed.clone(),
         }
     }
 }
@@ -123,6 +125,7 @@ where
             actor_states: plan.reindex(&self.actor_states),
             network: self.network.rewrite(&plan),
             timers_set: plan.reindex(&self.timers_set),
+            crashed: plan.reindex(&self.crashed),
             history: self.history.rewrite(&plan),
         }
     }
@@ -160,6 +163,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
             ]),
             timers_set: vec![non_empty_timers.clone(), empty_timers.clone(), non_empty_timers.clone()],
+            crashed: vec![false; 3],
             history: History {
                 send_sequence: vec![
                     // Id(0) sends two writes
@@ -197,6 +201,7 @@ mod test {
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ]),
             timers_set: vec![empty_timers, non_empty_timers.clone(), non_empty_timers.clone()],
+            crashed: vec![false; 3],
             history: History {
                 send_sequence: vec![
                     // Id(2) sends two writes

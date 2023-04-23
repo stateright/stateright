@@ -30,6 +30,8 @@ where
     pub init_history: H,
     pub init_network: Network<A::Msg>,
     pub lossy_network: LossyNetwork,
+    /// Maximum number of actors that can be contemporarily crashed
+    pub max_crashes: usize,
     pub properties: Vec<Property<ActorModel<A, C, H>>>,
     pub record_msg_in: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
     pub record_msg_out: fn(cfg: &C, history: &H, envelope: Envelope<&A::Msg>) -> Option<H>,
@@ -45,6 +47,7 @@ pub enum ActorModelAction<Msg, Timer> {
     Drop(Envelope<Msg>),
     /// An actor can by notified after a timeout.
     Timeout(Id, Timer),
+    Crash(Id),
 }
 
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
@@ -85,6 +88,7 @@ where
             init_history,
             init_network: Network::new_unordered_duplicating([]),
             lossy_network: LossyNetwork::No,
+            max_crashes: 0,
             properties: Default::default(),
             record_msg_in: |_, _, _| None,
             record_msg_out: |_, _, _| None,
@@ -115,6 +119,12 @@ where
     /// Defines whether the network loses messages or not.
     pub fn lossy_network(mut self, lossy_network: LossyNetwork) -> Self {
         self.lossy_network = lossy_network;
+        self
+    }
+
+    /// Specifies the maximum number of actors that can be contemporarily crashed
+    pub fn max_crashes(mut self, max_crashes: usize) -> Self {
+        self.max_crashes = max_crashes;
         self
     }
 
@@ -211,6 +221,7 @@ where
             history: self.init_history.clone(),
             timers_set: vec![Timers::new(); self.actors.len()],
             network: self.init_network.clone(),
+            crashed: vec![false; self.actors.len()],
         };
 
         // init each actor
@@ -257,6 +268,17 @@ where
                 actions.push(ActorModelAction::Timeout(Id::from(index), timer.clone()));
             }
         }
+
+        // option 4: actor crash
+        let n_crashed = state.crashed.iter().filter(|&crashed| *crashed).count();
+        if n_crashed < self.max_crashes {
+            state
+                .crashed
+                .iter()
+                .enumerate()
+                .filter_map(|(index, &crashed)| if !crashed { Some(index) } else { None })
+                .for_each(|index| actions.push(ActorModelAction::Crash(Id::from(index))));
+        }
     }
 
     fn next_state(
@@ -278,6 +300,10 @@ where
                 if last_actor_state.is_none() {
                     return None;
                 }
+                if last_sys_state.crashed[index] {
+                    return None;
+                }
+
                 let last_actor_state = &**last_actor_state.unwrap();
                 let mut state = Cow::Borrowed(last_actor_state);
 
@@ -337,6 +363,15 @@ where
                     next_sys_state.actor_states[index] = Arc::new(next_actor_state);
                 }
                 self.process_commands(id, out, &mut next_sys_state);
+                Some(next_sys_state)
+            }
+            ActorModelAction::Crash(id) => {
+                let index = usize::from(id);
+
+                let mut next_sys_state = last_sys_state.clone();
+                next_sys_state.timers_set[index].cancel_all();
+                next_sys_state.crashed[index] = true;
+
                 Some(next_sys_state)
             }
         }
@@ -416,6 +451,20 @@ where
                         out,
                     }
                 ))
+            }
+            ActorModelAction::Crash(id) => {
+                let index = usize::from(id);
+                match last_state.actor_states.get(index) {
+                    None => return None,
+                    Some(last_actor_state) => Some(format!(
+                        "{}",
+                        ActorStep {
+                            last_state: &**Cow::Borrowed(last_actor_state),
+                            next_state: None,
+                            out: Out::new() as Out<A>,
+                        }
+                    )),
+                }
             }
         }
     }
@@ -514,6 +563,15 @@ where
                         }
                     }
                 }
+                Some(ActorModelAction::Crash(actor_id)) => {
+                    let (x, y) = plot(actor_id.into(), time);
+                    writeln!(
+                        &mut svg,
+                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
+                        x, y
+                    )
+                    .unwrap();
+                }
                 _ => {}
             }
         }
@@ -537,6 +595,15 @@ where
                         &mut svg,
                         "<text x='{}' y='{}' class='svg-event-label'>Timeout({:?})</text>",
                         x, y, timer
+                    )
+                    .unwrap();
+                }
+                Some(ActorModelAction::Crash(id)) => {
+                    let (x, y) = plot(id.into(), time);
+                    writeln!(
+                        &mut svg,
+                        "<text x='{}' y='{}' class='svg-event-label'>Crash</text>",
+                        x, y
                     )
                     .unwrap();
                 }
@@ -573,10 +640,12 @@ mod test {
         // helper to make the test more concise
         let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>| {
             let timers_set = vec![Timers::new(); states.len()];
+            let crashed = vec![false; states.len()];
             ActorModelState {
                 actor_states: states.into_iter().map(Arc::new).collect::<Vec<_>>(),
                 network: Network::new_unordered_duplicating(envelopes),
                 timers_set,
+                crashed,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
             }
         };
