@@ -32,6 +32,11 @@ where
         self.0.remove(timer)
     }
 
+    /// Cancels all timers.
+    pub fn cancel_all(&mut self) {
+        self.0.clear();
+    }
+
     /// Iterate through the currently set timers.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()
