@@ -310,7 +310,7 @@ where
                 // Some operations are no-ops, so ignore those as well.
                 let mut out = Out::new();
                 self.actors[index].on_msg(id, &mut state, src, msg.clone(), &mut out);
-                if is_no_op(&state, &out) {
+                if is_no_op(&state, &out) && !matches!(self.init_network, Network::Ordered(_)) {
                     return None;
                 }
                 let history = (self.record_msg_in)(
@@ -733,6 +733,77 @@ mod test {
                 vec![1, 1],
                 Vec::new()),
         ]));
+    }
+
+    #[test]
+    fn no_op_depends_on_network() {
+        #[derive(Clone)]
+        enum MyActor {
+            Client { server: Id },
+            Server,
+        }
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+        enum Msg {
+            Ignored,
+            Interesting,
+        }
+        impl Actor for MyActor {
+            type Msg = Msg;
+            type State = String;
+            type Timer = ();
+            fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+                if let MyActor::Client { server } = self {
+                    o.send(*server, Msg::Ignored);
+                    o.send(*server, Msg::Interesting);
+                }
+                "Awaiting an interesting message.".to_string()
+            }
+            fn on_msg(
+                &self,
+                _: Id,
+                state: &mut Cow<Self::State>,
+                _: Id,
+                msg: Self::Msg,
+                _: &mut Out<Self>,
+            ) {
+                if msg == Msg::Interesting {
+                    *state.to_mut() = "Got an interesting message.".to_string();
+                }
+            }
+        }
+
+        let model = ActorModel::new((), ())
+            .actor(MyActor::Client { server: 1.into() })
+            .actor(MyActor::Server)
+            .lossy_network(LossyNetwork::No)
+            .property(Expectation::Always, "Check everything", |_, _| true);
+        assert_eq!(
+            model
+                .clone()
+                .init_network(Network::new_unordered_duplicating([]))
+                .checker()
+                .spawn_bfs()
+                .join()
+                .unique_state_count(),
+            2); // initial and delivery of Interesting
+        assert_eq!(
+            model
+                .clone()
+                .init_network(Network::new_unordered_nonduplicating([]))
+                .checker()
+                .spawn_bfs()
+                .join()
+                .unique_state_count(),
+            2); // initial and delivery of Interesting
+        assert_eq!(
+            model
+                .clone()
+                .init_network(Network::new_ordered([]))
+                .checker()
+                .spawn_bfs()
+                .join()
+                .unique_state_count(),
+            3); // initial, delivery of Uninteresting, and subsequent delivery of Interesting
     }
 
     #[test]
