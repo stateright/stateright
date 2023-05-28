@@ -320,7 +320,7 @@ mod test {
 
     #[test]
     fn can_init() {
-        let checker = Arc::new(BinaryClock.checker().spawn_bfs());
+        let checker = Arc::new(BinaryClock.checker().spawn_bfs().join());
         assert_eq!(
             get_states(Arc::clone(&checker), "/").unwrap(),
             vec![
@@ -344,7 +344,7 @@ mod test {
 
     #[test]
     fn can_next() {
-        let checker = Arc::new(BinaryClock.checker().spawn_bfs());
+        let checker = Arc::new(BinaryClock.checker().spawn_bfs().join());
         // We need a static string for TestRequest, so this is precomputed, but you can recompute
         // the values if needed as follows:
         // ```
@@ -371,7 +371,7 @@ mod test {
 
     #[test]
     fn err_for_invalid_fingerprint() {
-        let checker = Arc::new(BinaryClock.checker().spawn_bfs());
+        let checker = Arc::new(BinaryClock.checker().spawn_bfs().join());
         assert_eq!(
             format!(
                 "{}",
@@ -402,7 +402,8 @@ mod test {
             .init_network(Network::new_unordered_nonduplicating([]))
             .lossy_network(LossyNetwork::Yes)
             .checker()
-            .spawn_bfs(),
+            .spawn_bfs()
+            .join(),
         );
         assert_eq!(
             get_states(Arc::clone(&checker), "/").unwrap(),
@@ -420,12 +421,12 @@ mod test {
                         ]),
                     }),
                     properties: vec![
-                        (Expectation::Always, "delta within 1".to_owned(), None),
-                        (Expectation::Sometimes, "can reach max".to_owned(), None),
-                        (Expectation::Eventually, "must reach max".to_owned(), None),
-                        (Expectation::Eventually, "must exceed max".to_owned(), None),
-                        (Expectation::Always, "#in <= #out".to_owned(), None),
-                        (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
+                        (Expectation::Always, "delta within 1".into(), None),
+                        (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
+                        (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                        (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                        (Expectation::Always, "#in <= #out".into(), None),
+                        (Expectation::Eventually, "#out <= #in + 1".into(), None),
                     ],
                     svg: Some("<svg version=\'1.1\' baseProfile=\'full\' width=\'500\' height=\'30\' viewbox=\'-20 -20 520 50\' xmlns=\'http://www.w3.org/2000/svg\'><defs><marker class=\'svg-event-shape\' id=\'arrow\' markerWidth=\'12\' markerHeight=\'10\' refX=\'12\' refY=\'5\' orient=\'auto\'><polygon points=\'0 0, 12 5, 0 10\' /></marker></defs><line x1=\'0\' y1=\'0\' x2=\'0\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'0\' y=\'0\' class=\'svg-actor-label\'>0</text>\n<line x1=\'100\' y1=\'0\' x2=\'100\' y2=\'30\' class=\'svg-actor-timeline\' />\n<text x=\'100\' y=\'0\' class=\'svg-actor-label\'>1</text>\n</svg>\n".to_string()),
                 },
@@ -463,12 +464,12 @@ mod test {
                     network: Network::new_unordered_nonduplicating([]),
                 }),
                 properties: vec![
-                    (Expectation::Always, "delta within 1".to_owned(), None),
-                    (Expectation::Sometimes, "can reach max".to_owned(), None),
-                    (Expectation::Eventually, "must reach max".to_owned(), None),
-                    (Expectation::Eventually, "must exceed max".to_owned(), None),
-                    (Expectation::Always, "#in <= #out".to_owned(), None),
-                    (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
+                    (Expectation::Always, "delta within 1".into(), None),
+                    (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
+                    (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Always, "#in <= #out".into(), None),
+                    (Expectation::Eventually, "#out <= #in + 1".into(), None),
                 ],
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n</svg>\n".to_string()),
             });
@@ -490,12 +491,12 @@ mod test {
                     ]),
                 }),
                 properties: vec![
-                    (Expectation::Always, "delta within 1".to_owned(), None),
-                    (Expectation::Sometimes, "can reach max".to_owned(), None),
-                    (Expectation::Eventually, "must reach max".to_owned(), None),
-                    (Expectation::Eventually, "must exceed max".to_owned(), None),
-                    (Expectation::Always, "#in <= #out".to_owned(), None),
-                    (Expectation::Eventually, "#out <= #in + 1".to_owned(), None)
+                    (Expectation::Always, "delta within 1".into(), None),
+                    (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
+                    (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Always, "#in <= #out".into(), None),
+                    (Expectation::Eventually, "#out <= #in + 1".into(), None),
                 ],
                 svg: Some("<svg version='1.1' baseProfile='full' width='500' height='60' viewbox='-20 -20 520 80' xmlns='http://www.w3.org/2000/svg'><defs><marker class='svg-event-shape' id='arrow' markerWidth='12' markerHeight='10' refX='12' refY='5' orient='auto'><polygon points='0 0, 12 5, 0 10' /></marker></defs><line x1='0' y1='0' x2='0' y2='60' class='svg-actor-timeline' />\n<text x='0' y='0' class='svg-actor-label'>0</text>\n<line x1='100' y1='0' x2='100' y2='60' class='svg-actor-timeline' />\n<text x='100' y='0' class='svg-actor-label'>1</text>\n<line x1='0' x2='100' y1='0' y2='30' marker-end='url(#arrow)' class='svg-event-line' />\n<text x='100' y='30' class='svg-event-label'>Ping(0)</text>\n</svg>\n".to_string()),
             });
