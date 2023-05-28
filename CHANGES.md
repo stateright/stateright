@@ -1,5 +1,36 @@
 # Changes
 
+## 0.30.0
+
+Notable changes follow, grouped by author.
+
+Andrea Stedile <andrea.stedile@studenti.unitn.it>
+
+- Support crash failures.
+
+Andrew Jeffery <dev@jeffas.io>
+
+- Enhance how properties are displayed in the Explorer UI.
+- Introduce an "on-demand" checker for Explorer.
+- Introduce depth tracking and max depth checking.
+- Introduce named timers.
+- Sort discoveries.
+- Introduce a `join_and_report` method to reduce time overestimation.
+
+David Rusu <davidrusu.me@gmail.com>
+
+- Fix a bug in the new on-demand checker.
+
+Jonathan Nadal <jon.nadal@gmail.com>
+
+- Address a bug for ordered network checking that would result in not exploring
+  the complete state space. Thank you to Andrea Stedile for identifying this
+  problem.
+
+Wink Saville <wink@saville.com>
+
+- Improve `tcpdump` usage details in the examples.
+
 ## 0.29.0
 
 This release adds support for symmetry reduction, courtesy of Chris Jensen
