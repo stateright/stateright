@@ -68,28 +68,26 @@ pub mod dgraph {
             }
         }
 
-        pub fn with_path(&self, path: Vec<u8>) -> Self {
+        pub fn with_path(mut self, path: Vec<u8>) -> Self {
             let mut src = *path.first().unwrap();
             DGraph {
                 inits: {
-                    let mut inits = self.inits.clone();
-                    inits.insert(src);
-                    inits
+                    self.inits.insert(src);
+                    self.inits
                 },
                 edges: {
-                    let mut edges = self.edges.clone();
                     for &dst in path.iter().skip(1) {
-                        edges.entry(src).or_default().insert(dst);
+                        self.edges.entry(src).or_default().insert(dst);
                         src = dst;
                     }
-                    edges
+                    self.edges
                 },
-                property: self.property.clone(),
+                property: self.property,
             }
         }
 
-        pub fn check(&self) -> impl Checker<Self> {
-            self.clone().checker().spawn_bfs().join()
+        pub fn check(self) -> impl Checker<Self> {
+            self.checker().spawn_bfs().join()
         }
     }
 
