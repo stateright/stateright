@@ -81,7 +81,6 @@ where
 {
     pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>, seed: u64) -> Self {
         let model = Arc::new(options.model);
-        let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
         let visitor = Arc::new(options.visitor);
@@ -118,7 +117,6 @@ where
                                 &visitor,
                                 target_max_depth,
                                 &max_depth,
-                                symmetry,
                             );
 
                             // Check whether we have found everything.
@@ -161,7 +159,6 @@ where
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
-        symmetry: Option<fn(&M::State) -> M::State>,
     ) {
         let properties = model.properties();
 
@@ -307,30 +304,19 @@ where
             // property held on the path leading to the first visit as meaning
             // that it holds in the path leading to the second visit -- another
             // possible false-negative.
-            if let Some(representative) = symmetry {
-                let representative_fingerprint = fingerprint(&representative(&state));
-                if !generated.insert(representative_fingerprint) {
-                    is_terminal = false;
-                    break;
-                }
-                // IMPORTANT: continue the path with the pre-canonicalized state/fingerprint to
-                // avoid jumping to another part of the state space for which there may not be
-                // a path extension from the previously collected path.
-            } else {
-                let next_fingerprint = fingerprint(&state);
-                if !generated.insert(next_fingerprint) {
-                    // FIXME: arriving at an already-known state may be a loop (in which case it
-                    // could, in a fancier implementation, be considered a terminal state for
-                    // purposes of eventually-property checking) but it might also be a join in
-                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                    // some cost), but for now we just _don't_ treat them as terminal, and tell
-                    // users they need to explicitly ensure model path-acyclicality when they're
-                    // using eventually properties (using a boundary or empty actions or
-                    // whatever).
-                    is_terminal = false;
-                    break;
-                }
-            };
+            let next_fingerprint = fingerprint(&state);
+            if !generated.insert(next_fingerprint) {
+                // FIXME: arriving at an already-known state may be a loop (in which case it
+                // could, in a fancier implementation, be considered a terminal state for
+                // purposes of eventually-property checking) but it might also be a join in
+                // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                // some cost), but for now we just _don't_ treat them as terminal, and tell
+                // users they need to explicitly ensure model path-acyclicality when they're
+                // using eventually properties (using a boundary or empty actions or
+                // whatever).
+                is_terminal = false;
+                break;
+            }
         }
         if is_terminal {
             for (i, property) in properties.iter().enumerate() {
