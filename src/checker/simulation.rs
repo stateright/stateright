@@ -33,6 +33,7 @@ pub trait Chooser<M: Model> {
 
 /// A chooser that makes uniform choices.
 pub struct UniformChooser {
+    // FIXME: use a reproducible rng, one that will not change over versions.
     rng: StdRng,
 }
 
@@ -98,6 +99,7 @@ where
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
             // create a per-thread rng to get them searching different parts of the space.
+            // FIXME: use a reproducible rng, one that will not change over versions.
             let mut rng = StdRng::seed_from_u64(seed);
             handles.push(
                 std::thread::Builder::new()
