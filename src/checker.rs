@@ -1,6 +1,7 @@
 //! Private module for selective re-export.
 
 mod bfs;
+mod simulation;
 mod dfs;
 mod explorer;
 mod on_demand;
@@ -191,6 +192,23 @@ impl<M: Model> CheckerBuilder<M> {
     {
         dfs::DfsChecker::spawn(self)
     }
+
+    /// Spawns a simulation model checker. This repeatedly traverses the model from initial states
+    /// to a terminal state. This aims to provide faster coverage of deep states for models that
+    /// cannot practically be checked exhaustively.
+    ///
+    /// This call does not block the current thread. Call [`Checker::join`] to block until
+    /// checking completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join() or report(...), for example."]
+    pub fn spawn_simulation(self) -> impl Checker<M>
+    where
+        M: Model + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + 'static,
+    {
+        simulation::SimulationChecker::spawn(self)
+    }
+
 
     /// Enables symmetry reduction. Requires the [model state] to implement [`Representative`].
     ///

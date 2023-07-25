@@ -33,6 +33,7 @@
             (rust.override {
               extensions = ["rust-src" "rustfmt"];
             })
+            pkgs.cargo-watch
           ];
         };
       }
