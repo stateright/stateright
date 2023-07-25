@@ -125,6 +125,7 @@ where
         let mut depth = 0;
         let mut fingerprint_path = Vec::new();
         let mut generated = HashSet::new();
+        let mut choose_action = |actions: &[M::Action]| rng.gen_range(0, actions.len());
         loop {
             // check max depth for this run
             // pick a state from the current states
@@ -214,7 +215,7 @@ where
             model.actions(&state, &mut actions);
 
             // now pick one
-            let index = rng.gen_range(0, actions.len());
+            let index = choose_action(&actions);
             let action = actions.swap_remove(index);
             // now clear the actions for the next round
             actions.clear();
