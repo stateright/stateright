@@ -2,11 +2,12 @@
 
 use crate::checker::{Checker, EventuallyBits, Expectation, Path};
 use crate::{fingerprint, CheckerBuilder, CheckerVisitor, Fingerprint, Model, Property};
-use dashmap::{DashMap, DashSet};
-use nohash_hasher::NoHashHasher;
-use parking_lot::{Condvar, Mutex};
-use std::collections::{HashMap, VecDeque, HashSet};
-use std::hash::{BuildHasherDefault, Hash};
+use dashmap::DashMap;
+use rand::rngs::SmallRng;
+use rand::Rng;
+use rand::SeedableRng;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -18,7 +19,6 @@ use std::thread::JoinHandle;
 pub(crate) struct SimulationChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
-    thread_count: usize,
     handles: Vec<std::thread::JoinHandle<()>>,
 
     // Mutable state.
@@ -41,33 +41,8 @@ where
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
 
-        let init_states: Vec<_> = model
-            .init_states()
-            .into_iter()
-            .filter(|s| model.within_boundary(s))
-            .collect();
-        let state_count = Arc::new(AtomicUsize::new(init_states.len()));
+        let state_count = Arc::new(AtomicUsize::new(0));
         let max_depth = Arc::new(AtomicUsize::new(0));
-        let ebits = {
-            let mut ebits = EventuallyBits::new();
-            for (i, p) in model.properties().iter().enumerate() {
-                if let Property {
-                    expectation: Expectation::Eventually,
-                    ..
-                } = p
-                {
-                    ebits.insert(i);
-                }
-            }
-            ebits
-        };
-        let pending: Vec<_> = init_states
-            .into_iter()
-            .map(|s| {
-                let fp = fingerprint(&s);
-                (s, vec![fp], ebits.clone(), NonZeroUsize::new(1).unwrap())
-            })
-            .collect();
         let discoveries = Arc::new(DashMap::default());
         let mut handles = Vec::new();
 
@@ -77,6 +52,7 @@ where
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
+            let mut rng = SmallRng::from_entropy();
             handles.push(
                 std::thread::Builder::new()
                     .name(format!("checker-{}", t))
@@ -85,6 +61,7 @@ where
                         loop {
                             Self::check_trace_from_initial(
                                 &model,
+                                &mut rng,
                                 &state_count,
                                 &discoveries,
                                 &visitor,
@@ -92,50 +69,22 @@ where
                                 &max_depth,
                                 symmetry,
                             );
+
+                            // Check whether we have found everything.
+                            // All threads should reach this check and have the same result,
+                            // leading them all to shut down together.
                             if discoveries.len() == property_count {
-                                log::debug!(
-                                    "{}: Discovery complete. Shutting down... gen={}",
-                                    t,
-                                    generated.len()
-                                );
-                                let mut job_market = job_market.lock();
-                                job_market.wait_count += 1;
-                                drop(job_market);
-                                has_new_job.notify_all();
+                                log::debug!("{}: Discovery complete. Shutting down...", t,);
                                 return;
                             }
                             if let Some(target_state_count) = target_state_count {
                                 if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
                                     log::debug!(
-                                        "{}: Reached target state count. Shutting down... gen={}",
+                                        "{}: Reached target state count. Shutting down...",
                                         t,
-                                        generated.len()
                                     );
                                     return;
                                 }
-                            }
-
-                            // Step 2: Share work.
-                            if pending.len() > 1 && thread_count > 1 {
-                                let mut job_market = job_market.lock();
-                                let pieces =
-                                    1 + std::cmp::min(job_market.wait_count, pending.len());
-                                let size = pending.len() / pieces;
-                                for _ in 1..pieces {
-                                    log::trace!(
-                                        "{}: Sharing work. blocked={}, size={}",
-                                        t,
-                                        job_market.wait_count,
-                                        size
-                                    );
-                                    job_market
-                                        .jobs
-                                        .push(pending.split_off(pending.len() - size));
-                                    has_new_job.notify_one();
-                                }
-                            } else if pending.is_empty() {
-                                let mut job_market = job_market.lock();
-                                job_market.wait_count += 1;
                             }
                         }
                     })
@@ -144,7 +93,6 @@ where
         }
         SimulationChecker {
             model,
-            thread_count,
             handles,
             state_count,
             max_depth,
@@ -156,6 +104,7 @@ where
     #[allow(clippy::type_complexity)]
     fn check_trace_from_initial(
         model: &M,
+        rng: &mut SmallRng,
         state_count: &AtomicUsize,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
@@ -165,13 +114,13 @@ where
     ) {
         let properties = model.properties();
 
-        let initial_states = model.init_states();
+        let mut states_to_choose_from = model.init_states();
 
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
         let mut depth = 0;
-        let mut fingerprints = Vec::new();
-        let ebits = {
+        let mut fingerprint_path = Vec::new();
+        let mut ebits = {
             let mut ebits = EventuallyBits::new();
             for (i, p) in properties.iter().enumerate() {
                 if let Property {
@@ -191,7 +140,6 @@ where
             // generate the actions from this
             // generate the next states
             // update the current states
-
             if depth > current_max_depth {
                 let _ = global_max_depth.compare_exchange(
                     current_max_depth,
@@ -208,14 +156,23 @@ where
                 }
             }
 
+            if states_to_choose_from.is_empty() {
+                log::trace!("No more states to choose from on this path");
+                return;
+            }
+
             // pick a state from the current states
-            let state = initial_states[0];
-            fingerprints.push(fingerprint(&state));
+            let index = rng.gen_range(0, states_to_choose_from.len());
+            let state = states_to_choose_from.swap_remove(index);
+            // remove all, now that we've chosen one we don't want to use these again
+            states_to_choose_from.clear();
+            fingerprint_path.push(fingerprint(&state));
+            depth += 1;
 
             if let Some(visitor) = visitor {
                 visitor.visit(
                     model,
-                    Path::from_fingerprints(model, VecDeque::from(fingerprints.clone())),
+                    Path::from_fingerprints(model, VecDeque::from(fingerprint_path.clone())),
                 );
             }
 
@@ -233,7 +190,7 @@ where
                     } => {
                         if !always(model, &state) {
                             // Races other threads, but that's fine.
-                            discoveries.insert(property.name, fingerprints.clone());
+                            discoveries.insert(property.name, fingerprint_path.clone());
                         } else {
                             is_awaiting_discoveries = true;
                         }
@@ -245,7 +202,7 @@ where
                     } => {
                         if sometimes(model, &state) {
                             // Races other threads, but that's fine.
-                            discoveries.insert(property.name, fingerprints.clone());
+                            discoveries.insert(property.name, fingerprint_path.clone());
                         } else {
                             is_awaiting_discoveries = true;
                         }
@@ -323,23 +280,18 @@ where
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
-                let mut next_fingerprints = Vec::with_capacity(1 + fingerprints.len());
-                for f in &fingerprints {
+                let mut next_fingerprints = Vec::with_capacity(1 + fingerprint_path.len());
+                for f in &fingerprint_path {
                     next_fingerprints.push(*f);
                 }
                 next_fingerprints.push(next_fingerprint);
-                pending.push((
-                    next_state,
-                    next_fingerprints,
-                    ebits.clone(),
-                    NonZeroUsize::new(max_depth.get() + 1).unwrap(),
-                ));
+                states_to_choose_from.push(next_state);
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {
                     if ebits.contains(i) {
                         // Races other threads, but that's fine.
-                        discoveries.insert(property.name, fingerprints.clone());
+                        discoveries.insert(property.name, fingerprint_path.clone());
                     }
                 }
             }
@@ -361,7 +313,7 @@ where
     }
 
     fn unique_state_count(&self) -> usize {
-        self.generated.len()
+        self.state_count.load(Ordering::Relaxed)
     }
 
     fn max_depth(&self) -> usize {
@@ -385,9 +337,7 @@ where
     }
 
     fn is_done(&self) -> bool {
-        let job_market = self.job_market.lock();
-        job_market.jobs.is_empty() && job_market.wait_count == self.thread_count
-            || self.discoveries.len() == self.model.properties().len()
+        self.handles.iter().all(|h| h.is_finished())
     }
 }
 
@@ -395,57 +345,13 @@ where
 mod test {
     use super::*;
     use crate::test_util::linear_equation_solver::*;
-    use crate::*;
-
-    #[test]
-    fn visits_states_in_dfs_order() {
-        let (recorder, accessor) = StateRecorder::new_with_accessor();
-        LinearEquation { a: 2, b: 10, c: 14 }
-            .checker()
-            .visitor(recorder)
-            .spawn_dfs()
-            .join();
-        assert_eq!(
-            accessor(),
-            vec![
-                (0, 0),
-                (0, 1),
-                (0, 2),
-                (0, 3),
-                (0, 4),
-                (0, 5),
-                (0, 6),
-                (0, 7),
-                (0, 8),
-                (0, 9),
-                (0, 10),
-                (0, 11),
-                (0, 12),
-                (0, 13),
-                (0, 14),
-                (0, 15),
-                (0, 16),
-                (0, 17),
-                (0, 18),
-                (0, 19),
-                (0, 20),
-                (0, 21),
-                (0, 22),
-                (0, 23),
-                (0, 24),
-                (0, 25),
-                (0, 26),
-                (0, 27),
-            ]
-        );
-    }
 
     #[cfg(not(debug_assertions))] // too slow for debug build
     #[test]
     fn can_complete_by_enumerating_all_states() {
         let checker = LinearEquation { a: 2, b: 4, c: 7 }
             .checker()
-            .spawn_dfs()
+            .spawn_simulation()
             .join();
         assert_eq!(checker.is_done(), true);
         checker.assert_no_discovery("solvable");
@@ -456,109 +362,13 @@ mod test {
     fn can_complete_by_eliminating_properties() {
         let checker = LinearEquation { a: 2, b: 10, c: 14 }
             .checker()
-            .spawn_dfs()
+            .spawn_simulation()
             .join();
         checker.assert_properties();
-        assert_eq!(checker.unique_state_count(), 55);
 
-        // DFS found this example...
-        assert_eq!(
-            checker.discovery("solvable").unwrap().into_actions(),
-            vec![Guess::IncreaseY; 27]
-        ); // (2*0 + 10*27) % 256 == 14
-           // ... but there are of course other solutions, such as the following.
         checker.assert_discovery(
             "solvable",
             vec![Guess::IncreaseX, Guess::IncreaseY, Guess::IncreaseX],
         );
-    }
-
-    #[test]
-    fn can_apply_symmetry_reduction() {
-        use crate::actor::Id;
-        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-        struct Sys;
-        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-        struct SysState(Vec<ProcState>);
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        enum ProcState {
-            // A process advances from `Loading` to `Running` to cycling between `Paused` and
-            // `Running`. There is no way for a process to move from `Loading` to `Paused` or any
-            // non-`Loading` state to `Loading`, but a previous implementation of symmetry
-            // reduction would mistakenly collect a path with an invalid step because it would
-            // enqueue the representative of a state rather than the original state.
-            //
-            // Here is an example of the steps that would manifest that bug:
-            //
-            // 1. System starts: `[Loading, Loading]`
-            // 2. Second process advances: `[Loading, Running]`
-            // 3. Second process advances: `[Loading, Paused]`
-            //
-            // But in the third state above, the representative function swaps the process order
-            // because `Paused < Loading`, so the collected path becomes:
-            //
-            // 1. `[Loading, Loading]`
-            // 2. `[Loading, Running]`
-            // 3. `[Paused, Loading]`
-            //
-            // Both `Loading -> Loading -> Paused` (process 0) and `Loading -> Running -> Loading`
-            // (process 1) are invalid.
-            Paused,
-            Loading,
-            Running,
-        }
-        impl Model for Sys {
-            type Action = Id;
-            type State = SysState;
-            fn init_states(&self) -> Vec<SysState> {
-                vec![SysState(vec![ProcState::Loading, ProcState::Loading])]
-            }
-            fn actions(&self, _: &Self::State, actions: &mut Vec<Self::Action>) {
-                // Either process can run next.
-                actions.push(Id::from(0));
-                actions.push(Id::from(1));
-            }
-            fn next_state(&self, state: &Self::State, action: Self::Action) -> Option<Self::State> {
-                let i = usize::from(action);
-                let mut state = state.clone();
-                match state.0[i] {
-                    ProcState::Loading => state.0[i] = ProcState::Running,
-                    ProcState::Running => state.0[i] = ProcState::Paused,
-                    ProcState::Paused => state.0[i] = ProcState::Running,
-                }
-                Some(state)
-            }
-            fn properties(&self) -> Vec<Property<Self>> {
-                vec![
-                    Property::<Self>::always("visit all states", |_, _| true),
-                    Property::<Self>::sometimes("a process pauses", |_, s| {
-                        s.0[0] == ProcState::Paused || s.0[1] == ProcState::Paused
-                    }),
-                ]
-            }
-        }
-        impl Representative for SysState {
-            fn representative(&self) -> Self {
-                let plan = RewritePlan::from_values_to_sort(&self.0);
-                SysState(plan.reindex(&self.0))
-            }
-        }
-        impl Rewrite<Id> for ProcState {
-            fn rewrite<S>(&self, _: &RewritePlan<Id, S>) -> Self {
-                self.clone()
-            }
-        }
-
-        // 9 states without symmetry reduction.
-        let checker = Sys.checker().spawn_dfs().join();
-        assert_eq!(checker.unique_state_count(), 9);
-        let checker = Sys.checker().spawn_bfs().join();
-        assert_eq!(checker.unique_state_count(), 9);
-
-        // 6 states with symmetry reduction. `PathRecorder` panics upon encountering an invalid
-        // path, and this was observed in a previous implementation with a bug.
-        let (visitor, _) = PathRecorder::new_with_accessor();
-        let checker = Sys.checker().symmetry().visitor(visitor).spawn_dfs().join();
-        assert_eq!(checker.unique_state_count(), 6);
     }
 }

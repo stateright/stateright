@@ -1,7 +1,6 @@
 //! Private module for selective re-export.
 
 mod bfs;
-mod simulation;
 mod dfs;
 mod explorer;
 mod on_demand;
@@ -9,6 +8,7 @@ mod path;
 mod representative;
 mod rewrite;
 mod rewrite_plan;
+mod simulation;
 mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
