@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+use super::EventuallyBits;
+
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
 
@@ -126,6 +128,20 @@ where
         let mut fingerprint_path = Vec::new();
         let mut generated = HashSet::new();
         let mut choose_action = |actions: &[M::Action]| rng.gen_range(0, actions.len());
+        let mut ebits = {
+            let mut ebits = EventuallyBits::new();
+            for (i, p) in model.properties().iter().enumerate() {
+                if let Property {
+                    expectation: Expectation::Eventually,
+                    ..
+                } = p
+                {
+                    ebits.insert(i);
+                }
+            }
+            ebits
+        };
+        let mut is_terminal = true;
         loop {
             // check max depth for this run
             // pick a state from the current states
@@ -144,6 +160,7 @@ where
             if let Some(target_max_depth) = target_max_depth {
                 if depth >= target_max_depth.get() {
                     log::trace!("Skipping exploring more states as past max depth {}", depth);
+                    // return not break here as we do not know if this is terminal.
                     return;
                 }
             }
@@ -201,14 +218,13 @@ where
                         // (i.e. it might be falsifiable via a different path).
                         is_awaiting_discoveries = true;
                         if eventually(model, &state) {
-                            todo!();
-                            // ebits.remove(i);
+                            ebits.remove(i);
                         }
                     }
                 }
             }
             if !is_awaiting_discoveries {
-                return;
+                break;
             }
 
             // generate the possible next actions
@@ -221,13 +237,13 @@ where
             actions.clear();
 
             state = match model.next_state(&state, action) {
-                None => return,
+                None => break,
                 Some(next_state) => next_state,
             };
 
             // Skip if outside boundary.
             if !model.within_boundary(&state) {
-                return;
+                break;
             }
             state_count.fetch_add(1, Ordering::Relaxed);
 
@@ -242,7 +258,8 @@ where
             if let Some(representative) = symmetry {
                 let representative_fingerprint = fingerprint(&representative(&state));
                 if !generated.insert(representative_fingerprint) {
-                    return;
+                    is_terminal = false;
+                    break;
                 }
                 // IMPORTANT: continue the path with the pre-canonicalized state/fingerprint to
                 // avoid jumping to another part of the state space for which there may not be
@@ -258,9 +275,18 @@ where
                     // users they need to explicitly ensure model path-acyclicality when they're
                     // using eventually properties (using a boundary or empty actions or
                     // whatever).
-                    return;
+                    is_terminal = false;
+                    break;
                 }
             };
+        }
+        if is_terminal {
+            for (i, property) in properties.iter().enumerate() {
+                if ebits.contains(i) {
+                    // Races other threads, but that's fine.
+                    discoveries.insert(property.name, fingerprint_path.clone());
+                }
+            }
         }
     }
 }
