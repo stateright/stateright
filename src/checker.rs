@@ -26,8 +26,7 @@ pub use representative::*;
 pub use rewrite::*;
 pub use rewrite_plan::*;
 pub use visitor::*;
-
-use self::simulation::Chooser;
+pub use simulation::{Chooser, UniformChooser};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ControlFlow {
