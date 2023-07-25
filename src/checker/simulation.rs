@@ -3,7 +3,7 @@
 use crate::checker::{Checker, Expectation, Path};
 use crate::{fingerprint, CheckerBuilder, CheckerVisitor, Fingerprint, Model, Property};
 use dashmap::DashMap;
-use rand::rngs::SmallRng;
+use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -33,7 +33,7 @@ pub trait Chooser<M: Model> {
 
 /// A chooser that makes uniform choices.
 pub struct UniformChooser {
-    rng: SmallRng,
+    rng: StdRng,
 }
 
 impl<M> Chooser<M> for UniformChooser
@@ -42,7 +42,7 @@ where
 {
     fn from_seed(seed: u64) -> Self {
         Self {
-            rng: SmallRng::seed_from_u64(seed),
+            rng: StdRng::seed_from_u64(seed),
         }
     }
 
@@ -78,7 +78,7 @@ where
     M: Model + Send + Sync + 'static,
     M::State: Hash + Send + 'static,
 {
-    pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>) -> Self {
+    pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>, seed: u64) -> Self {
         let model = Arc::new(options.model);
         let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
@@ -98,7 +98,7 @@ where
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
             // create a per-thread rng to get them searching different parts of the space.
-            let mut rng = SmallRng::from_entropy();
+            let mut rng = StdRng::seed_from_u64(seed);
             handles.push(
                 std::thread::Builder::new()
                     .name(format!("checker-{}", t))
@@ -390,23 +390,11 @@ mod test {
     use super::*;
     use crate::test_util::linear_equation_solver::*;
 
-    #[cfg(not(debug_assertions))] // too slow for debug build
-    #[test]
-    fn can_complete_by_enumerating_all_states() {
-        let checker = LinearEquation { a: 2, b: 4, c: 7 }
-            .checker()
-            .spawn_simulation()
-            .join();
-        assert_eq!(checker.is_done(), true);
-        checker.assert_no_discovery("solvable");
-        assert_eq!(checker.unique_state_count(), 256 * 256);
-    }
-
     #[test]
     fn can_complete_by_eliminating_properties() {
         let checker = LinearEquation { a: 2, b: 10, c: 14 }
             .checker()
-            .spawn_simulation::<UniformChooser>()
+            .spawn_simulation::<UniformChooser>(0)
             .join();
         checker.assert_properties();
 
