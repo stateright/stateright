@@ -1,6 +1,6 @@
 //! Private module for selective re-export.
 
-use crate::checker::{Checker, EventuallyBits, Expectation, Path};
+use crate::checker::{Checker, Expectation, Path};
 use crate::{fingerprint, CheckerBuilder, CheckerVisitor, Fingerprint, Model, Property};
 use dashmap::DashMap;
 use rand::rngs::SmallRng;
@@ -37,7 +37,6 @@ where
         let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
-        let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
 
@@ -46,12 +45,13 @@ where
         let discoveries = Arc::new(DashMap::default());
         let mut handles = Vec::new();
 
-        for t in 0..thread_count {
+        for t in 0..options.thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
+            // create a per-thread rng to get them searching different parts of the space.
             let mut rng = SmallRng::from_entropy();
             handles.push(
                 std::thread::Builder::new()
@@ -114,25 +114,16 @@ where
     ) {
         let properties = model.properties();
 
-        let mut states_to_choose_from = model.init_states();
+        let mut state = {
+            let mut initial_states = model.init_states();
+            let index = rng.gen_range(0, initial_states.len());
+            initial_states.swap_remove(index)
+        };
 
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
         let mut depth = 0;
         let mut fingerprint_path = Vec::new();
-        let mut ebits = {
-            let mut ebits = EventuallyBits::new();
-            for (i, p) in properties.iter().enumerate() {
-                if let Property {
-                    expectation: Expectation::Eventually,
-                    ..
-                } = p
-                {
-                    ebits.insert(i);
-                }
-            }
-            ebits
-        };
         let mut generated = HashSet::new();
         loop {
             // check max depth for this run
@@ -156,16 +147,6 @@ where
                 }
             }
 
-            if states_to_choose_from.is_empty() {
-                log::trace!("No more states to choose from on this path");
-                return;
-            }
-
-            // pick a state from the current states
-            let index = rng.gen_range(0, states_to_choose_from.len());
-            let state = states_to_choose_from.swap_remove(index);
-            // remove all, now that we've chosen one we don't want to use these again
-            states_to_choose_from.clear();
             fingerprint_path.push(fingerprint(&state));
             depth += 1;
 
@@ -219,7 +200,8 @@ where
                         // (i.e. it might be falsifiable via a different path).
                         is_awaiting_discoveries = true;
                         if eventually(model, &state) {
-                            ebits.remove(i);
+                            todo!();
+                            // ebits.remove(i);
                         }
                     }
                 }
@@ -228,73 +210,56 @@ where
                 return;
             }
 
-            // Otherwise enqueue newly generated states (with related metadata).
-            let mut is_terminal = true;
+            // generate the possible next actions
             model.actions(&state, &mut actions);
-            for action in actions.drain(..) {
-                let next_state = match model.next_state(&state, action) {
-                    None => continue,
-                    Some(next_state) => next_state,
-                };
 
-                // Skip if outside boundary.
-                if !model.within_boundary(&next_state) {
-                    continue;
-                }
-                state_count.fetch_add(1, Ordering::Relaxed);
+            // now pick one
+            let index = rng.gen_range(0, actions.len());
+            let action = actions.swap_remove(index);
+            // now clear the actions for the next round
+            actions.clear();
 
-                // Skip if already generated.
-                //
-                // FIXME: we should really include ebits in the fingerprint here --
-                // it is possible to arrive at a DAG join with two different ebits
-                // values, and subsequently treat the fact that some eventually
-                // property held on the path leading to the first visit as meaning
-                // that it holds in the path leading to the second visit -- another
-                // possible false-negative.
-                let next_fingerprint = if let Some(representative) = symmetry {
-                    let representative_fingerprint = fingerprint(&representative(&next_state));
-                    if !generated.insert(representative_fingerprint) {
-                        is_terminal = false;
-                        continue;
-                    }
-                    // IMPORTANT: continue the path with the pre-canonicalized state/fingerprint to
-                    // avoid jumping to another part of the state space for which there may not be
-                    // a path extension from the previously collected path.
-                    fingerprint(&next_state)
-                } else {
-                    let next_fingerprint = fingerprint(&next_state);
-                    if !generated.insert(next_fingerprint) {
-                        // FIXME: arriving at an already-known state may be a loop (in which case it
-                        // could, in a fancier implementation, be considered a terminal state for
-                        // purposes of eventually-property checking) but it might also be a join in
-                        // a DAG, which makes it non-terminal. These cases can be disambiguated (at
-                        // some cost), but for now we just _don't_ treat them as terminal, and tell
-                        // users they need to explicitly ensure model path-acyclicality when they're
-                        // using eventually properties (using a boundary or empty actions or
-                        // whatever).
-                        is_terminal = false;
-                        continue;
-                    }
-                    next_fingerprint
-                };
+            state = match model.next_state(&state, action) {
+                None => return,
+                Some(next_state) => next_state,
+            };
 
-                // Otherwise further checking is applicable.
-                is_terminal = false;
-                let mut next_fingerprints = Vec::with_capacity(1 + fingerprint_path.len());
-                for f in &fingerprint_path {
-                    next_fingerprints.push(*f);
-                }
-                next_fingerprints.push(next_fingerprint);
-                states_to_choose_from.push(next_state);
+            // Skip if outside boundary.
+            if !model.within_boundary(&state) {
+                return;
             }
-            if is_terminal {
-                for (i, property) in properties.iter().enumerate() {
-                    if ebits.contains(i) {
-                        // Races other threads, but that's fine.
-                        discoveries.insert(property.name, fingerprint_path.clone());
-                    }
+            state_count.fetch_add(1, Ordering::Relaxed);
+
+            // Skip if already generated.
+            //
+            // FIXME: we should really include ebits in the fingerprint here --
+            // it is possible to arrive at a DAG join with two different ebits
+            // values, and subsequently treat the fact that some eventually
+            // property held on the path leading to the first visit as meaning
+            // that it holds in the path leading to the second visit -- another
+            // possible false-negative.
+            if let Some(representative) = symmetry {
+                let representative_fingerprint = fingerprint(&representative(&state));
+                if !generated.insert(representative_fingerprint) {
+                    return;
                 }
-            }
+                // IMPORTANT: continue the path with the pre-canonicalized state/fingerprint to
+                // avoid jumping to another part of the state space for which there may not be
+                // a path extension from the previously collected path.
+            } else {
+                let next_fingerprint = fingerprint(&state);
+                if !generated.insert(next_fingerprint) {
+                    // FIXME: arriving at an already-known state may be a loop (in which case it
+                    // could, in a fancier implementation, be considered a terminal state for
+                    // purposes of eventually-property checking) but it might also be a join in
+                    // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                    // some cost), but for now we just _don't_ treat them as terminal, and tell
+                    // users they need to explicitly ensure model path-acyclicality when they're
+                    // using eventually properties (using a boundary or empty actions or
+                    // whatever).
+                    return;
+                }
+            };
         }
     }
 }
@@ -313,6 +278,8 @@ where
     }
 
     fn unique_state_count(&self) -> usize {
+        // we do not keep track of all the states visited so can't provide an accurate unique state
+        // count
         self.state_count.load(Ordering::Relaxed)
     }
 
