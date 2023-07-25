@@ -15,6 +15,50 @@ use std::thread::JoinHandle;
 
 use super::EventuallyBits;
 
+/// Choose transitions in the model.
+///
+/// Created once for each thread.
+pub trait Chooser<M: Model> {
+    /// Create a new chooser for this seed.
+    ///
+    /// This is used to create a new chooser for each simulation run.
+    fn from_seed(seed: u64) -> Self;
+
+    /// This chooses the initial state for this simulation run.
+    fn choose_initial_state(&mut self, states: &[M::State]) -> usize;
+
+    /// This chooses the next action to take from the current state.
+    fn choose_action(&mut self, state: &M::State, actions: &[M::Action]) -> usize;
+}
+
+/// A chooser that makes uniform choices.
+pub struct UniformChooser {
+    rng: SmallRng,
+}
+
+impl<M> Chooser<M> for UniformChooser
+where
+    M: Model,
+{
+    fn from_seed(seed: u64) -> Self {
+        Self {
+            rng: SmallRng::seed_from_u64(seed),
+        }
+    }
+
+    fn choose_initial_state(&mut self, states: &[<M as Model>::State]) -> usize {
+        self.rng.gen_range(0, states.len())
+    }
+
+    fn choose_action(
+        &mut self,
+        _state: &<M as Model>::State,
+        actions: &[<M as Model>::Action],
+    ) -> usize {
+        self.rng.gen_range(0, actions.len())
+    }
+}
+
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
 
@@ -34,7 +78,7 @@ where
     M: Model + Send + Sync + 'static,
     M::State: Hash + Send + 'static,
 {
-    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
+    pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
         let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
@@ -61,9 +105,12 @@ where
                     .spawn(move || {
                         log::debug!("{}: Thread started.", t);
                         loop {
-                            Self::check_trace_from_initial(
+                            // make a new seed for the chooser on each run from the root
+                            let seed = rng.gen();
+
+                            Self::check_trace_from_initial::<C>(
                                 &model,
-                                &mut rng,
+                                seed,
                                 &state_count,
                                 &discoveries,
                                 &visitor,
@@ -104,9 +151,9 @@ where
 
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
-    fn check_trace_from_initial(
+    fn check_trace_from_initial<C: Chooser<M>>(
         model: &M,
-        rng: &mut SmallRng,
+        seed: u64,
         state_count: &AtomicUsize,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
@@ -116,18 +163,21 @@ where
     ) {
         let properties = model.properties();
 
+        let mut chooser = C::from_seed(seed);
+
         let mut state = {
             let mut initial_states = model.init_states();
-            let index = rng.gen_range(0, initial_states.len());
+            let index = chooser.choose_initial_state(&initial_states);
             initial_states.swap_remove(index)
         };
 
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
+        // The set of actions.
         let mut actions = Vec::new();
-        let mut depth = 0;
+        // The path of the fingerprints.
         let mut fingerprint_path = Vec::new();
+        // The fingerprints we've seen in this run, for preventing cycles.
         let mut generated = HashSet::new();
-        let mut choose_action = |actions: &[M::Action]| rng.gen_range(0, actions.len());
         let mut ebits = {
             let mut ebits = EventuallyBits::new();
             for (i, p) in model.properties().iter().enumerate() {
@@ -141,32 +191,31 @@ where
             }
             ebits
         };
+        // Whether the current node is a terminal.
+        // Used for eventuality at the end of the trace.
         let mut is_terminal = true;
         loop {
-            // check max depth for this run
-            // pick a state from the current states
-            // generate the actions from this
-            // generate the next states
-            // update the current states
-            if depth > current_max_depth {
+            if fingerprint_path.len() > current_max_depth {
                 let _ = global_max_depth.compare_exchange(
                     current_max_depth,
-                    depth,
+                    fingerprint_path.len(),
                     Ordering::Relaxed,
                     Ordering::Relaxed,
                 );
-                current_max_depth = depth;
+                current_max_depth = fingerprint_path.len();
             }
             if let Some(target_max_depth) = target_max_depth {
-                if depth >= target_max_depth.get() {
-                    log::trace!("Skipping exploring more states as past max depth {}", depth);
+                if fingerprint_path.len() >= target_max_depth.get() {
+                    log::trace!(
+                        "Skipping exploring more states as past max depth {}",
+                        fingerprint_path.len()
+                    );
                     // return not break here as we do not know if this is terminal.
                     return;
                 }
             }
 
             fingerprint_path.push(fingerprint(&state));
-            depth += 1;
 
             if let Some(visitor) = visitor {
                 visitor.visit(
@@ -231,11 +280,12 @@ where
             model.actions(&state, &mut actions);
 
             // now pick one
-            let index = choose_action(&actions);
+            let index = chooser.choose_action(&state, &actions);
             let action = actions.swap_remove(index);
             // now clear the actions for the next round
             actions.clear();
 
+            // take the chosen action
             state = match model.next_state(&state, action) {
                 None => break,
                 Some(next_state) => next_state,
@@ -247,7 +297,7 @@ where
             }
             state_count.fetch_add(1, Ordering::Relaxed);
 
-            // Skip if already generated.
+            // End if this state is already generated.
             //
             // FIXME: we should really include ebits in the fingerprint here --
             // it is possible to arrive at a DAG join with two different ebits
@@ -356,7 +406,7 @@ mod test {
     fn can_complete_by_eliminating_properties() {
         let checker = LinearEquation { a: 2, b: 10, c: 14 }
             .checker()
-            .spawn_simulation()
+            .spawn_simulation::<UniformChooser>()
             .join();
         checker.assert_properties();
 
