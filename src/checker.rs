@@ -202,13 +202,13 @@ impl<M: Model> CheckerBuilder<M> {
     /// checking completes.
     #[must_use = "Checkers run on background threads. \
                   Consider calling join() or report(...), for example."]
-    pub fn spawn_simulation<C>(self, seed: u64) -> impl Checker<M>
+    pub fn spawn_simulation<C>(self, seed: u64, chooser: C) -> impl Checker<M>
     where
         M: Model + Send + Sync + 'static,
         M::State: Hash + Send + Sync + 'static,
         C: Chooser<M>,
     {
-        simulation::SimulationChecker::spawn::<C>(self, seed)
+        simulation::SimulationChecker::spawn::<C>(self, seed, chooser)
     }
 
     /// Enables symmetry reduction. Requires the [model state] to implement [`Representative`].

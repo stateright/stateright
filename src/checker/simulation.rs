@@ -18,21 +18,31 @@ use super::EventuallyBits;
 /// Choose transitions in the model.
 ///
 /// Created once for each thread.
-pub trait Chooser<M: Model> {
-    /// Create a new chooser for this seed.
-    ///
-    /// This is used to create a new chooser for each simulation run.
-    fn from_seed(seed: u64) -> Self;
+pub trait Chooser<M: Model>: Send + Clone + 'static {
+    /// State of the chooser during a run.
+    type State;
 
-    /// This chooses the initial state for this simulation run.
-    fn choose_initial_state(&mut self, states: &[M::State]) -> usize;
+    /// Create a new chooser state from this seed for the run.
+    fn new_state(&self, seed: u64) -> Self::State;
 
-    /// This chooses the next action to take from the current state.
-    fn choose_action(&mut self, state: &M::State, actions: &[M::Action]) -> usize;
+    /// Choose the initial state for this simulation run.
+    fn choose_initial_state(&self, state: &mut Self::State, initial_states: &[M::State]) -> usize;
+
+    /// Choose the next action to take from the current state.
+    fn choose_action(
+        &self,
+        state: &mut Self::State,
+        current_state: &M::State,
+        actions: &[M::Action],
+    ) -> usize;
 }
 
 /// A chooser that makes uniform choices.
-pub struct UniformChooser {
+#[derive(Clone)]
+pub struct UniformChooser;
+
+/// A chooser that makes uniform choices.
+pub struct UniformChooserState {
     // FIXME: use a reproducible rng, one that will not change over versions.
     rng: StdRng,
 }
@@ -41,22 +51,29 @@ impl<M> Chooser<M> for UniformChooser
 where
     M: Model,
 {
-    fn from_seed(seed: u64) -> Self {
-        Self {
+    type State = UniformChooserState;
+
+    fn new_state(&self, seed: u64) -> Self::State {
+        UniformChooserState {
             rng: StdRng::seed_from_u64(seed),
         }
     }
 
-    fn choose_initial_state(&mut self, states: &[<M as Model>::State]) -> usize {
-        self.rng.gen_range(0, states.len())
+    fn choose_initial_state(
+        &self,
+        state: &mut Self::State,
+        initial_states: &[<M as Model>::State],
+    ) -> usize {
+        state.rng.gen_range(0, initial_states.len())
     }
 
     fn choose_action(
-        &mut self,
-        _state: &<M as Model>::State,
+        &self,
+        state: &mut Self::State,
+        _current_state: &<M as Model>::State,
         actions: &[<M as Model>::Action],
     ) -> usize {
-        self.rng.gen_range(0, actions.len())
+        state.rng.gen_range(0, actions.len())
     }
 }
 
@@ -84,7 +101,7 @@ where
     /// `seed` is the seed for the random selection of actions between states.
     /// It is passed straight through to the first trace on the first thread to allow for
     /// reproducibility. For other threads and traces it is regenerated using a [`StdRng`].
-    pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>, seed: u64) -> Self {
+    pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>, seed: u64, chooser: C) -> Self {
         let model = Arc::new(options.model);
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
@@ -104,6 +121,7 @@ where
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
+            let chooser = chooser.clone();
             handles.push(
                 std::thread::Builder::new()
                     .name(format!("checker-{}", t))
@@ -116,6 +134,7 @@ where
                             Self::check_trace_from_initial::<C>(
                                 &model,
                                 seed,
+                                &chooser,
                                 &state_count,
                                 &discoveries,
                                 &visitor,
@@ -162,6 +181,7 @@ where
     fn check_trace_from_initial<C: Chooser<M>>(
         model: &M,
         seed: u64,
+        chooser: &C,
         state_count: &AtomicUsize,
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
@@ -170,11 +190,11 @@ where
     ) {
         let properties = model.properties();
 
-        let mut chooser = C::from_seed(seed);
+        let mut chooser_state = chooser.new_state(seed);
 
         let mut state = {
             let mut initial_states = model.init_states();
-            let index = chooser.choose_initial_state(&initial_states);
+            let index = chooser.choose_initial_state(&mut chooser_state, &initial_states);
             initial_states.swap_remove(index)
         };
 
@@ -287,7 +307,7 @@ where
             model.actions(&state, &mut actions);
 
             // now pick one
-            let index = chooser.choose_action(&state, &actions);
+            let index = chooser.choose_action(&mut chooser_state, &state, &actions);
             let action = actions.swap_remove(index);
             // now clear the actions for the next round
             actions.clear();
@@ -390,7 +410,7 @@ mod test {
     fn can_complete_by_eliminating_properties() {
         let checker = LinearEquation { a: 2, b: 10, c: 14 }
             .checker()
-            .spawn_simulation::<UniformChooser>(0)
+            .spawn_simulation(0, UniformChooser)
             .join();
         checker.assert_properties();
 
