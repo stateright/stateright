@@ -111,13 +111,7 @@ fn main() -> Result<(), pico_args::Error> {
 fn state_filter_success(s: &Arc<choice![InputState, SupervisorState, CounterState]>) -> bool {
     match s.as_ref() {
         choice!(0 -> _v) => false, // InputState
-        choice!(1 -> v) => {
-            if v.success == true {
-                true
-            } else {
-                false
-            }
-        } // SupervisorState
+        choice!(1 -> v) => v.success, // SupervisorState
         choice!(2 -> _v) => false, // CounterState
         choice!(3 -> !) => false,  // Never
     }
