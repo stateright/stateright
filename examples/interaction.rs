@@ -16,83 +16,58 @@ use std::sync::Arc;
 
 fn main() -> Result<(), pico_args::Error> {
     let mut args = pico_args::Arguments::from_env();
+
+    let model = ActorModel::<choice![ExternalInput, Supervisor, Counter], (), u8>::new((), 0)
+        .actor(Choice::new(ExternalInput {
+            threshold: 3,
+            supervisor_addr: 1.into(),
+        }))
+        .actor(
+            Choice::new(Supervisor {
+                initial_state: SupervisorState {
+                    addr: 1.into(),
+                    threshold: 3,
+                    counter_addr: 2.into(),
+                    input_addr: 0.into(),
+                    success: false,
+                },
+            })
+            .or(),
+        )
+        .actor(
+            Choice::new(Counter {
+                initial_state: CounterState {
+                    addr: 1.into(),
+                    counter: 0,
+                },
+            })
+            .or()
+            .or(),
+        );
+
     match args.subcommand()?.as_deref() {
         Some("check") => {
-            let checker =
-                ActorModel::<choice![ExternalInput, Supervisor, Counter], (), u8>::new((), 0)
-                    .actor(Choice::new(ExternalInput {
-                        threshold: 3,
-                        supervisor_addr: 1.into(),
-                    }))
-                    .actor(
-                        Choice::new(Supervisor {
-                            initial_state: SupervisorState {
-                                addr: 1.into(),
-                                threshold: 3,
-                                counter_addr: 2.into(),
-                                input_addr: 0.into(),
-                                success: false,
-                            },
-                        })
-                        .or(),
-                    )
-                    .actor(
-                        Choice::new(Counter {
-                            initial_state: CounterState {
-                                addr: 1.into(),
-                                counter: 0,
-                            },
-                        })
-                        .or()
-                        .or(),
-                    )
-                    .property(Expectation::Eventually, "success", |_, state| {
-                        state.actor_states.iter().any(|s| state_filter_success(s))
-                    })
-                    .checker()
-                    .threads(num_cpus::get())
-                    .target_max_depth(30) // To ensure termination of the checker, since the state space is very loosely bounded.
-                    .spawn_bfs()
-                    .report(&mut WriteReporter::new(&mut std::io::stdout()));
+            let checker = model
+                .property(Expectation::Eventually, "success", |_, state| {
+                    state.actor_states.iter().any(|s| state_filter_success(s))
+                })
+                .checker()
+                .threads(num_cpus::get())
+                .target_max_depth(30) // To ensure termination of the checker, since the state space is very loosely bounded.
+                .spawn_bfs()
+                .report(&mut WriteReporter::new(&mut std::io::stdout()));
 
             checker.assert_properties();
         }
 
         Some("explore") => {
-            let checker =
-                ActorModel::<choice![ExternalInput, Supervisor, Counter], (), u8>::new((), 0)
-                    .actor(Choice::new(ExternalInput {
-                        threshold: 3,
-                        supervisor_addr: 1.into(),
-                    }))
-                    .actor(
-                        Choice::new(Supervisor {
-                            initial_state: SupervisorState {
-                                addr: 1.into(),
-                                threshold: 3,
-                                counter_addr: 2.into(),
-                                input_addr: 0.into(),
-                                success: false,
-                            },
-                        })
-                        .or(),
-                    )
-                    .actor(
-                        Choice::new(Counter {
-                            initial_state: CounterState {
-                                addr: 1.into(),
-                                counter: 0,
-                            },
-                        })
-                        .or()
-                        .or(),
-                    )
-                    .property(Expectation::Eventually, "success", |_, state| {
-                        state.actor_states.iter().any(|s| state_filter_success(s))
-                    })
-                    .checker()
-                    .threads(num_cpus::get())
-                    .target_max_depth(30); // To ensure termination of the checker, since the state space is very loosely bounded.
+            let checker = model
+                .property(Expectation::Eventually, "success", |_, state| {
+                    state.actor_states.iter().any(|s| state_filter_success(s))
+                })
+                .checker()
+                .threads(num_cpus::get())
+                .target_max_depth(30); // To ensure termination of the checker, since the state space is very loosely bounded.
 
             checker.serve("0:3000");
         }
@@ -110,10 +85,10 @@ fn main() -> Result<(), pico_args::Error> {
 // It also shows how to use the choice! macro for destructuring.
 fn state_filter_success(s: &Arc<choice![InputState, SupervisorState, CounterState]>) -> bool {
     match s.as_ref() {
-        choice!(0 -> _v) => false, // InputState
+        choice!(0 -> _v) => false,    // InputState
         choice!(1 -> v) => v.success, // SupervisorState
-        choice!(2 -> _v) => false, // CounterState
-        choice!(3 -> !) => false,  // Never
+        choice!(2 -> _v) => false,    // CounterState
+        choice!(3 -> !) => false,     // Never
     }
 }
 
@@ -257,8 +232,8 @@ pub struct InputState {
 // To trigger actions in certain orders they need to be set by the correct events.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum InputTimer {
-    RequestIncrement,
-    RequestSuccess,
+    IncrementInput,
+    ReportInput,
 }
 
 impl Actor for ExternalInput {
@@ -268,7 +243,7 @@ impl Actor for ExternalInput {
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
         // Set a timeout to trigger sending increment request.
-        o.set_timer(InputTimer::RequestIncrement, model_timeout());
+        o.set_timer(InputTimer::IncrementInput, model_timeout());
         InputState {
             wait_cycles: 0,
             done: false,
@@ -302,13 +277,13 @@ impl Actor for ExternalInput {
     ) {
         // We use the reuse the message types of SupervisorMachine here to simulate a user triggering Supervisor behavior.
         match timer {
-            InputTimer::RequestIncrement => {
+            InputTimer::IncrementInput => {
                 // Set timeout for requesting success status s.t. it happens after incrementing.
-                o.set_timer(InputTimer::RequestSuccess, model_timeout());
+                o.set_timer(InputTimer::ReportInput, model_timeout());
                 o.send(self.supervisor_addr, Msg::SupervisorIncrementRequest(3));
                 state.to_mut().wait_cycles += 1; // Increment InputCycles
             }
-            InputTimer::RequestSuccess => {
+            InputTimer::ReportInput => {
                 o.send(self.supervisor_addr, Msg::SupervisorReportRequest());
                 state.to_mut().wait_cycles += 1;
             }
