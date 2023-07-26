@@ -79,6 +79,11 @@ where
     M: Model + Send + Sync + 'static,
     M::State: Hash + Send + 'static,
 {
+    /// Create a simulation checker.
+    ///
+    /// `seed` is the seed for the random selection of actions between states.
+    /// It is passed straight through to the first trace on the first thread to allow for
+    /// reproducibility. For other threads and traces it is regenerated using a [`StdRng`].
     pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>, seed: u64) -> Self {
         let model = Arc::new(options.model);
         let target_state_count = options.target_state_count;
@@ -91,24 +96,23 @@ where
         let discoveries = Arc::new(DashMap::default());
         let mut handles = Vec::new();
 
+        let mut thread_seed = seed;
+
         for t in 0..options.thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
-            // create a per-thread rng to get them searching different parts of the space.
-            // FIXME: use a reproducible rng, one that will not change over versions.
-            let mut rng = StdRng::seed_from_u64(seed);
             handles.push(
                 std::thread::Builder::new()
                     .name(format!("checker-{}", t))
                     .spawn(move || {
-                        log::debug!("{}: Thread started.", t);
+                        let mut seed = thread_seed;
+                        log::debug!("{}: Thread started with seed={}.", t, seed);
+                        // FIXME: use a reproducible rng, one that will not change over versions.
+                        let mut rng = StdRng::seed_from_u64(seed);
                         loop {
-                            // make a new seed for the chooser on each run from the root
-                            let seed = rng.gen();
-
                             Self::check_trace_from_initial::<C>(
                                 &model,
                                 seed,
@@ -135,10 +139,14 @@ where
                                     return;
                                 }
                             }
+
+                            seed = rng.gen();
+                            log::trace!("{}: Generated new thread seed={}", t, seed);
                         }
                     })
                     .expect("Failed to spawn a thread"),
             );
+            thread_seed += 1;
         }
         SimulationChecker {
             model,
