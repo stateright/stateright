@@ -473,7 +473,21 @@ where
     fn as_svg(&self, path: Path<Self::State, Self::Action>) -> Option<String> {
         use std::fmt::Write;
 
-        let plot = |x, y| (x as u64 * 100, y as u64 * 30);
+        let approximate_letter_width_px = 10;
+        let actor_names = self
+            .actors
+            .iter()
+            .enumerate()
+            .map(|(i, a)| format!("{} {}", i, a.name()))
+            .collect::<Vec<_>>();
+        let max_name_len = actor_names
+            .iter()
+            .map(|n| n.len() as u64)
+            .max()
+            .unwrap_or_default()
+            * approximate_letter_width_px;
+        let spacing = std::cmp::max(100, max_name_len);
+        let plot = |x, y| (x as u64 * spacing, y as u64 * 30);
         let actor_count = path.last_state().actor_states.len();
         let path = path.into_vec();
 
@@ -499,7 +513,7 @@ where
             </defs>").unwrap();
 
         // Vertical timeline for each actor.
-        for (actor_index, actor) in self.actors.iter().enumerate() {
+        for (actor_index, actor_name) in actor_names.iter().enumerate() {
             let (x1, y1) = plot(actor_index, 0);
             let (x2, y2) = plot(actor_index, path.len());
             writeln!(
@@ -510,8 +524,8 @@ where
             .unwrap();
             writeln!(
                 &mut svg,
-                "<text x='{}' y='{}' class='svg-actor-label'>{}{}</text>",
-                x1, y1, actor_index, actor.name()
+                "<text x='{}' y='{}' class='svg-actor-label'>{}</text>",
+                x1, y1, actor_name,
             )
             .unwrap();
         }
