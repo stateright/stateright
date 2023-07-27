@@ -1,6 +1,6 @@
 *.bk
 *.iml
-*.lock
+Cargo.lock
 *.swp
 .*
 target/
