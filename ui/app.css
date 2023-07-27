@@ -165,7 +165,7 @@ ul {
 }
 
 .svg-actor-label {
-    fill: var(--bg-med);
+    fill: var(--fg-lit);
 }
 .svg-actor-timeline {
     stroke: var(--bg-med);

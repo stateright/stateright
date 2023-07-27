@@ -127,6 +127,23 @@ where
     type State = RegisterActorState<ServerActor::State, u64>;
     type Timer = ServerActor::Timer;
 
+    fn name(&self) -> String {
+        match self {
+            RegisterActor::Client {
+                put_count: _,
+                server_count: _,
+            } => "Client".to_owned(),
+            RegisterActor::Server(s) => {
+                let n = s.name();
+                if n.is_empty() {
+                    "Server".to_owned()
+                } else {
+                    n
+                }
+            }
+        }
+    }
+
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {

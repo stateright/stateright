@@ -499,7 +499,7 @@ where
             </defs>").unwrap();
 
         // Vertical timeline for each actor.
-        for actor_index in 0..actor_count {
+        for (actor_index, actor) in self.actors.iter().enumerate() {
             let (x1, y1) = plot(actor_index, 0);
             let (x2, y2) = plot(actor_index, path.len());
             writeln!(
@@ -510,8 +510,8 @@ where
             .unwrap();
             writeln!(
                 &mut svg,
-                "<text x='{}' y='{}' class='svg-actor-label'>{:?}</text>",
-                x1, y1, actor_index
+                "<text x='{}' y='{}' class='svg-actor-label'>{}{}</text>",
+                x1, y1, actor_index, actor.name()
             )
             .unwrap();
         }

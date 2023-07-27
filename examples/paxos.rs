@@ -112,6 +112,10 @@ impl Actor for PaxosActor {
     type State = PaxosState;
     type Timer = ();
 
+    fn name(&self) -> String {
+        "Paxos Server".to_owned()
+    }
+
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
         PaxosState {
             // shared state

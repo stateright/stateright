@@ -173,6 +173,10 @@ where
             }
         }
     }
+
+    fn name(&self) -> String {
+        self.wrapped_actor.name()
+    }
 }
 
 fn process_output<A: Actor>(
