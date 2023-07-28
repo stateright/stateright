@@ -218,6 +218,9 @@ where
             }
             ebits
         };
+        // Whether the current node is a terminal.
+        // Used for eventuality at the end of the trace.
+        let mut is_terminal = true;
         loop {
             if fingerprint_path.len() > current_max_depth {
                 let _ = global_max_depth.compare_exchange(
@@ -321,15 +324,34 @@ where
             }
             state_count.fetch_add(1, Ordering::Relaxed);
 
-            if !generated.insert(fingerprint(&state)) {
-                // Found a loop in this trace, don't evaluate it again
+            // End if this state is already generated.
+            //
+            // FIXME: we should really include ebits in the fingerprint here --
+            // it is possible to arrive at a DAG join with two different ebits
+            // values, and subsequently treat the fact that some eventually
+            // property held on the path leading to the first visit as meaning
+            // that it holds in the path leading to the second visit -- another
+            // possible false-negative.
+            let next_fingerprint = fingerprint(&state);
+            if !generated.insert(next_fingerprint) {
+                // FIXME: arriving at an already-known state may be a loop (in which case it
+                // could, in a fancier implementation, be considered a terminal state for
+                // purposes of eventually-property checking) but it might also be a join in
+                // a DAG, which makes it non-terminal. These cases can be disambiguated (at
+                // some cost), but for now we just _don't_ treat them as terminal, and tell
+                // users they need to explicitly ensure model path-acyclicality when they're
+                // using eventually properties (using a boundary or empty actions or
+                // whatever).
+                is_terminal = false;
                 break;
             }
         }
-        for (i, property) in properties.iter().enumerate() {
-            if ebits.contains(i) {
-                // Races other threads, but that's fine.
-                discoveries.insert(property.name, fingerprint_path.clone());
+        if is_terminal {
+            for (i, property) in properties.iter().enumerate() {
+                if ebits.contains(i) {
+                    // Races other threads, but that's fine.
+                    discoveries.insert(property.name, fingerprint_path.clone());
+                }
             }
         }
     }
