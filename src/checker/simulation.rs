@@ -103,6 +103,7 @@ where
     /// reproducibility. For other threads and traces it is regenerated using a [`StdRng`].
     pub(crate) fn spawn<C: Chooser<M>>(options: CheckerBuilder<M>, seed: u64, chooser: C) -> Self {
         let model = Arc::new(options.model);
+        let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
         let visitor = Arc::new(options.visitor);
@@ -140,6 +141,7 @@ where
                                 &visitor,
                                 target_max_depth,
                                 &max_depth,
+                                symmetry,
                             );
 
                             // Check whether we have found everything.
@@ -187,6 +189,7 @@ where
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
+        symmetry: Option<fn(&M::State) -> M::State>,
     ) {
         let properties = model.properties();
 
@@ -241,9 +244,13 @@ where
                 }
             }
 
-            let fp = fingerprint(&state);
             fingerprint_path.push(fingerprint(&state));
-            if !generated.insert(fp) {
+            let inserted = if let Some(representative) = symmetry {
+                generated.insert(fingerprint(&representative(&state)))
+            } else {
+                generated.insert(fingerprint(&state))
+            };
+            if !inserted {
                 // found a loop
                 break;
             }
