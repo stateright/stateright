@@ -241,7 +241,12 @@ where
                 }
             }
 
+            let fp = fingerprint(&state);
             fingerprint_path.push(fingerprint(&state));
+            if !generated.insert(fp) {
+                // found a loop
+                break;
+            }
 
             if let Some(visitor) = visitor {
                 visitor.visit(
@@ -322,12 +327,6 @@ where
                 break;
             }
             state_count.fetch_add(1, Ordering::Relaxed);
-
-            let next_fingerprint = fingerprint(&state);
-            if !generated.insert(next_fingerprint) {
-                // found a loop
-                break;
-            }
         }
         for (i, property) in properties.iter().enumerate() {
             if ebits.contains(i) {
