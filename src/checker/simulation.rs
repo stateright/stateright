@@ -316,6 +316,10 @@ where
 
             // generate the possible next actions
             model.actions(&state, &mut actions);
+            if actions.is_empty() {
+                // no actions to choose from
+                break;
+            }
 
             // now pick one
             let index = chooser.choose_action(&mut chooser_state, &state, &actions);
