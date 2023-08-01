@@ -220,7 +220,7 @@ where
         };
         // Whether the current node is a terminal.
         // Used for eventuality at the end of the trace.
-        loop {
+        'outer: loop {
             if fingerprint_path.len() > current_max_depth {
                 let _ = global_max_depth.compare_exchange(
                     current_max_depth,
@@ -324,26 +324,33 @@ where
 
             // generate the possible next actions
             model.actions(&state, &mut actions);
-            if actions.is_empty() {
-                // no actions to choose from
-                log::trace!("No actions to choose from");
-                break;
-            }
 
-            // now pick one
-            let index = chooser.choose_action(&mut chooser_state, &state, &actions);
-            let action = actions.swap_remove(index);
-            // now clear the actions for the next round
-            actions.clear();
-
-            // take the chosen action
-            state = match model.next_state(&state, action) {
-                None => {
-                    log::trace!("No next state");
-                    break;
+            loop {
+                if actions.is_empty() {
+                    // no actions to choose from
+                    // break from the outer loop so that we still check eventually properties
+                    log::trace!("No actions to choose from");
+                    break 'outer;
                 }
-                Some(next_state) => next_state,
-            };
+
+                // now pick one
+                let index = chooser.choose_action(&mut chooser_state, &state, &actions);
+                let action = actions.swap_remove(index);
+
+                // take the chosen action
+                match model.next_state(&state, action) {
+                    None => {
+                        // this action was ignored, try and choose another
+                        log::trace!("No next state");
+                    }
+                    Some(next_state) => {
+                        // now clear the actions for the next round
+                        actions.clear();
+                        state = next_state;
+                        break;
+                    }
+                };
+            }
         }
         for (i, property) in properties.iter().enumerate() {
             if ebits.contains(i) {
