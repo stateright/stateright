@@ -77,9 +77,6 @@ where
     }
 }
 
-// While this file is currently quite similar to dfs.rs, a refactoring to lift shared
-// behavior is being postponed until DPOR is implemented.
-
 pub(crate) struct SimulationChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
@@ -244,6 +241,11 @@ where
                 }
             }
 
+            // Skip if outside boundary.
+            if !model.within_boundary(&state) {
+                break;
+            }
+
             fingerprint_path.push(fingerprint(&state));
             let inserted = if let Some(representative) = symmetry {
                 generated.insert(fingerprint(&representative(&state)))
@@ -254,6 +256,8 @@ where
                 // found a loop
                 break;
             }
+
+            state_count.fetch_add(1, Ordering::Relaxed);
 
             if let Some(visitor) = visitor {
                 visitor.visit(
@@ -332,12 +336,6 @@ where
                 None => break,
                 Some(next_state) => next_state,
             };
-
-            // Skip if outside boundary.
-            if !model.within_boundary(&state) {
-                break;
-            }
-            state_count.fetch_add(1, Ordering::Relaxed);
         }
         for (i, property) in properties.iter().enumerate() {
             if ebits.contains(i) {
