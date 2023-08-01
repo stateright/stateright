@@ -237,12 +237,14 @@ where
                         fingerprint_path.len()
                     );
                     // return not break here as we do not know if this is terminal.
+                    log::trace!("Reached max depth");
                     return;
                 }
             }
 
             // Skip if outside boundary.
             if !model.within_boundary(&state) {
+                log::trace!("Found state outside of boundary");
                 break;
             }
 
@@ -254,6 +256,7 @@ where
             };
             if !inserted {
                 // found a loop
+                log::trace!("Found a loop");
                 break;
             }
 
@@ -315,6 +318,7 @@ where
                 }
             }
             if !is_awaiting_discoveries {
+                log::trace!("Found all discoveries");
                 break;
             }
 
@@ -322,6 +326,7 @@ where
             model.actions(&state, &mut actions);
             if actions.is_empty() {
                 // no actions to choose from
+                log::trace!("No actions to choose from");
                 break;
             }
 
@@ -333,7 +338,10 @@ where
 
             // take the chosen action
             state = match model.next_state(&state, action) {
-                None => break,
+                None => {
+                    log::trace!("No next state");
+                    break;
+                }
                 Some(next_state) => next_state,
             };
         }
