@@ -354,16 +354,21 @@ impl Model for () {
 
 // Helpers for stable hashing, wherein hashes should not vary across builds.
 mod stable {
+    use std::hash::BuildHasher;
+
     use ahash::{AHasher, RandomState};
 
     const KEY1: u64 = 123_456_789_987_654_321;
     const KEY2: u64 = 98_765_432_123_456_789;
+    // TODO: how to get these?
+    const KEY3: u64 = 0;
+    const KEY4: u64 = 0;
 
     pub(crate) fn hasher() -> AHasher {
-        AHasher::new_with_keys(KEY1, KEY2)
+        build_hasher().build_hasher()
     }
 
     pub(crate) fn build_hasher() -> RandomState {
-        RandomState::with_seeds(KEY1, KEY2)
+        RandomState::with_seeds(KEY1, KEY2, KEY3, KEY4)
     }
 }

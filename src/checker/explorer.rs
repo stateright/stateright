@@ -353,10 +353,13 @@ mod test {
         // let path_name = format!("/{}/{}", first, second);
         // println!("New path name is: {}", path_name);
         // ```
+        let first = fingerprint(&1_i8);
+        let second = fingerprint(&0_i8);
+        println!("Expecting path: /{}/{}", first, second);
         assert_eq!(
             get_states(
                 Arc::clone(&checker),
-                "/2716592049047647680/9080728272894440685"
+                "/9393718671459482478/5869721577187787215"
             )
             .unwrap(),
             vec![StateView {
@@ -422,9 +425,9 @@ mod test {
                     }),
                     properties: vec![
                         (Expectation::Always, "delta within 1".into(), None),
-                        (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
-                        (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
-                        (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                        (Expectation::Sometimes, "can reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315".into())),
+                        (Expectation::Eventually, "must reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
+                        (Expectation::Eventually, "must exceed max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
                         (Expectation::Always, "#in <= #out".into(), None),
                         (Expectation::Eventually, "#out <= #in + 1".into(), None),
                     ],
@@ -465,9 +468,9 @@ mod test {
                 }),
                 properties: vec![
                     (Expectation::Always, "delta within 1".into(), None),
-                    (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
-                    (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
-                    (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Sometimes, "can reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315".into())),
+                    (Expectation::Eventually, "must reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
+                    (Expectation::Eventually, "must exceed max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
                     (Expectation::Always, "#in <= #out".into(), None),
                     (Expectation::Eventually, "#out <= #in + 1".into(), None),
                 ],
@@ -492,9 +495,9 @@ mod test {
                 }),
                 properties: vec![
                     (Expectation::Always, "delta within 1".into(), None),
-                    (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
-                    (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
-                    (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Sometimes, "can reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315".into())),
+                    (Expectation::Eventually, "must reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
+                    (Expectation::Eventually, "must exceed max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
                     (Expectation::Always, "#in <= #out".into(), None),
                     (Expectation::Eventually, "#out <= #in + 1".into(), None),
                 ],
