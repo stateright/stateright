@@ -246,7 +246,9 @@ where
                 break;
             }
 
+            // add the current fingerprint to the path
             fingerprint_path.push(fingerprint(&state));
+            // check that we haven't already seen this state
             let inserted = if let Some(representative) = symmetry {
                 generated.insert(fingerprint(&representative(&state)))
             } else {
@@ -323,6 +325,8 @@ where
             // generate the possible next actions
             model.actions(&state, &mut actions);
 
+            // generate the next state, repeatedly choosing an action until we get one or there are
+            // no actions left to choose.
             loop {
                 if actions.is_empty() {
                     // no actions to choose from
@@ -350,6 +354,7 @@ where
                 };
             }
         }
+        // check the eventually properties
         for (i, property) in properties.iter().enumerate() {
             if ebits.contains(i) {
                 // Races other threads, but that's fine.
