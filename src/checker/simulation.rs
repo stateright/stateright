@@ -218,8 +218,6 @@ where
             }
             ebits
         };
-        // Whether the current node is a terminal.
-        // Used for eventuality at the end of the trace.
         'outer: loop {
             if fingerprint_path.len() > current_max_depth {
                 let _ = global_max_depth.compare_exchange(
