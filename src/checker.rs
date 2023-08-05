@@ -8,6 +8,7 @@ mod path;
 mod representative;
 mod rewrite;
 mod rewrite_plan;
+mod simulation;
 mod visitor;
 
 use crate::report::{ReportData, ReportDiscovery, Reporter};
@@ -25,6 +26,7 @@ pub use representative::*;
 pub use rewrite::*;
 pub use rewrite_plan::*;
 pub use visitor::*;
+pub use simulation::{Chooser, UniformChooser};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ControlFlow {
@@ -190,6 +192,23 @@ impl<M: Model> CheckerBuilder<M> {
         M::State: Hash + Send + Sync + 'static,
     {
         dfs::DfsChecker::spawn(self)
+    }
+
+    /// Spawns a simulation model checker. This repeatedly traverses the model from initial states
+    /// to a terminal state. This aims to provide faster coverage of deep states for models that
+    /// cannot practically be checked exhaustively.
+    ///
+    /// This call does not block the current thread. Call [`Checker::join`] to block until
+    /// checking completes.
+    #[must_use = "Checkers run on background threads. \
+                  Consider calling join() or report(...), for example."]
+    pub fn spawn_simulation<C>(self, seed: u64, chooser: C) -> impl Checker<M>
+    where
+        M: Model + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + 'static,
+        C: Chooser<M>,
+    {
+        simulation::SimulationChecker::spawn::<C>(self, seed, chooser)
     }
 
     /// Enables symmetry reduction. Requires the [model state] to implement [`Representative`].
