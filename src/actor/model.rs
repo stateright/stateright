@@ -42,7 +42,11 @@ where
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ActorModelAction<Msg, Timer> {
     /// A message can be delivered to an actor.
-    Deliver { src: Id, dst: Id, msg: Msg },
+    Deliver {
+        src: Id,
+        dst: Id,
+        msg: Msg,
+    },
     /// A message can be dropped if the network is lossy.
     Drop(Envelope<Msg>),
     /// An actor can by notified after a timeout.
@@ -473,7 +477,28 @@ where
     fn as_svg(&self, path: Path<Self::State, Self::Action>) -> Option<String> {
         use std::fmt::Write;
 
-        let plot = |x, y| (x as u64 * 100, y as u64 * 30);
+        let approximate_letter_width_px = 10;
+        let actor_names = self
+            .actors
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let name = a.name();
+                if name.is_empty() {
+                    i.to_string()
+                } else {
+                    format!("{} {}", i, name)
+                }
+            })
+            .collect::<Vec<_>>();
+        let max_name_len = actor_names
+            .iter()
+            .map(|n| n.len() as u64)
+            .max()
+            .unwrap_or_default()
+            * approximate_letter_width_px;
+        let spacing = std::cmp::max(100, max_name_len);
+        let plot = |x, y| (x as u64 * spacing, y as u64 * 30);
         let actor_count = path.last_state().actor_states.len();
         let path = path.into_vec();
 
@@ -499,7 +524,7 @@ where
             </defs>").unwrap();
 
         // Vertical timeline for each actor.
-        for actor_index in 0..actor_count {
+        for (actor_index, actor_name) in actor_names.iter().enumerate() {
             let (x1, y1) = plot(actor_index, 0);
             let (x2, y2) = plot(actor_index, path.len());
             writeln!(
@@ -510,8 +535,8 @@ where
             .unwrap();
             writeln!(
                 &mut svg,
-                "<text x='{}' y='{}' class='svg-actor-label'>{:?}</text>",
-                x1, y1, actor_index
+                "<text x='{}' y='{}' class='svg-actor-label'>{}</text>",
+                x1, y1, actor_name,
             )
             .unwrap();
         }
@@ -785,7 +810,8 @@ mod test {
                 .spawn_bfs()
                 .join()
                 .unique_state_count(),
-            2); // initial and delivery of Interesting
+            2
+        ); // initial and delivery of Interesting
         assert_eq!(
             model
                 .clone()
@@ -794,7 +820,8 @@ mod test {
                 .spawn_bfs()
                 .join()
                 .unique_state_count(),
-            2); // initial and delivery of Interesting
+            2
+        ); // initial and delivery of Interesting
         assert_eq!(
             model
                 .clone()
@@ -803,7 +830,8 @@ mod test {
                 .spawn_bfs()
                 .join()
                 .unique_state_count(),
-            3); // initial, delivery of Uninteresting, and subsequent delivery of Interesting
+            3
+        ); // initial, delivery of Uninteresting, and subsequent delivery of Interesting
     }
 
     #[test]

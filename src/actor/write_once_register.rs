@@ -284,6 +284,16 @@ where
             _ => {}
         }
     }
+
+    fn name(&self) -> String {
+        match self {
+            WORegisterActor::Client {
+                put_count: _,
+                server_count: _,
+            } => "Client".to_owned(),
+            WORegisterActor::Server(a) => a.name(),
+        }
+    }
 }
 
 impl<R, ServerState, RequestId> Rewrite<R> for WORegisterActorState<ServerState, RequestId>

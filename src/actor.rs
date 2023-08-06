@@ -169,7 +169,7 @@ pub enum Command<Msg, Timer> {
 /// Holds [`Command`]s output by an actor.
 pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer>>);
 
-impl<A:Actor> Default for Out<A> {
+impl<A: Actor> Default for Out<A> {
     fn default() -> Self {
         Self::new()
     }
@@ -334,6 +334,10 @@ pub trait Actor: Sized {
         let _ = state;
         let _ = o;
     }
+
+    fn name(&self) -> String {
+        String::new()
+    }
 }
 
 impl<A> Actor for Choice<A, Never>
@@ -388,6 +392,10 @@ where
         if let Cow::Owned(state_prime) = state_prime {
             *state = Cow::Owned(Choice::new(state_prime));
         }
+    }
+
+    fn name(&self) -> String {
+        self.get().name()
     }
 }
 
@@ -479,6 +487,13 @@ where
             _ => unreachable!(),
         }
     }
+
+    fn name(&self) -> String {
+        match self {
+            Choice::L(a) => a.name(),
+            Choice::R(a) => a.name(),
+        }
+    }
 }
 
 /// Implemented only for rustdoc tests. Do not take a dependency on this. It will likely be removed
@@ -490,6 +505,9 @@ impl Actor for () {
     type Timer = ();
     fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State {}
     fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
+    fn name(&self) -> String {
+        String::new()
+    }
 }
 
 /// Sends a series of messages in sequence to the associated actor [`Id`]s waiting for a message
@@ -523,6 +541,10 @@ where
             o.send(*dst, msg.clone());
             *state.to_mut() += 1;
         }
+    }
+
+    fn name(&self) -> String {
+        String::new()
     }
 }
 
@@ -577,11 +599,7 @@ mod test {
         let mut messages_by_state: Vec<_> = accessor()
             .into_iter()
             .map(|s| {
-                let mut messages: Vec<_> = s
-                    .network
-                    .iter_deliverable()
-                    .map(|e| *e.msg)
-                    .collect();
+                let mut messages: Vec<_> = s.network.iter_deliverable().map(|e| *e.msg).collect();
                 messages.sort();
                 messages
             })
