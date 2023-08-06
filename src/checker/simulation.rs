@@ -64,7 +64,7 @@ where
         state: &mut Self::State,
         initial_states: &[<M as Model>::State],
     ) -> usize {
-        state.rng.gen_range(0, initial_states.len())
+        state.rng.gen_range(0..initial_states.len())
     }
 
     fn choose_action(
@@ -73,7 +73,7 @@ where
         _current_state: &<M as Model>::State,
         actions: &[<M as Model>::Action],
     ) -> usize {
-        state.rng.gen_range(0, actions.len())
+        state.rng.gen_range(0..actions.len())
     }
 }
 
