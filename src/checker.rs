@@ -330,7 +330,7 @@ pub trait Checker<M: Model> {
     fn join_and_report<R>(mut self, reporter: &mut R) -> Self
     where
         M::Action: Debug,
-        M::State: Debug,
+        M::State: Debug + Hash,
         Self: Sized + Send + Sync,
         R: Reporter<M> + Send,
     {
@@ -391,7 +391,7 @@ pub trait Checker<M: Model> {
     fn report<R>(self, reporter: &mut R) -> Self
     where
         M::Action: Debug,
-        M::State: Debug,
+        M::State: Debug + Hash,
         Self: Sized,
         R: Reporter<M>,
     {
@@ -716,7 +716,8 @@ mod test_report {
                 Discovered \"solvable\" example Path[3]:\n\
                 - IncreaseX\n\
                 - IncreaseX\n\
-                - IncreaseY\n"
+                - IncreaseY\n\
+                Fingerprint path: 6167006760513826741/18328261262094025403/16515453849184326071/7161883897392312182\n"
             ),
             "Output did not end as expected (see test). output={:?}`",
             output
@@ -768,7 +769,8 @@ mod test_report {
                 - IncreaseY\n\
                 - IncreaseY\n\
                 - IncreaseY\n\
-                - IncreaseY\n"
+                - IncreaseY\n\
+                Fingerprint path: 6167006760513826741/2894748348952121846/6422412726876894010/15275942931237102971/13776351524327239858/3586550893293910764/11743774950530843703/2634838777660083825/9277755497050757544/1918326494180426730/10059928693500390701/1020811506833315695/16833039475374776998/7796037201336997088/11328205184257848875/1714865853002053733/643721153798226829/9404927017100604878/3727233759834167058/13137112446692448595/1261214304204493963/10691217904155041476/383824231092615176/11523071983831704137/8888432730114899329/18298297676322121666/7995407602752815366/16178042199171074887\n"
             ),
             "Output did not end as expected (see test). output={:?}`",
             output
