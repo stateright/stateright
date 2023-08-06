@@ -1021,7 +1021,7 @@ mod test {
             .collect();
         assert_eq!(
             recipient_states,
-            vec![vec![], vec![2], vec![1], vec![2, 1], vec![1, 2],]
+            vec![vec![], vec![1], vec![2], vec![1, 2], vec![2, 1],]
         );
     }
 

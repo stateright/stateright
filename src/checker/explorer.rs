@@ -1,5 +1,4 @@
 use crate::*;
-use actix_web::{web::Json, *};
 use parking_lot::RwLock;
 use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
@@ -8,6 +7,7 @@ use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
+use tiny_http::{Method, Response, ResponseBox, StatusCode};
 
 // (expectation, name, encoded path to discovery)
 type Property = (Expectation, String, Option<String>);
@@ -31,8 +31,6 @@ struct StateView<State> {
     properties: Vec<Property>,
     svg: Option<String>,
 }
-
-type StateViewsJson<State> = Json<Vec<StateView<State>>>;
 
 impl<State> serde::Serialize for StateView<State>
 where
@@ -113,47 +111,64 @@ where
 {
     let checker = Arc::new(checker);
 
-    let data = Arc::new((snapshot, Arc::clone(&checker)));
-    HttpServer::new(move || {
-        macro_rules! get_ui_file {
-            ($filename:literal) => {
-                web::get().to(|| {
-                    HttpResponse::Ok().body({
-                        if let Ok(content) = std::fs::read(concat!("./ui/", $filename)) {
-                            log::info!("Explorer dev mode. Loading {} from disk.", $filename);
-                            content
-                        } else {
-                            include_bytes!(concat!("../../ui/", $filename)).to_vec()
-                        }
-                    })
-                })
-            };
-        }
+    let server = tiny_http::Server::http(addresses).unwrap();
 
-        App::new()
-            .data(Arc::clone(&data))
-            .route("/.status", web::get().to(status::<M, C>))
-            .route(
-                "/.runtocompletion",
-                web::post().to(run_to_completion::<M, C>),
-            )
-            .route("/.states{fingerprints:.*}", web::get().to(states::<M, C>))
-            .route("/", get_ui_file!("index.htm"))
-            .route("/app.css", get_ui_file!("app.css"))
-            .route("/app.js", get_ui_file!("app.js"))
-            .route("/knockout-3.5.0.js", get_ui_file!("knockout-3.5.0.js"))
-    })
-    .bind(addresses)
-    .unwrap()
-    .run()
-    .unwrap();
+    let server = Arc::new(server);
+
+    macro_rules! get_ui_file {
+        ($filename:literal) => {{
+            let data = if let Ok(content) = std::fs::read(concat!("./ui/", $filename)) {
+                log::info!("Explorer dev mode. Loading {} from disk.", $filename);
+                content
+            } else {
+                log::info!("Explorer release mode. Loading {} from disk.", $filename);
+                include_bytes!(concat!("../../ui/", $filename)).to_vec()
+            };
+            Response::from_data(data).boxed()
+        }};
+    }
+
+    let data = Arc::new((snapshot, Arc::clone(&checker)));
+    let web_handle = std::thread::spawn(move || loop {
+        let rq = server.recv().unwrap();
+        let response = match (rq.method(), rq.url()) {
+            (Method::Get, "/") => get_ui_file!("index.htm"),
+            (Method::Get, "/app.css") => get_ui_file!("app.css"),
+            (Method::Get, "/app.js") => get_ui_file!("app.js"),
+            (Method::Get, "/knockout-3.5.0.js") => get_ui_file!("knockout-3.5.0.js"),
+            (Method::Get, "/.status") => {
+                let view = status(Arc::clone(&data));
+                let status_json = serde_json::to_vec(&view).unwrap();
+                Response::from_data(status_json).boxed()
+            }
+            (Method::Post, "/.runtocompletion") => run_to_completion(Arc::clone(&data)),
+            (Method::Get, url) => {
+                if let Some(fingerprints) = url.strip_prefix("/.states") {
+                    match states(fingerprints, Arc::clone(&data)) {
+                        Ok(states) => {
+                            let states_json = serde_json::to_vec(&states).unwrap();
+                            Response::from_data(states_json).boxed()
+                        }
+                        Err(err) => Response::from_string(err)
+                            .with_status_code(StatusCode(404))
+                            .boxed(),
+                    }
+                } else {
+                    Response::empty(StatusCode(404)).boxed()
+                }
+            }
+            _ => Response::empty(StatusCode(404)).boxed(),
+        };
+        rq.respond(response).unwrap();
+    });
+    web_handle.join().unwrap();
 
     checker
 }
 
-type Data<Action, Checker> = web::Data<Arc<(Arc<RwLock<Snapshot<Action>>>, Arc<Checker>)>>;
+type Data<Action, Checker> = Arc<(Arc<RwLock<Snapshot<Action>>>, Arc<Checker>)>;
 
-fn status<M, C>(_: HttpRequest, data: Data<M::Action, C>) -> Json<StatusView>
+fn status<M, C>(data: Data<M::Action, C>) -> StatusView
 where
     M: Model,
     M::Action: Debug,
@@ -163,7 +178,7 @@ where
     let snapshot = &data.0;
     let checker = &data.1;
 
-    let status = StatusView {
+    StatusView {
         model: std::any::type_name::<M>().to_string(),
         done: checker.is_done(),
         state_count: checker.state_count(),
@@ -171,11 +186,10 @@ where
         max_depth: checker.max_depth(),
         properties: get_properties(checker),
         recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
-    };
-    Json(status)
+    }
 }
 
-fn run_to_completion<M, C>(_: HttpRequest, data: Data<M::Action, C>)
+fn run_to_completion<M, C>(data: Data<M::Action, C>) -> ResponseBox
 where
     M: Model,
     M::Action: Debug,
@@ -184,6 +198,7 @@ where
 {
     let checker = &data.1;
     checker.run_to_completion();
+    Response::empty(StatusCode(200)).boxed()
 }
 
 fn get_properties<C, M>(checker: &Arc<C>) -> Vec<Property>
@@ -206,7 +221,7 @@ where
         .collect()
 }
 
-fn states<M, C>(req: HttpRequest, data: Data<M::Action, C>) -> Result<StateViewsJson<M::State>>
+fn states<M, C>(path: &str, data: Data<M::Action, C>) -> Result<Vec<StateView<M::State>>, String>
 where
     M: Model,
     M::Action: Debug,
@@ -217,11 +232,7 @@ where
     let model = &checker.model();
 
     // extract fingerprints
-    let mut fingerprints_str = req
-        .match_info()
-        .get("fingerprints")
-        .expect("missing 'fingerprints' param")
-        .to_string();
+    let mut fingerprints_str = path.to_string();
     if fingerprints_str.ends_with('/') {
         let relevant_len = fingerprints_str.len() - 1;
         fingerprints_str.truncate(relevant_len);
@@ -233,10 +244,7 @@ where
 
     // ensure all but the first string (which is empty) were parsed
     if fingerprints.len() + 1 != fingerprints_str.split('/').count() {
-        return Err(actix_web::error::ErrorNotFound(format!(
-            "Unable to parse fingerprints {}",
-            fingerprints_str
-        )));
+        return Err(format!("Unable to parse fingerprints {}", fingerprints_str));
     }
 
     // now build up all the subsequent `StateView`s
@@ -302,13 +310,13 @@ where
             }
         }
     } else {
-        return Err(actix_web::error::ErrorNotFound(format!(
+        return Err(format!(
             "Unable to find state following fingerprints {}",
             fingerprints_str
-        )));
+        ));
     }
 
-    Ok(Json(results))
+    Ok(results)
 }
 
 #[cfg(test)]
@@ -353,10 +361,13 @@ mod test {
         // let path_name = format!("/{}/{}", first, second);
         // println!("New path name is: {}", path_name);
         // ```
+        let first = fingerprint(&1_i8);
+        let second = fingerprint(&0_i8);
+        println!("Expecting path: /{}/{}", first, second);
         assert_eq!(
             get_states(
                 Arc::clone(&checker),
-                "/2716592049047647680/9080728272894440685"
+                "/9393718671459482478/5869721577187787215"
             )
             .unwrap(),
             vec![StateView {
@@ -422,9 +433,9 @@ mod test {
                     }),
                     properties: vec![
                         (Expectation::Always, "delta within 1".into(), None),
-                        (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
-                        (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
-                        (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                        (Expectation::Sometimes, "can reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315".into())),
+                        (Expectation::Eventually, "must reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
+                        (Expectation::Eventually, "must exceed max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
                         (Expectation::Always, "#in <= #out".into(), None),
                         (Expectation::Eventually, "#out <= #in + 1".into(), None),
                     ],
@@ -465,9 +476,9 @@ mod test {
                 }),
                 properties: vec![
                     (Expectation::Always, "delta within 1".into(), None),
-                    (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
-                    (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
-                    (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Sometimes, "can reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315".into())),
+                    (Expectation::Eventually, "must reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
+                    (Expectation::Eventually, "must exceed max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
                     (Expectation::Always, "#in <= #out".into(), None),
                     (Expectation::Eventually, "#out <= #in + 1".into(), None),
                 ],
@@ -492,9 +503,9 @@ mod test {
                 }),
                 properties: vec![
                     (Expectation::Always, "delta within 1".into(), None),
-                    (Expectation::Sometimes, "can reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897".into())),
-                    (Expectation::Eventually, "must reach max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
-                    (Expectation::Eventually, "must exceed max".into(), Some("14242056848553854200/3590395016933165332/11432146542073814434/13356192684893895897/17356420122007280672/15000033909360207973".into())),
+                    (Expectation::Sometimes, "can reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315".into())),
+                    (Expectation::Eventually, "must reach max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
+                    (Expectation::Eventually, "must exceed max".into(), Some("9825351251631602636/3760012235735042049/7133060688412568841/11622042860899162315/5132103924661761264/12325952466011360495".into())),
                     (Expectation::Always, "#in <= #out".into(), None),
                     (Expectation::Eventually, "#out <= #in + 1".into(), None),
                 ],
@@ -519,7 +530,7 @@ mod test {
         .visitor(Arc::clone(&snapshot))
         .spawn_bfs()
         .join();
-        let status = get_status(Arc::new(checker), snapshot).unwrap();
+        let status = get_status(Arc::new(checker), snapshot);
         assert!(status.done);
         assert_eq!(
             status.model,
@@ -557,37 +568,26 @@ mod test {
     fn get_states<M, C>(
         checker: Arc<C>,
         path_name: &'static str,
-    ) -> Result<Vec<StateView<M::State>>>
+    ) -> Result<Vec<StateView<M::State>>, String>
     where
         M: Model,
         M::Action: Debug,
         M::State: Debug + Hash,
         C: Checker<M>,
     {
-        let req = actix_web::test::TestRequest::get()
-            .param("fingerprints", path_name)
-            .to_http_request();
         let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
-        let data = web::Data::new(Arc::new((snapshot, checker)));
-        match states(req, data) {
-            Ok(Json(view)) => Ok(view),
-            Err(err) => Err(err),
-        }
+        let data = Arc::new((snapshot, checker));
+        states(path_name, data)
     }
 
-    fn get_status<M, C>(
-        checker: Arc<C>,
-        snapshot: Arc<RwLock<Snapshot<M::Action>>>,
-    ) -> Result<StatusView>
+    fn get_status<M, C>(checker: Arc<C>, snapshot: Arc<RwLock<Snapshot<M::Action>>>) -> StatusView
     where
         M: Model,
         M::Action: Debug,
         M::State: Debug + Hash,
         C: Checker<M>,
     {
-        let req = actix_web::test::TestRequest::get().to_http_request();
-        let data = web::Data::new(Arc::new((snapshot, checker)));
-        let Json(view) = status(req, data);
-        Ok(view)
+        let data = Arc::new((snapshot, checker));
+        status(data)
     }
 }
