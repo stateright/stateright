@@ -18,12 +18,14 @@ impl<Job> Clone for JobMarket<Job> {
 impl<Job> Drop for JobMarket<Job> {
     fn drop(&mut self) {
         let mut market = self.market.lock();
+        market.open = false;
         market.open_count = market.open_count.saturating_sub(1);
         self.has_new_job.notify_all();
     }
 }
 
 struct JobMarketInner<Job> {
+    open: bool,
     /// Number of markets working on jobs.
     open_count: usize,
     /// Jobs available.
@@ -35,6 +37,7 @@ impl<Job> JobMarket<Job> {
         Self {
             has_new_job: Arc::new(Condvar::new()),
             market: Arc::new(Mutex::new(JobMarketInner {
+                open: true,
                 open_count: thread_count,
                 jobs: Vec::new(),
             })),
@@ -43,6 +46,9 @@ impl<Job> JobMarket<Job> {
 
     pub fn pop(&mut self) -> VecDeque<Job> {
         let mut market = self.market.lock();
+        if !market.open {
+            return VecDeque::new();
+        }
         loop {
             if let Some(job) = market.jobs.pop() {
                 log::trace!("Got jobs. Working.");
@@ -55,6 +61,7 @@ impl<Job> JobMarket<Job> {
                     // shutdown properly
                     log::trace!("No jobs. Last running thread.");
                     self.has_new_job.notify_all();
+                    market.open = false;
                     return VecDeque::new();
                 }
                 log::trace!("No jobs. Awaiting. running={}", market.open_count);
@@ -66,6 +73,9 @@ impl<Job> JobMarket<Job> {
 
     pub fn push(&mut self, jobs: VecDeque<Job>) {
         let mut market = self.market.lock();
+        if !market.open {
+            return;
+        }
         market.jobs.push(jobs);
         log::trace!("Pushing jobs. running={}", market.open_count);
         self.has_new_job.notify_one();
@@ -73,10 +83,20 @@ impl<Job> JobMarket<Job> {
 
     pub fn split_and_push(&mut self, jobs: &mut VecDeque<Job>) {
         let mut market = self.market.lock();
+        if !market.open {
+            // remove any jobs to be done
+            jobs.clear();
+            return;
+        }
         let pieces = 1 + std::cmp::min(market.open_count, jobs.len());
         let size = jobs.len() / pieces;
+        log::trace!(
+            "Sharing work. pieces={} size={} running={}",
+            pieces,
+            size,
+            market.open_count
+        );
         for _ in 1..pieces {
-            log::trace!("Sharing work. size={} running={}", size, market.open_count);
             market.jobs.push(jobs.split_off(jobs.len() - size));
             self.has_new_job.notify_one();
         }
