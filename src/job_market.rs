@@ -1,8 +1,14 @@
 use parking_lot::{Condvar, Mutex};
 use std::{collections::VecDeque, sync::Arc};
 
+/// A market for synchronising the sharing of jobs.
+///
+/// Maintains synchronisation for multiple threads, including shutdown behaviour once one finishes
+/// or panics.
 pub struct JobMarket<Job> {
+    /// Get notified when there is a new job to handle.
     has_new_job: Arc<Condvar>,
+    /// The market that we share.
     market: Arc<Mutex<JobMarketInner<Job>>>,
 }
 
@@ -25,6 +31,7 @@ impl<Job> Drop for JobMarket<Job> {
 }
 
 struct JobMarketInner<Job> {
+    /// Whether this market is still open.
     open: bool,
     /// Number of markets working on jobs.
     open_count: usize,
@@ -33,6 +40,7 @@ struct JobMarketInner<Job> {
 }
 
 impl<Job> JobMarket<Job> {
+    /// Create a new market for a group of threads.
     pub fn new(thread_count: usize) -> Self {
         Self {
             has_new_job: Arc::new(Condvar::new()),
@@ -44,6 +52,9 @@ impl<Job> JobMarket<Job> {
         }
     }
 
+    /// Pop a group of jobs from the market.
+    ///
+    /// Returns an empty result if there are no more jobs coming.
     pub fn pop(&mut self) -> VecDeque<Job> {
         let mut market = self.market.lock();
         if !market.open {
@@ -71,6 +82,7 @@ impl<Job> JobMarket<Job> {
         }
     }
 
+    /// Push a new set of jobs into the market.
     pub fn push(&mut self, jobs: VecDeque<Job>) {
         let mut market = self.market.lock();
         if !market.open {
@@ -81,6 +93,8 @@ impl<Job> JobMarket<Job> {
         self.has_new_job.notify_one();
     }
 
+    /// Split the jobs to be done into groups, one for each currently waiting thread and send them
+    /// on.
     pub fn split_and_push(&mut self, jobs: &mut VecDeque<Job>) {
         let mut market = self.market.lock();
         if !market.open {
@@ -102,6 +116,7 @@ impl<Job> JobMarket<Job> {
         }
     }
 
+    /// See whether the market is closed.
     pub fn is_closed(&self) -> bool {
         let market = self.market.lock();
         market.jobs.is_empty() && market.open_count == 0
