@@ -137,7 +137,11 @@ impl<Job> JobMarket<Job> {
             market.open_count
         );
         for _ in 1..pieces {
-            market.jobs.push(jobs.split_off(jobs.len() - size));
+            let to_share = jobs.split_off(jobs.len() - size);
+            if to_share.is_empty() {
+                continue;
+            }
+            market.jobs.push(to_share);
             self.has_new_job.notify_one();
         }
     }
