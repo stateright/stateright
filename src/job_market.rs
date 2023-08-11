@@ -25,6 +25,7 @@ impl<Job> Drop for JobMarket<Job> {
     fn drop(&mut self) {
         let mut market = self.market.lock();
         market.open = false;
+        market.jobs.clear();
         market.open_count = market.open_count.saturating_sub(1);
         self.has_new_job.notify_all();
     }
