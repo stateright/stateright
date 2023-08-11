@@ -63,7 +63,10 @@ impl<Job> JobMarket<Job> {
         }
         loop {
             if let Some(job) = market.jobs.pop() {
-                log::trace!("Got jobs. Working.");
+                log::trace!(
+                    "{}: Got jobs. Working.",
+                    std::thread::current().name().unwrap_or_default()
+                );
                 return job;
             } else {
                 // Otherwise more work may become available.
@@ -71,12 +74,19 @@ impl<Job> JobMarket<Job> {
                 if market.open_count == 0 {
                     // we are the last running thread, notify all others and return so we can
                     // shutdown properly
-                    log::trace!("No jobs. Last running thread.");
+                    log::trace!(
+                        "{}: No jobs. Last running thread.",
+                        std::thread::current().name().unwrap_or_default()
+                    );
                     self.has_new_job.notify_all();
                     market.open = false;
                     return VecDeque::new();
                 }
-                log::trace!("No jobs. Awaiting. running={}", market.open_count);
+                log::trace!(
+                    "{}: No jobs. Awaiting. running={}",
+                    std::thread::current().name().unwrap_or_default(),
+                    market.open_count
+                );
                 self.has_new_job.wait(&mut market);
                 market.open_count += 1;
             }
@@ -90,7 +100,11 @@ impl<Job> JobMarket<Job> {
             return;
         }
         market.jobs.push(jobs);
-        log::trace!("Pushing jobs. running={}", market.open_count);
+        log::trace!(
+            "{}: Pushing jobs. running={}",
+            std::thread::current().name().unwrap_or_default(),
+            market.open_count
+        );
         self.has_new_job.notify_one();
     }
 
@@ -106,7 +120,8 @@ impl<Job> JobMarket<Job> {
         let pieces = 1 + std::cmp::min(market.open_count, jobs.len());
         let size = jobs.len() / pieces;
         log::trace!(
-            "Sharing work. pieces={} size={} running={}",
+            "{}: Sharing work. pieces={} size={} running={}",
+            std::thread::current().name().unwrap_or_default(),
             pieces,
             size,
             market.open_count
@@ -120,6 +135,6 @@ impl<Job> JobMarket<Job> {
     /// See whether the market is closed.
     pub fn is_closed(&self) -> bool {
         let market = self.market.lock();
-        market.jobs.is_empty() && market.open_count == 0
+        !market.open && market.jobs.is_empty() && market.open_count == 0
     }
 }
