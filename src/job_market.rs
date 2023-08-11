@@ -24,6 +24,10 @@ impl<Job> Clone for JobMarket<Job> {
 impl<Job> Drop for JobMarket<Job> {
     fn drop(&mut self) {
         let mut market = self.market.lock();
+        log::trace!(
+            "{}: Dropped, closing the market.",
+            std::thread::current().name().unwrap_or_default()
+        );
         market.open = false;
         market.jobs.clear();
         market.open_count = market.open_count.saturating_sub(1);
@@ -34,6 +38,8 @@ impl<Job> Drop for JobMarket<Job> {
 struct JobMarketInner<Job> {
     /// Whether this market is still open.
     open: bool,
+    /// Number of workers.
+    thread_count: usize,
     /// Number of markets working on jobs.
     open_count: usize,
     /// Jobs available.
@@ -47,6 +53,7 @@ impl<Job> JobMarket<Job> {
             has_new_job: Arc::new(Condvar::new()),
             market: Arc::new(Mutex::new(JobMarketInner {
                 open: true,
+                thread_count,
                 open_count: thread_count,
                 jobs: Vec::new(),
             })),
@@ -117,7 +124,10 @@ impl<Job> JobMarket<Job> {
             jobs.clear();
             return;
         }
-        let pieces = 1 + std::cmp::min(market.open_count, jobs.len());
+        let pieces = 1 + std::cmp::min(
+            market.thread_count.saturating_sub(market.open_count),
+            jobs.len(),
+        );
         let size = jobs.len() / pieces;
         log::trace!(
             "{}: Sharing work. pieces={} size={} running={}",
