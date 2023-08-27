@@ -1,5 +1,24 @@
 # Changes
 
+## 0.30.1
+
+Andrew Jeffery <dev@jeffas.io>
+
+- Cleanly handle panics during model checking.
+- Leverage `tiny_http` for Explorer.
+- Print fingerprint path for discoveries in default report.
+- Add names to actors and show in Explorer.
+- Introduce simulation checker.
+
+Jonathan Nadal <jon.nadal@gmail.com>
+
+- Fix unintentional spin-wait loop in real-world runtime (`spawn`).
+- Fix nondeterministic test result.
+
+remzi <13716567376yh@gmail.com>
+
+- Simplify `DGraph` (used by tests) by eliminating unnecessary cloning.
+
 ## 0.30.0
 
 Notable changes follow, grouped by author.
