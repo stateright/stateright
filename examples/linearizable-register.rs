@@ -110,10 +110,7 @@ impl Actor for AbdActor {
                 });
             }
             Internal(Query(req_id)) => {
-                o.send(
-                    src,
-                    Internal(AckQuery(req_id, state.seq, state.val)),
-                );
+                o.send(src, Internal(AckQuery(req_id, state.seq, state.val)));
             }
             Internal(AckQuery(expected_req_id, seq, val))
                 if matches!(state.phase,

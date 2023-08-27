@@ -77,9 +77,7 @@ impl Model for TwoPhaseSys {
             actions.push(Action::TmAbort);
         }
         for rm in self.rms.clone() {
-            if state.tm_state == TmState::Init
-                && state.msgs.contains(&Message::Prepared { rm })
-            {
+            if state.tm_state == TmState::Init && state.msgs.contains(&Message::Prepared { rm }) {
                 actions.push(Action::TmRcvPrepared(rm));
             }
             if state.rm_state.get(rm) == Some(&RmState::Working) {

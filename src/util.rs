@@ -80,7 +80,10 @@ impl<V> HashableHashSet<V> {
 
     #[inline]
     pub fn with_capacity(capacity: usize) -> HashableHashSet<V> {
-        HashableHashSet(HashSet::with_capacity_and_hasher(capacity, Default::default()))
+        HashableHashSet(HashSet::with_capacity_and_hasher(
+            capacity,
+            Default::default(),
+        ))
     }
 }
 
@@ -277,7 +280,10 @@ impl<K, V> HashableHashMap<K, V> {
 
     #[inline]
     pub fn with_capacity(capacity: usize) -> HashableHashMap<K, V, ahash::RandomState> {
-        HashableHashMap(HashMap::with_capacity_and_hasher(capacity, Default::default()))
+        HashableHashMap(HashMap::with_capacity_and_hasher(
+            capacity,
+            Default::default(),
+        ))
     }
 }
 

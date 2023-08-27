@@ -25,8 +25,8 @@ pub use path::*;
 pub use representative::*;
 pub use rewrite::*;
 pub use rewrite_plan::*;
-pub use visitor::*;
 pub use simulation::{Chooser, UniformChooser};
+pub use visitor::*;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ControlFlow {
