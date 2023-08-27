@@ -134,6 +134,7 @@
 #[warn(anonymous_parameters)]
 #[warn(missing_docs)]
 mod checker;
+mod job_market;
 pub mod report;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
