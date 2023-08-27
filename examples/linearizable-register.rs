@@ -120,7 +120,7 @@ impl Actor for AbdActor {
                             Some(AbdPhase::Phase1 { request_id, .. })
                             if request_id == expected_req_id) =>
             {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 if let Some(AbdPhase::Phase1 {
                     request_id: req_id,
                     requester_id: requester,
@@ -177,7 +177,7 @@ impl Actor for AbdActor {
             Internal(Record(req_id, seq, val)) => {
                 o.send(src, Internal(AckRecord(req_id)));
                 if seq > state.seq {
-                    let mut state = state.to_mut();
+                    let state = state.to_mut();
                     state.seq = seq;
                     state.val = val;
                 }
@@ -187,7 +187,7 @@ impl Actor for AbdActor {
                             Some(AbdPhase::Phase2 { request_id, ref acks, .. })
                             if request_id == expected_req_id && !acks.contains(&src)) =>
             {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 if let Some(AbdPhase::Phase2 {
                     request_id: req_id,
                     requester_id: requester,

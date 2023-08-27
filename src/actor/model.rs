@@ -458,17 +458,14 @@ where
             }
             ActorModelAction::Crash(id) => {
                 let index = usize::from(id);
-                match last_state.actor_states.get(index) {
-                    None => return None,
-                    Some(last_actor_state) => Some(format!(
-                        "{}",
-                        ActorStep {
-                            last_state: &**Cow::Borrowed(last_actor_state),
-                            next_state: None,
-                            out: Out::new() as Out<A>,
-                        }
-                    )),
-                }
+                last_state.actor_states.get(index).map(|last_actor_state| format!(
+                    "{}",
+                    ActorStep {
+                        last_state: &**Cow::Borrowed(last_actor_state),
+                        next_state: None,
+                        out: Out::new() as Out<A>,
+                    }
+                ))
             }
         }
     }

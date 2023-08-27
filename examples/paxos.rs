@@ -156,7 +156,7 @@ impl Actor for PaxosActor {
 
         match msg {
             Put(request_id, value) if state.proposal.is_none() => {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 state.proposal = Some((request_id, src, value));
                 state.prepares = Default::default();
                 state.accepts = Default::default();
@@ -187,7 +187,7 @@ impl Actor for PaxosActor {
                 ballot,
                 last_accepted,
             }) if ballot == state.ballot => {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 state.prepares.insert(src, last_accepted);
                 if state.prepares.len() == majority(self.peer_ids.len() + 1) {
                     // This stage is best understood as "leadership handoff," in which this term's
@@ -224,13 +224,13 @@ impl Actor for PaxosActor {
                 }
             }
             Internal(Accept { ballot, proposal }) if state.ballot <= ballot => {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 state.ballot = ballot;
                 state.accepted = Some((ballot, proposal));
                 o.send(src, Internal(Accepted { ballot }));
             }
             Internal(Accepted { ballot }) if ballot == state.ballot => {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 state.accepts.insert(src);
                 if state.accepts.len() == majority(self.peer_ids.len() + 1) {
                     state.is_decided = true;
@@ -241,7 +241,7 @@ impl Actor for PaxosActor {
                 }
             }
             Internal(Decided { ballot, proposal }) => {
-                let mut state = state.to_mut();
+                let state = state.to_mut();
                 state.ballot = ballot;
                 state.accepted = Some((ballot, proposal));
                 state.is_decided = true;
