@@ -5,7 +5,7 @@ use std::{collections::VecDeque, sync::Arc};
 ///
 /// Maintains synchronisation for multiple threads, including shutdown behaviour once one finishes
 /// or panics.
-pub struct JobMarket<Job> {
+pub(crate) struct JobMarket<Job> {
     /// Get notified when there is a new job to handle.
     has_new_job: Arc<Condvar>,
     /// The market that we share.
