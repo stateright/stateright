@@ -190,3 +190,39 @@ pub mod linear_equation_solver {
         }
     }
 }
+
+/// A model that panicks during checking.
+pub mod panicker {
+    use crate::*;
+
+    pub struct Panicker;
+
+    impl Model for Panicker {
+        type State = usize;
+
+        type Action = usize;
+
+        fn init_states(&self) -> Vec<Self::State> {
+            vec![0]
+        }
+
+        fn actions(&self, _state: &Self::State, actions: &mut Vec<Self::Action>) {
+            actions.push(1);
+        }
+
+        fn next_state(
+            &self,
+            last_state: &Self::State,
+            action: Self::Action,
+        ) -> Option<Self::State> {
+            if *last_state == 5 {
+                panic!("reached panic state");
+            }
+            Some(last_state + action)
+        }
+
+        fn properties(&self) -> Vec<Property<Self>> {
+            vec![Property::always("true", |_, _| true)]
+        }
+    }
+}

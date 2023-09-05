@@ -465,4 +465,16 @@ mod test {
             vec![Guess::IncreaseY; 27],
         );
     }
+
+    // test that the checker shuts down all threads properly after a checker thread encounters a
+    // panic in the model execution.
+    #[test]
+    #[should_panic]
+    fn handles_panics_gracefully() {
+        crate::test_util::panicker::Panicker
+            .checker()
+            .threads(2)
+            .spawn_bfs()
+            .join();
+    }
 }
