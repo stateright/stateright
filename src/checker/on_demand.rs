@@ -120,10 +120,9 @@ where
                                             generated.len()
                                         );
                                         return;
-                                    } else {
-                                        log::trace!("{}: Job found. size={}", t, jobs.len());
-                                        jobs
                                     }
+                                    log::trace!("{}: Job found. size={}", t, jobs.len());
+                                    jobs
                                 };
                                 log::debug!(
                                     "got new pending states: {:?}",

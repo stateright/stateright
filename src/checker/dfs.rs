@@ -112,10 +112,9 @@ where
                                             generated.len()
                                         );
                                         return;
-                                    } else {
-                                        log::trace!("{}: Job found. size={}", t, jobs.len());
-                                        jobs
                                     }
+                                    log::trace!("{}: Job found. size={}", t, jobs.len());
+                                    jobs
                                 };
                             }
                             Self::check_block(
