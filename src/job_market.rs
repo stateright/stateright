@@ -5,23 +5,23 @@ use std::{collections::VecDeque, sync::Arc};
 ///
 /// Maintains synchronisation for multiple threads, including shutdown behaviour once one finishes
 /// or panics.
-pub(crate) struct JobMarket<Job> {
+pub(crate) struct JobBroker<Job> {
     /// Get notified when there is a new job to handle.
-    has_new_job: Arc<Condvar>,
+    has_new_jobs: Arc<Condvar>,
     /// The market that we share.
-    market: Arc<Mutex<JobMarketInner<Job>>>,
+    market: Arc<Mutex<JobMarket<Job>>>,
 }
 
-impl<Job> Clone for JobMarket<Job> {
+impl<Job> Clone for JobBroker<Job> {
     fn clone(&self) -> Self {
         Self {
-            has_new_job: Arc::clone(&self.has_new_job),
+            has_new_jobs: Arc::clone(&self.has_new_jobs),
             market: Arc::clone(&self.market),
         }
     }
 }
 
-impl<Job> Drop for JobMarket<Job> {
+impl<Job> Drop for JobBroker<Job> {
     fn drop(&mut self) {
         let mut market = self.market.lock();
         log::trace!(
@@ -29,13 +29,13 @@ impl<Job> Drop for JobMarket<Job> {
             std::thread::current().name().unwrap_or_default()
         );
         market.open = false;
-        market.jobs.clear();
+        market.job_batches.clear();
         market.open_count = market.open_count.saturating_sub(1);
-        self.has_new_job.notify_all();
+        self.has_new_jobs.notify_all();
     }
 }
 
-struct JobMarketInner<Job> {
+struct JobMarket<Job> {
     /// Whether this market is still open.
     open: bool,
     /// Number of workers.
@@ -43,19 +43,19 @@ struct JobMarketInner<Job> {
     /// Number of markets working on jobs.
     open_count: usize,
     /// Jobs available.
-    jobs: Vec<VecDeque<Job>>,
+    job_batches: Vec<VecDeque<Job>>,
 }
 
-impl<Job> JobMarket<Job> {
+impl<Job> JobBroker<Job> {
     /// Create a new market for a group of threads.
     pub fn new(thread_count: usize) -> Self {
         Self {
-            has_new_job: Arc::new(Condvar::new()),
-            market: Arc::new(Mutex::new(JobMarketInner {
+            has_new_jobs: Arc::new(Condvar::new()),
+            market: Arc::new(Mutex::new(JobMarket {
                 open: true,
                 thread_count,
                 open_count: thread_count,
-                jobs: Vec::new(),
+                job_batches: Vec::new(),
             })),
         }
     }
@@ -69,12 +69,12 @@ impl<Job> JobMarket<Job> {
             return VecDeque::new();
         }
         loop {
-            if let Some(job) = market.jobs.pop() {
+            if let Some(jobs) = market.job_batches.pop() {
                 log::trace!(
                     "{}: Got jobs. Working.",
                     std::thread::current().name().unwrap_or_default()
                 );
-                return job;
+                return jobs;
             } else {
                 // Otherwise more work may become available.
                 market.open_count = market.open_count.saturating_sub(1);
@@ -85,7 +85,7 @@ impl<Job> JobMarket<Job> {
                         "{}: No jobs. Last running thread.",
                         std::thread::current().name().unwrap_or_default()
                     );
-                    self.has_new_job.notify_all();
+                    self.has_new_jobs.notify_all();
                     market.open = false;
                     return VecDeque::new();
                 }
@@ -94,25 +94,25 @@ impl<Job> JobMarket<Job> {
                     std::thread::current().name().unwrap_or_default(),
                     market.open_count
                 );
-                self.has_new_job.wait(&mut market);
+                self.has_new_jobs.wait(&mut market);
                 market.open_count += 1;
             }
         }
     }
 
-    /// Push a new set of jobs into the market.
+    /// Push a new set of job batches into the market.
     pub fn push(&mut self, jobs: VecDeque<Job>) {
         let mut market = self.market.lock();
         if !market.open {
             return;
         }
-        market.jobs.push(jobs);
+        market.job_batches.push(jobs);
         log::trace!(
             "{}: Pushing jobs. running={}",
             std::thread::current().name().unwrap_or_default(),
             market.open_count
         );
-        self.has_new_job.notify_one();
+        self.has_new_jobs.notify_one();
     }
 
     /// Split the jobs to be done into groups, one for each currently waiting thread and send them
@@ -141,14 +141,14 @@ impl<Job> JobMarket<Job> {
             if to_share.is_empty() {
                 continue;
             }
-            market.jobs.push(to_share);
-            self.has_new_job.notify_one();
+            market.job_batches.push(to_share);
+            self.has_new_jobs.notify_one();
         }
     }
 
     /// See whether the market is closed.
     pub fn is_closed(&self) -> bool {
         let market = self.market.lock();
-        !market.open && market.jobs.is_empty() && market.open_count == 0
+        !market.open && market.job_batches.is_empty() && market.open_count == 0
     }
 }

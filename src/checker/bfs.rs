@@ -1,7 +1,7 @@
 //! Private module for selective re-export.
 
 use crate::checker::{Checker, EventuallyBits, Expectation, Path};
-use crate::job_market::JobMarket;
+use crate::job_market::JobBroker;
 use crate::{fingerprint, CheckerBuilder, CheckerVisitor, Fingerprint, Model, Property};
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -22,7 +22,7 @@ pub(crate) struct BfsChecker<M: Model> {
     handles: Vec<std::thread::JoinHandle<()>>,
 
     // Mutable state.
-    job_market: JobMarket<Job<M::State>>,
+    job_broker: JobBroker<Job<M::State>>,
     state_count: Arc<AtomicUsize>,
     max_depth: Arc<AtomicUsize>,
     generated:
@@ -81,12 +81,12 @@ where
         let discoveries = Arc::new(DashMap::default());
         let mut handles = Vec::new();
 
-        let mut job_market = JobMarket::new(thread_count);
-        job_market.push(pending);
+        let mut job_broker = JobBroker::new(thread_count);
+        job_broker.push(pending);
         for t in 0..thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
-            let mut job_market = job_market.clone();
+            let mut job_broker = job_broker.clone();
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let generated = Arc::clone(&generated);
@@ -101,7 +101,7 @@ where
                             // Step 1: Do work.
                             if pending.is_empty() {
                                 pending = {
-                                    let jobs = job_market.pop();
+                                    let jobs = job_broker.pop();
                                     if jobs.is_empty() {
                                         log::debug!(
                                             "{}: No more work. Shutting down... gen={}",
@@ -146,7 +146,7 @@ where
 
                             // Step 2: Share work.
                             if pending.len() > 1 && thread_count > 1 {
-                                job_market.split_and_push(&mut pending);
+                                job_broker.split_and_push(&mut pending);
                             }
                         }
                     })
@@ -156,7 +156,7 @@ where
         BfsChecker {
             model,
             handles,
-            job_market,
+            job_broker,
             state_count,
             max_depth,
             generated,
@@ -364,7 +364,7 @@ where
     }
 
     fn is_done(&self) -> bool {
-        self.job_market.is_closed() || self.discoveries.len() == self.model.properties().len()
+        self.job_broker.is_closed() || self.discoveries.len() == self.model.properties().len()
     }
 }
 
