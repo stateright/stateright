@@ -88,10 +88,10 @@ where
         let discoveries = Arc::new(DashMap::default());
         let mut handles = Vec::new();
 
-        let mut job_broker = JobBroker::new(thread_count);
+        let close_at = options.timeout.map(|t| SystemTime::now() + t);
+        let mut job_broker = JobBroker::new(thread_count, close_at);
         job_broker.push(pending);
 
-        let close_at = options.timeout.map(|t| SystemTime::now() + t);
         for t in 0..thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
