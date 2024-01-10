@@ -19,7 +19,7 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 pub use path::*;
 pub use representative::*;

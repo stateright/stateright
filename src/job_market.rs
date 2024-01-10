@@ -54,7 +54,7 @@ struct JobMarket<Job> {
 impl<Job> JobBroker<Job>
 where
     Job: Send + 'static,
-    {
+{
     /// Create a new market for a group of threads.
     pub fn new(thread_count: usize, close_at: Option<SystemTime>) -> Self {
         let s = Self {
