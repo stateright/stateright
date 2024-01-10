@@ -53,7 +53,7 @@ use stateright::report::WriteReporter;
 use stateright::semantics::register::Register;
 use stateright::semantics::LinearizabilityTester;
 use stateright::util::{HashableHashMap, HashableHashSet};
-use stateright::{Checker, Expectation, Model};
+use stateright::{Checker, Expectation, Model, UniformChooser};
 use std::borrow::Cow;
 
 type Round = u32;
@@ -357,7 +357,27 @@ fn main() -> Result<(), pico_args::Error> {
 
     let mut args = pico_args::Arguments::from_env();
     match args.subcommand()?.as_deref() {
-        Some("check") => {
+        Some("check-bfs") => {
+            let client_count = args.opt_free_from_str()?.unwrap_or(2);
+            let network = args
+                .opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
+            println!(
+                "Model checking Single Decree Paxos with {} clients.",
+                client_count
+            );
+            PaxosModelCfg {
+                client_count,
+                server_count: 3,
+                network,
+            }
+            .into_model()
+            .checker()
+            .threads(num_cpus::get())
+            .spawn_bfs()
+            .report(&mut WriteReporter::new(&mut std::io::stdout()));
+        }
+        Some("check-dfs") => {
             let client_count = args.opt_free_from_str()?.unwrap_or(2);
             let network = args
                 .opt_free_from_str()?
@@ -375,6 +395,26 @@ fn main() -> Result<(), pico_args::Error> {
             .checker()
             .threads(num_cpus::get())
             .spawn_dfs()
+            .report(&mut WriteReporter::new(&mut std::io::stdout()));
+        }
+        Some("check-simulation") => {
+            let client_count = args.opt_free_from_str()?.unwrap_or(2);
+            let network = args
+                .opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
+            println!(
+                "Model checking Single Decree Paxos with {} clients.",
+                client_count
+            );
+            PaxosModelCfg {
+                client_count,
+                server_count: 3,
+                network,
+            }
+            .into_model()
+            .checker()
+            .threads(num_cpus::get())
+            .spawn_simulation(0, UniformChooser)
             .report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("explore") => {
@@ -451,7 +491,9 @@ fn main() -> Result<(), pico_args::Error> {
         }
         _ => {
             println!("USAGE:");
-            println!("  ./paxos check [CLIENT_COUNT] [NETWORK]");
+            println!("  ./paxos check-dfs [CLIENT_COUNT] [NETWORK]");
+            println!("  ./paxos check-bfs [CLIENT_COUNT] [NETWORK]");
+            println!("  ./paxos check-simulation [CLIENT_COUNT] [NETWORK]");
             println!("  ./paxos explore [CLIENT_COUNT] [ADDRESS] [NETWORK]");
             println!("  ./paxos spawn");
             println!(

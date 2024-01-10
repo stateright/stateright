@@ -1,5 +1,5 @@
 use parking_lot::{Condvar, Mutex};
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, sync::Arc, time::SystemTime};
 
 /// A market for synchronising the sharing of jobs.
 ///
@@ -10,6 +10,8 @@ pub(crate) struct JobBroker<Job> {
     has_new_jobs: Arc<Condvar>,
     /// The market that we share.
     market: Arc<Mutex<JobMarket<Job>>>,
+    /// When to automatically close the market.
+    close_at: Option<SystemTime>,
 }
 
 impl<Job> Clone for JobBroker<Job> {
@@ -17,6 +19,7 @@ impl<Job> Clone for JobBroker<Job> {
         Self {
             has_new_jobs: Arc::clone(&self.has_new_jobs),
             market: Arc::clone(&self.market),
+            close_at: self.close_at.clone(),
         }
     }
 }
@@ -48,7 +51,7 @@ struct JobMarket<Job> {
 
 impl<Job> JobBroker<Job> {
     /// Create a new market for a group of threads.
-    pub fn new(thread_count: usize) -> Self {
+    pub fn new(thread_count: usize, close_at: Option<SystemTime>) -> Self {
         Self {
             has_new_jobs: Arc::new(Condvar::new()),
             market: Arc::new(Mutex::new(JobMarket {
@@ -57,6 +60,7 @@ impl<Job> JobBroker<Job> {
                 open_count: thread_count,
                 job_batches: Vec::new(),
             })),
+            close_at,
         }
     }
 

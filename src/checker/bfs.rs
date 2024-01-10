@@ -12,6 +12,7 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::SystemTime;
 
 // While this file is currently quite similar to dfs.rs, a refactoring to lift shared
 // behavior is being postponed until DPOR is implemented.
@@ -83,6 +84,7 @@ where
 
         let mut job_broker = JobBroker::new(thread_count);
         job_broker.push(pending);
+        let close_at = options.timeout.map(|t| SystemTime::now() + t);
         for t in 0..thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
