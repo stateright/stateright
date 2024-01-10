@@ -55,6 +55,7 @@ use stateright::semantics::LinearizabilityTester;
 use stateright::util::{HashableHashMap, HashableHashSet};
 use stateright::{Checker, Expectation, Model, UniformChooser};
 use std::borrow::Cow;
+use std::time::Duration;
 
 type Round = u32;
 type Ballot = (Round, Id);
@@ -414,6 +415,7 @@ fn main() -> Result<(), pico_args::Error> {
             .into_model()
             .checker()
             .threads(num_cpus::get())
+            .timeout(Duration::from_secs(10))
             .spawn_simulation(0, UniformChooser)
             .report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
