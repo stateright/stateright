@@ -134,6 +134,7 @@
 #[warn(anonymous_parameters)]
 #[warn(missing_docs)]
 mod checker;
+mod has_discoveries;
 mod job_market;
 pub mod report;
 use std::fmt::Debug;
@@ -144,6 +145,7 @@ mod test_util;
 
 pub mod actor;
 pub use checker::*;
+pub use has_discoveries::HasDiscoveries;
 pub mod semantics;
 pub mod util;
 

@@ -43,6 +43,7 @@ where
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
+        let finish_when = Arc::new(options.finish_when);
 
         let init_states: Vec<_> = model
             .init_states()
@@ -86,6 +87,7 @@ where
         for t in 0..thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
+            let finish_when = Arc::clone(&finish_when);
             let mut job_broker = job_broker.clone();
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
@@ -125,7 +127,10 @@ where
                                 target_max_depth,
                                 &max_depth,
                             );
-                            if discoveries.len() == property_count {
+                            if finish_when.matches(
+                                &discoveries.iter().map(|r| *r.key()).collect(),
+                                property_count,
+                            ) {
                                 log::debug!(
                                     "{}: Discovery complete. Shutting down... gen={}",
                                     t,
