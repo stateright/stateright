@@ -41,8 +41,8 @@ where
         let target_max_depth = options.target_max_depth;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
-        let property_count = model.properties().len();
         let finish_when = Arc::new(options.finish_when);
+        let properties = Arc::new(model.properties());
 
         let init_states: Vec<_> = model
             .init_states()
@@ -64,7 +64,7 @@ where
         });
         let ebits = {
             let mut ebits = EventuallyBits::new();
-            for (i, p) in model.properties().iter().enumerate() {
+            for (i, p) in properties.iter().enumerate() {
                 if let Property {
                     expectation: Expectation::Eventually,
                     ..
@@ -91,6 +91,7 @@ where
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
             let finish_when = Arc::clone(&finish_when);
+            let properties = Arc::clone(&properties);
             let mut job_broker = job_broker.clone();
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
@@ -133,7 +134,7 @@ where
                             );
                             if finish_when.matches(
                                 &discoveries.iter().map(|r| *r.key()).collect(),
-                                property_count,
+                                &properties,
                             ) {
                                 log::debug!(
                                     "{}: Discovery complete. Shutting down... gen={}",

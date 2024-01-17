@@ -139,6 +139,7 @@ mod job_market;
 pub mod report;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::ops::Add;
 
 #[cfg(test)]
 mod test_util;
@@ -325,6 +326,16 @@ pub enum Expectation {
     Eventually,
     /// The property is true for at least one reachable state.
     Sometimes,
+}
+
+impl Expectation {
+    pub const fn discovery_is_failure(&self) -> bool {
+        match self {
+            Expectation::Always => true,
+            Expectation::Eventually => true,
+            Expectation::Sometimes => false,
+        }
+    }
 }
 
 /// A state identifier. See [`fingerprint`].

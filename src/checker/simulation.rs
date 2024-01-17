@@ -106,6 +106,7 @@ where
         let visitor = Arc::new(options.visitor);
         let property_count = model.properties().len();
         let finish_when = Arc::new(options.finish_when);
+        let properties = Arc::new(model.properties());
 
         let state_count = Arc::new(AtomicUsize::new(0));
         let max_depth = Arc::new(AtomicUsize::new(0));
@@ -118,6 +119,7 @@ where
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
             let finish_when = Arc::clone(&finish_when);
+            let properties = Arc::clone(&properties);
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
@@ -148,7 +150,7 @@ where
                             // leading them all to shut down together.
                             if finish_when.matches(
                                 &discoveries.iter().map(|r| *r.key()).collect(),
-                                property_count,
+                                &properties,
                             ) {
                                 log::debug!("{}: Discovery complete. Shutting down...", t,);
                                 return;
