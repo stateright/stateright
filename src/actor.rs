@@ -618,6 +618,9 @@ mod test {
                 vec!['A', 'B', 'C'],
                 vec!['A', 'C', 'D'],
                 vec!['A', 'B', 'C', 'D'],
+                vec!['A', 'B', 'C', 'D'],
+                vec!['A', 'B', 'C', 'D'],
+                vec!['A', 'B', 'C', 'D'],
             ]
         );
     }
