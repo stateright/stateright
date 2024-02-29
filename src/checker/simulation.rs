@@ -104,7 +104,8 @@ where
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
         let visitor = Arc::new(options.visitor);
-        let property_count = model.properties().len();
+        let properties = Arc::new(model.properties());
+        let property_count = properties.len();
 
         let state_count = Arc::new(AtomicUsize::new(0));
         let max_depth = Arc::new(AtomicUsize::new(0));
@@ -118,6 +119,7 @@ where
             let visitor = Arc::clone(&visitor);
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
+            let properties = Arc::clone(&properties);
             let discoveries = Arc::clone(&discoveries);
             let chooser = chooser.clone();
             handles.push(
@@ -134,6 +136,7 @@ where
                                 seed,
                                 &chooser,
                                 &state_count,
+                                &properties,
                                 &discoveries,
                                 &visitor,
                                 target_max_depth,
@@ -182,14 +185,13 @@ where
         seed: u64,
         chooser: &C,
         state_count: &AtomicUsize,
+        properties: &[Property<M>],
         discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
         symmetry: Option<fn(&M::State) -> M::State>,
     ) {
-        let properties = model.properties();
-
         let mut chooser_state = chooser.new_state(seed);
 
         let mut state = {
@@ -207,7 +209,7 @@ where
         let mut generated = HashSet::new();
         let mut ebits = {
             let mut ebits = EventuallyBits::new();
-            for (i, p) in model.properties().iter().enumerate() {
+            for (i, p) in properties.iter().enumerate() {
                 if let Property {
                     expectation: Expectation::Eventually,
                     ..
