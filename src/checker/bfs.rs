@@ -20,6 +20,7 @@ pub(crate) struct BfsChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
     handles: Vec<std::thread::JoinHandle<()>>,
+    property_count: usize,
 
     // Mutable state.
     job_broker: JobBroker<Job<M::State>>,
@@ -42,7 +43,8 @@ where
         let target_max_depth = options.target_max_depth;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
-        let property_count = model.properties().len();
+        let properties = Arc::new(model.properties());
+        let property_count = properties.len();
 
         let init_states: Vec<_> = model
             .init_states()
@@ -60,7 +62,7 @@ where
         });
         let ebits = {
             let mut ebits = EventuallyBits::new();
-            for (i, p) in model.properties().iter().enumerate() {
+            for (i, p) in properties.iter().enumerate() {
                 if let Property {
                     expectation: Expectation::Eventually,
                     ..
@@ -90,6 +92,7 @@ where
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let generated = Arc::clone(&generated);
+            let properties = Arc::clone(&properties);
             let discoveries = Arc::clone(&discoveries);
             handles.push(
                 std::thread::Builder::new()
@@ -119,6 +122,7 @@ where
                                 &state_count,
                                 &generated,
                                 &mut pending,
+                                &properties,
                                 &discoveries,
                                 &visitor,
                                 1500,
@@ -156,6 +160,7 @@ where
         BfsChecker {
             model,
             handles,
+            property_count,
             job_broker,
             state_count,
             max_depth,
@@ -174,14 +179,13 @@ where
             BuildHasherDefault<NoHashHasher<u64>>,
         >,
         pending: &mut VecDeque<Job<M::State>>,
+        properties: &[Property<M>],
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         mut max_count: usize,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
     ) {
-        let properties = model.properties();
-
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
         loop {
@@ -364,7 +368,7 @@ where
     }
 
     fn is_done(&self) -> bool {
-        self.job_broker.is_closed() || self.discoveries.len() == self.model.properties().len()
+        self.job_broker.is_closed() || self.discoveries.len() == self.property_count
     }
 }
 

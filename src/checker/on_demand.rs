@@ -22,6 +22,7 @@ pub(crate) struct OnDemandChecker<M: Model> {
     // Immutable state.
     model: Arc<M>,
     handles: Vec<std::thread::JoinHandle<()>>,
+    property_count: usize,
 
     // Mutable state.
     job_broker: JobBroker<Job<M::State>>,
@@ -44,7 +45,8 @@ where
         let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
         let visitor = Arc::new(options.visitor);
-        let property_count = model.properties().len();
+        let properties = Arc::new(model.properties());
+        let property_count = properties.len();
 
         let mut controlflow_channels = Vec::new();
         let (controlflow_to_check_sender, controlflow_to_check_receiver) =
@@ -66,7 +68,7 @@ where
         });
         let ebits = {
             let mut ebits = EventuallyBits::new();
-            for (i, p) in model.properties().iter().enumerate() {
+            for (i, p) in properties.iter().enumerate() {
                 if let Property {
                     expectation: Expectation::Eventually,
                     ..
@@ -96,6 +98,7 @@ where
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let generated = Arc::clone(&generated);
+            let properties = Arc::clone(&properties);
             let discoveries = Arc::clone(&discoveries);
 
             let (controlflow_sender, controlflow_receiver) = std::sync::mpsc::channel();
@@ -179,6 +182,7 @@ where
                                 &state_count,
                                 &generated,
                                 &mut targetted_pending,
+                                &properties,
                                 &discoveries,
                                 &visitor,
                                 1500,
@@ -226,6 +230,7 @@ where
         OnDemandChecker {
             model,
             handles,
+            property_count,
             job_broker,
             state_count,
             max_depth,
@@ -245,13 +250,12 @@ where
             BuildHasherDefault<NoHashHasher<u64>>,
         >,
         pending: &mut VecDeque<Job<M::State>>,
+        properties: &[Property<M>],
         discoveries: &DashMap<&'static str, Fingerprint>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         max_count: usize,
         global_max_depth: &AtomicUsize,
     ) {
-        let properties = model.properties();
-
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
         let mut actions = Vec::new();
         let mut local_pending = pending
@@ -440,7 +444,7 @@ where
     }
 
     fn is_done(&self) -> bool {
-        self.job_broker.is_closed() || self.discoveries.len() == self.model.properties().len()
+        self.job_broker.is_closed() || self.discoveries.len() == self.property_count
     }
 }
 
