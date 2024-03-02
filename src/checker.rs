@@ -11,6 +11,7 @@ mod rewrite_plan;
 mod simulation;
 mod visitor;
 
+use crate::has_discoveries::HasDiscoveries;
 use crate::report::{ReportData, ReportDiscovery, Reporter};
 use crate::{Expectation, Fingerprint, Model};
 use std::collections::{BTreeMap, HashMap};
@@ -69,6 +70,7 @@ pub struct CheckerBuilder<M: Model> {
     target_max_depth: Option<NonZeroUsize>,
     thread_count: usize,
     visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
+    finish_when: HasDiscoveries,
     timeout: Option<Duration>,
 }
 impl<M: Model> CheckerBuilder<M> {
@@ -80,6 +82,7 @@ impl<M: Model> CheckerBuilder<M> {
             symmetry: None,
             thread_count: 1,
             visitor: None,
+            finish_when: HasDiscoveries::All,
             timeout: None,
         }
     }
@@ -229,6 +232,14 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn symmetry_fn(self, representative: fn(&M::State) -> M::State) -> Self {
         Self {
             symmetry: Some(representative),
+            ..self
+        }
+    }
+
+    /// When to finish the checker run.
+    pub fn finish_when(self, has_discoveries: HasDiscoveries) -> Self {
+        Self {
+            finish_when: has_discoveries,
             ..self
         }
     }
