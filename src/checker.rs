@@ -20,7 +20,7 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub use path::*;
 pub use representative::*;
@@ -71,6 +71,7 @@ pub struct CheckerBuilder<M: Model> {
     thread_count: usize,
     visitor: Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
     finish_when: HasDiscoveries,
+    timeout: Option<Duration>,
 }
 impl<M: Model> CheckerBuilder<M> {
     pub(crate) fn new(model: M) -> Self {
@@ -82,6 +83,7 @@ impl<M: Model> CheckerBuilder<M> {
             thread_count: 1,
             visitor: None,
             finish_when: HasDiscoveries::All,
+            timeout: None,
         }
     }
 
@@ -272,6 +274,14 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn visitor(self, visitor: impl CheckerVisitor<M> + Send + Sync + 'static) -> Self {
         Self {
             visitor: Some(Box::new(visitor)),
+            ..self
+        }
+    }
+
+    /// Set the timeout to limit the checker execution to.
+    pub fn timeout(self, duration: Duration) -> Self {
+        Self {
+            timeout: Some(duration),
             ..self
         }
     }

@@ -9,9 +9,10 @@ use rand::SeedableRng;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::thread::{sleep, JoinHandle};
+use std::time::{Duration, SystemTime};
 
 use super::EventuallyBits;
 
@@ -115,6 +116,26 @@ where
 
         let mut thread_seed = seed;
 
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let sd = Arc::clone(&shutdown);
+        if let Some(close_after) = options.timeout {
+            let closing_time = SystemTime::now() + close_after;
+            std::thread::Builder::new()
+                .name("timeout".to_owned())
+                .spawn(move || loop {
+                    let now = SystemTime::now();
+                    if closing_time < now {
+                        log::debug!("Reached timeout, triggering shutdown");
+                        sd.store(true, Ordering::Relaxed);
+                    }
+                    if sd.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    sleep(Duration::from_secs(1));
+                })
+                .unwrap();
+        }
+
         for t in 0..options.thread_count {
             let model = Arc::clone(&model);
             let visitor = Arc::clone(&visitor);
@@ -123,6 +144,7 @@ where
             let state_count = Arc::clone(&state_count);
             let max_depth = Arc::clone(&max_depth);
             let discoveries = Arc::clone(&discoveries);
+            let shutdown = Arc::clone(&shutdown);
             let chooser = chooser.clone();
             handles.push(
                 std::thread::Builder::new()
@@ -133,6 +155,11 @@ where
                         // FIXME: use a reproducible rng, one that will not change over versions.
                         let mut rng = StdRng::seed_from_u64(seed);
                         loop {
+                            if shutdown.load(Ordering::Relaxed) {
+                                log::debug!("{}: Got shutdown signal.", t);
+                                break;
+                            }
+
                             Self::check_trace_from_initial::<C>(
                                 &model,
                                 seed,
