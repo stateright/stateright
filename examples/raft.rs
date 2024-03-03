@@ -1,12 +1,12 @@
+use stateright::actor::model_timeout;
+use stateright::actor::{Actor, ActorModel, Id, Network, Out};
+use stateright::report::WriteReporter;
+use stateright::Checker;
+use stateright::{Expectation, Model};
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashSet;
 use std::hash::Hash;
-use stateright::actor::model_timeout;
-use stateright::actor::{Actor, ActorModel, Id, Network, Out};
-use stateright::Checker;
-use stateright::{Expectation, Model};
-use stateright::report::WriteReporter;
 
 #[derive(PartialEq, Hash, Eq, Clone, Debug)]
 pub enum Role {
@@ -190,7 +190,9 @@ impl Actor for RaftActor {
                 o.send(Id::from(args.cid), RaftMessage::VoteResponse(msg));
             }
             RaftMessage::VoteResponse(args) => {
-                if state.current_role == Role::Candidate && args.term == state.current_term && args.granted
+                if state.current_role == Role::Candidate
+                    && args.term == state.current_term
+                    && args.granted
                 {
                     state.votes_received.insert(args.voter_id);
 
@@ -229,7 +231,7 @@ impl Actor for RaftActor {
                 }
                 let log_ok = (state.log.len() >= args.prefix_len)
                     && (args.prefix_len == 0
-                    || state.log[args.prefix_len - 1].term == args.prefix_term);
+                        || state.log[args.prefix_len - 1].term == args.prefix_term);
 
                 let mut ack = 0;
                 let mut success = false;
@@ -257,7 +259,7 @@ impl Actor for RaftActor {
                 if args.term == state.current_term && state.current_role == Role::Leader {
                     if args.success && args.ack >= state.acked_length[args.follower] {
                         state.sent_length[args.follower] = args.ack;
-                        state.acked_length[args.follower ] = args.ack;
+                        state.acked_length[args.follower] = args.ack;
                         self.commit_log_entries(state, self.peer_ids.len());
                     } else if state.sent_length[args.follower] > 0 {
                         state.sent_length[args.follower] -= 1;
@@ -270,7 +272,6 @@ impl Actor for RaftActor {
                     state.voted_for = None;
                     o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
                 }
-
             }
             RaftMessage::Broadcast(payload) => {
                 if state.current_role == Role::Leader {
@@ -286,7 +287,10 @@ impl Actor for RaftActor {
                     if state.current_leader.is_none() {
                         state.buffer.push(payload);
                     } else {
-                        o.send(Id::from(state.current_leader.unwrap()), RaftMessage::Broadcast(payload));
+                        o.send(
+                            Id::from(state.current_leader.unwrap()),
+                            RaftMessage::Broadcast(payload),
+                        );
                     }
                 }
             }
@@ -335,7 +339,6 @@ impl Actor for RaftActor {
                 self.handle_replicate_log(&state, o);
             }
         }
-
     }
 }
 
@@ -354,7 +357,13 @@ impl RaftActor {
         }
     }
 
-    fn replicate_log(&self, state: &NodeState, leader_id: usize, follower_id: usize, o: &mut Out<Self>) {
+    fn replicate_log(
+        &self,
+        state: &NodeState,
+        leader_id: usize,
+        follower_id: usize,
+        o: &mut Out<Self>,
+    ) {
         let prefix_len = state.sent_length[follower_id];
         let suffix = state.log[prefix_len as usize..].to_vec();
         let mut prefix_term = 0;
@@ -449,24 +458,20 @@ impl RaftModelCfg {
             }))
             .init_network(self.network)
             .property(Expectation::Sometimes, "Election Liveness", |_, state| {
-                state.actor_states.iter().any(|s| {
-                    s.current_role == Role::Leader
-                })
-            })
-            .property(Expectation::Sometimes, "Log Liveness", |_, state| {
                 state
                     .actor_states
                     .iter()
-                    .any(|s| s.commit_length > 0)
+                    .any(|s| s.current_role == Role::Leader)
+            })
+            .property(Expectation::Sometimes, "Log Liveness", |_, state| {
+                state.actor_states.iter().any(|s| s.commit_length > 0)
             })
             .property(Expectation::Always, "Election Safety", |_, state| {
                 // at most one leader can be elected in a given term
 
                 let mut leaders_term = HashSet::new();
                 for s in &state.actor_states {
-                    if s.current_role == Role::Leader
-                        && !leaders_term.insert(s.current_term)
-                    {
+                    if s.current_role == Role::Leader && !leaders_term.insert(s.current_term) {
                         return false;
                     }
                 }
@@ -507,7 +512,6 @@ impl RaftModelCfg {
 }
 
 fn main() -> Result<(), pico_args::Error> {
-
     env_logger::init_from_env(env_logger::Env::default().default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
 
     let mut args = pico_args::Arguments::from_env();
@@ -517,19 +521,16 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!(
-                "Model checking Raft with {} servers.",
-                server_count
-            );
+            println!("Model checking Raft with {} servers.", server_count);
             RaftModelCfg {
                 server_count,
                 network,
             }
-                .into_model()
-                .checker()
-                .threads(num_cpus::get())
-                .spawn_bfs()
-                .report(&mut WriteReporter::new(&mut std::io::stdout()));
+            .into_model()
+            .checker()
+            .threads(num_cpus::get())
+            .spawn_bfs()
+            .report(&mut WriteReporter::new(&mut std::io::stdout()));
         }
         Some("explore") => {
             let server_count = args.opt_free_from_str()?.unwrap_or(3);
@@ -547,10 +548,10 @@ fn main() -> Result<(), pico_args::Error> {
                 server_count,
                 network,
             }
-                .into_model()
-                .checker()
-                .threads(num_cpus::get())
-                .serve(address);
+            .into_model()
+            .checker()
+            .threads(num_cpus::get())
+            .serve(address);
         }
         _ => {
             println!("USAGE:");
