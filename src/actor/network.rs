@@ -49,7 +49,7 @@ where
     Msg: Eq + Hash,
 {
     /// Indicates that messages have no ordering (racing one another), and can be redelivered.
-    UnorderedDuplicating(HashableHashSet<Envelope<Msg>>),
+    UnorderedDuplicating(HashableHashSet<Envelope<Msg>>, Option<Envelope<Msg>>),
 
     /// Indicates that messages have no ordering (racing one another), and will not be redelivered.
     UnorderedNonDuplicating(HashableHashMap<Envelope<Msg>, usize>),
@@ -90,11 +90,26 @@ where
     }
 
     /// Indicates that messages have no ordering (racing one another), and can be redelivered.
+    /// It also sets the last message delivered.
+    ///
+    /// See also: [`Self::new_unordered_duplicating`]
+    pub fn new_unordered_duplicating_with_last_msg(
+        envelopes: impl IntoIterator<Item = Envelope<Msg>>,
+        last_msg: Option<Envelope<Msg>>,
+    ) -> Self {
+        let mut this = Self::UnorderedDuplicating(HashableHashSet::with_hasher(crate::stable::build_hasher()), last_msg);
+        for env in envelopes {
+            this.send(env);
+        }
+        this
+    }
+
+    /// Indicates that messages have no ordering (racing one another), and can be redelivered.
     ///
     /// See also: [`Self::new_unordered_nonduplicating`]
     pub fn new_unordered_duplicating(envelopes: impl IntoIterator<Item = Envelope<Msg>>) -> Self {
         let mut this =
-            Self::UnorderedDuplicating(HashableHashSet::with_hasher(crate::stable::build_hasher()));
+            Self::UnorderedDuplicating(HashableHashSet::with_hasher(crate::stable::build_hasher()), None);
         for env in envelopes {
             this.send(env);
         }
@@ -125,10 +140,10 @@ where
                 if let Some(network) = &self.0 {
                     match network {
                         Network::Ordered(_) => {
-                            self.0 = Some(Network::UnorderedDuplicating(Default::default()));
+                            self.0 = Some(Network::UnorderedDuplicating(Default::default(), None));
                             Some("ordered")
                         }
-                        Network::UnorderedDuplicating(_) => {
+                        Network::UnorderedDuplicating(_, _) => {
                             self.0 = Some(Network::UnorderedNonDuplicating(Default::default()));
                             Some("unordered_duplicating")
                         }
@@ -148,7 +163,7 @@ where
     /// Returns an iterator over all envelopes in the network.
     pub fn iter_all(&self) -> NetworkIter<Msg> {
         match self {
-            Network::UnorderedDuplicating(set) => NetworkIter::UnorderedDuplicating(set.iter()),
+            Network::UnorderedDuplicating(set, _) => NetworkIter::UnorderedDuplicating(set.iter()),
             Network::UnorderedNonDuplicating(multiset) => {
                 NetworkIter::UnorderedNonDuplicating(None, multiset.iter())
             }
@@ -159,7 +174,7 @@ where
     /// Returns an iterator over all distinct deliverable envelopes in the network.
     pub fn iter_deliverable(&self) -> NetworkDeliverableIter<Msg> {
         match self {
-            Network::UnorderedDuplicating(set) => {
+            Network::UnorderedDuplicating(set, _) => {
                 NetworkDeliverableIter::UnorderedDuplicating(set.iter())
             }
             Network::UnorderedNonDuplicating(multiset) => {
@@ -173,7 +188,7 @@ where
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
-            Network::UnorderedDuplicating(set) => set.len(),
+            Network::UnorderedDuplicating(set, _) => set.len(),
             Network::UnorderedNonDuplicating(multiset) => multiset.values().sum(),
             Network::Ordered(map) => map.values().map(VecDeque::len).sum(),
         }
@@ -182,7 +197,7 @@ where
     /// Sends a message.
     pub(crate) fn send(&mut self, envelope: Envelope<Msg>) {
         match self {
-            Network::UnorderedDuplicating(set) => {
+            Network::UnorderedDuplicating(set, _) => {
                 set.insert(envelope);
             }
             Network::UnorderedNonDuplicating(multiset) => {
@@ -201,8 +216,10 @@ where
         Msg: PartialEq,
     {
         match self {
-            Network::UnorderedDuplicating(_) => {
-                // This is a no-op as the message can be redelivered.
+            Network::UnorderedDuplicating(_, last_msg) => {
+                // by remembering the last message delivered, a message that does not change the actor
+                // state can also produce a different fingerprint
+                last_msg.replace(envelope);
             }
             Network::UnorderedNonDuplicating(multiset) => match multiset.entry(envelope) {
                 hash_map::Entry::Occupied(mut entry) => {
@@ -249,7 +266,7 @@ where
         Msg: PartialEq,
     {
         match self {
-            Network::UnorderedDuplicating(set) => {
+            Network::UnorderedDuplicating(set, _) => {
                 set.remove(&envelope);
             }
             Network::UnorderedNonDuplicating(multiset) => match multiset.entry(envelope) {
@@ -314,7 +331,7 @@ where
 {
     fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
         match self {
-            Network::UnorderedDuplicating(set) => Network::UnorderedDuplicating(set.rewrite(plan)),
+            Network::UnorderedDuplicating(set, last_msg) => Network::UnorderedDuplicating(set.rewrite(plan), last_msg.rewrite(plan)),
             Network::UnorderedNonDuplicating(multiset) => {
                 Network::UnorderedNonDuplicating(multiset.rewrite(plan))
             }

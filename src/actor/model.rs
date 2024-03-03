@@ -651,7 +651,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*};
+    use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg::*, PingPongMsg};
     use crate::actor::ActorModelAction::*;
     use crate::{Checker, PathRecorder, StateRecorder};
     use std::collections::HashSet;
@@ -662,12 +662,12 @@ mod test {
         use std::iter::FromIterator;
 
         // helper to make the test more concise
-        let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>| {
+        let states_and_network = |states: Vec<u32>, envelopes: Vec<Envelope<_>>, last_msg: Option<Envelope<PingPongMsg>>| {
             let timers_set = vec![Timers::new(); states.len()];
             let crashed = vec![false; states.len()];
             ActorModelState {
                 actor_states: states.into_iter().map(Arc::new).collect::<Vec<_>>(),
-                network: Network::new_unordered_duplicating(envelopes),
+                network: Network::new_unordered_duplicating_with_last_msg(envelopes, last_msg),
                 timers_set,
                 crashed,
                 history: (0_u32, 0_u32), // constant as `maintains_history: false`
@@ -694,36 +694,43 @@ mod test {
             // When the network loses no messages...
             states_and_network(
                 vec![0, 0],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }],
+                None),
             states_and_network(
                 vec![0, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
-                ]),
+                ],
+                Some(Envelope{ src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
             states_and_network(
                 vec![1, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
-                ]),
+                ],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
 
             // When the network loses the message for pinger-ponger state (0, 0)...
             states_and_network(
                 vec![0, 0],
-                Vec::new()),
+                Vec::new(),
+                None),
 
             // When the network loses a message for pinger-ponger state (0, 1)
             states_and_network(
                 vec![0, 1],
-                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
+                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }],
+                Some(Envelope{ src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
             states_and_network(
                 vec![0, 1],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }],
+                Some(Envelope{ src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
             states_and_network(
                 vec![0, 1],
-                Vec::new()),
+                Vec::new(),
+                Some(Envelope{ src: Id::from(0), dst: Id::from(1), msg: Ping(0) })),
 
             // When the network loses a message for pinger-ponger state (1, 1)
             states_and_network(
@@ -731,31 +738,38 @@ mod test {
                 vec![
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
-                ]),
+                ],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
             states_and_network(
                 vec![1, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) },
-                ]),
+                ],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
             states_and_network(
                 vec![1, 1],
                 vec![
                     Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                     Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
-                ]),
+                ],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
             states_and_network(
                 vec![1, 1],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(1) }],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
             states_and_network(
                 vec![1, 1],
-                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }]),
+                vec![Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) }],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
             states_and_network(
                 vec![1, 1],
-                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }]),
+                vec![Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) }],
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
             states_and_network(
                 vec![1, 1],
-                Vec::new()),
+                Vec::new(),
+                Some(Envelope{ src: Id::from(1), dst: Id::from(0), msg: Pong(0) })),
         ]));
     }
 
