@@ -36,7 +36,7 @@ fn main() -> Result<(), pico_args::Error> {
         Some("check") => {
             let checker = model
                 .property(Expectation::Eventually, "success", |_, state| {
-                    state.actor_states.iter().any(|s| state_filter_success(s))
+                    state.actor_states.iter().any(state_filter_success)
                 })
                 .checker()
                 .threads(num_cpus::get())
@@ -50,7 +50,7 @@ fn main() -> Result<(), pico_args::Error> {
         Some("explore") => {
             let checker = model
                 .property(Expectation::Eventually, "success", |_, state| {
-                    state.actor_states.iter().any(|s| state_filter_success(s))
+                    state.actor_states.iter().any(state_filter_success)
                 })
                 .checker()
                 .threads(num_cpus::get())
@@ -173,13 +173,10 @@ impl Actor for Client {
         msg: Self::Msg,
         _o: &mut Out<Self>,
     ) {
-        match msg {
-            Msg::ReplyCount(n) => {
-                if n >= self.threshold {
-                    state.to_mut().success = true;
-                }
+        if let Msg::ReplyCount(n) = msg {
+            if n >= self.threshold {
+                state.to_mut().success = true;
             }
-            _ => (),
         }
     }
 
