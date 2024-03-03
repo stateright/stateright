@@ -145,7 +145,7 @@ impl Actor for RaftActor {
             Id::from(id),
             RaftMessage::Broadcast(id.to_string().into_bytes()),
         );
-        NodeState::new(id.into(), self.peer_ids.len())
+        NodeState::new(id, self.peer_ids.len())
     }
 
     fn on_msg(
@@ -166,7 +166,7 @@ impl Actor for RaftActor {
                 }
 
                 let mut last_term = 0usize;
-                if state.log.len() > 0 {
+                if !state.log.is_empty() {
                     last_term = state.log.last().unwrap().term;
                 }
 
@@ -208,7 +208,7 @@ impl Actor for RaftActor {
                             state.sent_length[i] = state.log.len();
                             state.acked_length[i] = 0;
                         }
-                        self.handle_replicate_log(&state, o);
+                        self.handle_replicate_log(state, o);
                     }
                 } else if args.term > state.current_term {
                     state.current_term = args.term;
@@ -283,15 +283,13 @@ impl Actor for RaftActor {
                     let id = state.id;
                     state.acked_length[id] = state.log.len();
                     self.handle_replicate_log(state, o);
+                } else if state.current_leader.is_none() {
+                    state.buffer.push(payload);
                 } else {
-                    if state.current_leader.is_none() {
-                        state.buffer.push(payload);
-                    } else {
-                        o.send(
-                            Id::from(state.current_leader.unwrap()),
-                            RaftMessage::Broadcast(payload),
-                        );
-                    }
+                    o.send(
+                        Id::from(state.current_leader.unwrap()),
+                        RaftMessage::Broadcast(payload),
+                    );
                 }
             }
         }
@@ -318,7 +316,7 @@ impl Actor for RaftActor {
                 state.votes_received.insert(id);
 
                 let mut last_term = 0;
-                if state.log.len() > 0 {
+                if !state.log.is_empty() {
                     last_term = state.log.last().unwrap().term;
                 }
 
@@ -336,7 +334,7 @@ impl Actor for RaftActor {
                 }
             }
             RaftTimer::ReplicationTimeout => {
-                self.handle_replicate_log(&state, o);
+                self.handle_replicate_log(state, o);
             }
         }
     }
@@ -365,7 +363,7 @@ impl RaftActor {
         o: &mut Out<Self>,
     ) {
         let prefix_len = state.sent_length[follower_id];
-        let suffix = state.log[prefix_len as usize..].to_vec();
+        let suffix = state.log[prefix_len..].to_vec();
         let mut prefix_term = 0;
         if prefix_len > 0 {
             prefix_term = state.log[prefix_len - 1].term;
@@ -388,15 +386,15 @@ impl RaftActor {
         leader_commit: usize,
         suffix: Vec<LogEntry>,
     ) {
-        if suffix.len() > 0 && state.log.len() > prefix_len {
+        if !suffix.is_empty() && state.log.len() > prefix_len {
             let index = min(state.log.len(), prefix_len + suffix.len()) - 1;
             if state.log[index].term != suffix[index - prefix_len].term {
                 state.log.truncate(prefix_len);
             }
         }
         if prefix_len + suffix.len() > state.log.len() {
-            for i in state.log.len() - prefix_len..suffix.len() {
-                state.log.push(suffix[i].clone());
+            for suffix_log in suffix.iter().skip(state.log.len() - prefix_len) {
+                state.log.push(suffix_log.clone());
             }
         }
         if leader_commit > state.commit_length {
@@ -425,8 +423,8 @@ impl RaftActor {
 
     fn acks(acked_length: &Vec<usize>, length: usize) -> usize {
         let mut acks = 0;
-        for i in 0..acked_length.len() {
-            if acked_length[i] >= length {
+        for ack in acked_length {
+            if *ack >= length {
                 acks += 1;
             }
         }
@@ -434,7 +432,7 @@ impl RaftActor {
     }
 
     fn try_drain_buffer(&self, state: &mut NodeState, o: &mut Out<Self>) {
-        if state.current_role == Role::Leader && state.buffer.len() > 0 {
+        if state.current_role == Role::Leader && !state.buffer.is_empty() {
             for payload in state.buffer.drain(..) {
                 o.send(Id::from(state.id), RaftMessage::Broadcast(payload));
             }
@@ -518,6 +516,7 @@ fn main() -> Result<(), pico_args::Error> {
     match args.subcommand()?.as_deref() {
         Some("check") => {
             let server_count = args.opt_free_from_str()?.unwrap_or(3);
+            let depth = args.opt_free_from_str()?.unwrap_or(12);
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
@@ -528,6 +527,7 @@ fn main() -> Result<(), pico_args::Error> {
             }
             .into_model()
             .checker()
+            .target_max_depth(depth)
             .threads(num_cpus::get())
             .spawn_bfs()
             .report(&mut WriteReporter::new(&mut std::io::stdout()));
@@ -555,7 +555,7 @@ fn main() -> Result<(), pico_args::Error> {
         }
         _ => {
             println!("USAGE:");
-            println!("  ./raft check [SERVER_COUNT] [NETWORK]");
+            println!("  ./raft check [SERVER_COUNT] [DEPTH] [NETWORK]");
             println!("  ./raft explore [SERVER_COUNT] [ADDRESS] [NETWORK]");
             println!(
                 "NETWORK: {}",
