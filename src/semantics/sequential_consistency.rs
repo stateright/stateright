@@ -107,7 +107,7 @@ where
         in_flight_elem.or_insert(op);
         self.history_by_thread
             .entry(thread_id)
-            .or_insert_with(VecDeque::new); // `serialize` requires entry
+            .or_default(); // `serialize` requires entry
         Ok(self)
     }
 
@@ -130,14 +130,14 @@ where
                     ret,
                     self.history_by_thread
                         .entry(thread_id)
-                        .or_insert_with(VecDeque::new)
+                        .or_default()
                 ));
             }
             Some(op) => op,
         };
         self.history_by_thread
             .entry(thread_id)
-            .or_insert_with(VecDeque::new)
+            .or_default()
             .push_back((op, ret));
         Ok(self)
     }

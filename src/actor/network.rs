@@ -395,7 +395,7 @@ impl<'a, Msg> Iterator for NetworkIter<'a, Msg> {
                     });
                 }
                 it.next().map(|(&(src, dst), messages)| {
-                    let msg = messages.get(0).unwrap(); // messages.len() > 1
+                    let msg = messages.front().unwrap(); // messages.len() > 1
                     *active = Some((src, dst, messages, 0));
                     Envelope { src, dst, msg }
                 })
@@ -425,7 +425,7 @@ impl<'a, Msg> Iterator for NetworkDeliverableIter<'a, Msg> {
                 msg: &env.msg,
             }),
             NetworkDeliverableIter::Ordered(it) => it.next().map(|(&(src, dst), messages)| {
-                let msg = messages.get(0).expect("empty channel");
+                let msg = messages.front().expect("empty channel");
                 Envelope { src, dst, msg }
             }),
         }

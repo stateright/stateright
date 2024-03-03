@@ -521,7 +521,7 @@ where
     type Timer = ();
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
-        if let Some((dst, msg)) = self.get(0) {
+        if let Some((dst, msg)) = self.first() {
             o.send(*dst, msg.clone());
             1
         } else {

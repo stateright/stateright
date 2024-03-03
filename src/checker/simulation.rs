@@ -105,7 +105,6 @@ where
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
         let visitor = Arc::new(options.visitor);
-        let property_count = model.properties().len();
         let finish_when = Arc::new(options.finish_when);
         let properties = Arc::new(model.properties());
 
