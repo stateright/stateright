@@ -105,9 +105,7 @@ where
                     thread_id, occupied_op_entry.get(), self.history_by_thread));
         };
         in_flight_elem.or_insert(op);
-        self.history_by_thread
-            .entry(thread_id)
-            .or_default(); // `serialize` requires entry
+        self.history_by_thread.entry(thread_id).or_default(); // `serialize` requires entry
         Ok(self)
     }
 
@@ -128,9 +126,7 @@ where
                      thread_id={:?}, unexpected_return={:?}, history={:?}",
                     thread_id,
                     ret,
-                    self.history_by_thread
-                        .entry(thread_id)
-                        .or_default()
+                    self.history_by_thread.entry(thread_id).or_default()
                 ));
             }
             Some(op) => op,

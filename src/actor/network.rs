@@ -97,7 +97,10 @@ where
         envelopes: impl IntoIterator<Item = Envelope<Msg>>,
         last_msg: Option<Envelope<Msg>>,
     ) -> Self {
-        let mut this = Self::UnorderedDuplicating(HashableHashSet::with_hasher(crate::stable::build_hasher()), last_msg);
+        let mut this = Self::UnorderedDuplicating(
+            HashableHashSet::with_hasher(crate::stable::build_hasher()),
+            last_msg,
+        );
         for env in envelopes {
             this.send(env);
         }
@@ -108,8 +111,10 @@ where
     ///
     /// See also: [`Self::new_unordered_nonduplicating`]
     pub fn new_unordered_duplicating(envelopes: impl IntoIterator<Item = Envelope<Msg>>) -> Self {
-        let mut this =
-            Self::UnorderedDuplicating(HashableHashSet::with_hasher(crate::stable::build_hasher()), None);
+        let mut this = Self::UnorderedDuplicating(
+            HashableHashSet::with_hasher(crate::stable::build_hasher()),
+            None,
+        );
         for env in envelopes {
             this.send(env);
         }
@@ -331,7 +336,9 @@ where
 {
     fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
         match self {
-            Network::UnorderedDuplicating(set, last_msg) => Network::UnorderedDuplicating(set.rewrite(plan), last_msg.rewrite(plan)),
+            Network::UnorderedDuplicating(set, last_msg) => {
+                Network::UnorderedDuplicating(set.rewrite(plan), last_msg.rewrite(plan))
+            }
             Network::UnorderedNonDuplicating(multiset) => {
                 Network::UnorderedNonDuplicating(multiset.rewrite(plan))
             }
