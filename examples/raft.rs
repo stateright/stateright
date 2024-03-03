@@ -1,6 +1,7 @@
+use std::borrow::Cow;
+use std::cmp::min;
 use std::collections::HashSet;
 use std::hash::Hash;
-use std::sync::Arc;
 use stateright::actor::model_timeout;
 use stateright::actor::{Actor, ActorModel, Id, Network, Out};
 use stateright::Expectation;
@@ -12,18 +13,26 @@ pub enum Role {
     Leader,
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct LogEntry {
+    pub(crate) term: usize,
+    pub(crate) payload: Vec<u8>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeState {
-    pub id: u64,
-    pub current_term: u64,
-    pub voted_for: Option<u64>,
+    pub id: usize,
+    pub current_term: usize,
+    pub voted_for: Option<usize>,
     pub log: Vec<LogEntry>,
-    pub commit_length: u64,
+    pub commit_length: usize,
     pub current_role: Role,
-    pub current_leader: Option<u64>,
-    pub votes_received: HashSet<u64>,
-    pub sent_length: Vec<u64>,
-    pub acked_length: Vec<u64>,
+    pub current_leader: Option<usize>,
+    pub votes_received: HashSet<usize>,
+    pub sent_length: Vec<usize>,
+    pub acked_length: Vec<usize>,
+    pub delivered_messages: Vec<Vec<u8>>,
+    pub buffer: Vec<Vec<u8>>,
 }
 
 impl Hash for NodeState {
@@ -36,7 +45,7 @@ impl Hash for NodeState {
         self.current_role.hash(state);
         self.current_leader.hash(state);
         // sort the votes_received to make sure the hash is deterministic
-        let mut votes_received: Vec<u64> = self.votes_received.iter().cloned().collect();
+        let mut votes_received: Vec<usize> = self.votes_received.iter().cloned().collect();
         votes_received.sort();
         votes_received.hash(state);
         self.sent_length.hash(state);
@@ -45,7 +54,7 @@ impl Hash for NodeState {
 }
 
 impl NodeState {
-    pub fn new(id: u64, peers: Vec<u64>) -> Self {
+    pub fn new(id: usize, peers_len: usize) -> Self {
         Self {
             id,
             current_term: 0,
@@ -55,42 +64,44 @@ impl NodeState {
             current_role: Role::Follower,
             current_leader: None,
             votes_received: HashSet::new(),
-            sent_length: vec![0; peers.len()],
-            acked_length: vec![0; peers.len()],
+            sent_length: vec![0; peers_len],
+            acked_length: vec![0; peers_len],
+            delivered_messages: vec![],
+            buffer: vec![],
         }
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LogRequestArgs {
-    pub leader_id: u64,
-    pub term: u64,
-    pub prefix_len: u64,
-    pub prefix_term: u64,
-    pub leader_commit: u64,
-    pub suffix: Vec<Arc<LogEntry>>,
+    pub leader_id: usize,
+    pub term: usize,
+    pub prefix_len: usize,
+    pub prefix_term: usize,
+    pub leader_commit: usize,
+    pub suffix: Vec<LogEntry>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LogResponseArgs {
-    pub follower: u64,
-    pub term: u64,
-    pub ack: u64,
+    pub follower: usize,
+    pub term: usize,
+    pub ack: usize,
     pub success: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct VoteRequestArgs {
-    pub cid: u64,
-    pub cterm: u64,
-    pub clog_length: u64,
-    pub clog_term: u64,
+    pub cid: usize,
+    pub cterm: usize,
+    pub clog_length: usize,
+    pub clog_term: usize,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct VoteResponseArgs {
-    pub voter_id: u64,
-    pub term: u64,
+    pub voter_id: usize,
+    pub term: usize,
     pub granted: bool,
 }
 
@@ -100,9 +111,7 @@ pub struct BroadcastArgs {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum Event {
-    ElectionTimeout,
-    ReplicationTimeout,
+pub enum RaftMessage {
     VoteRequest(VoteRequestArgs),
     VoteResponse(VoteResponseArgs),
     LogRequest(LogRequestArgs),
@@ -110,8 +119,312 @@ pub enum Event {
     Broadcast(Vec<u8>),
 }
 
-pub struct RaftActor {
-    pub state: NodeState,
-    pub peer_ids: Vec<u64>,
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum RaftTimer {
+    ElectionTimeout,
+    ReplicationTimeout,
 }
 
+pub struct RaftActor {
+    pub peer_ids: Vec<usize>,
+}
+
+impl Actor for RaftActor {
+    type Msg = RaftMessage;
+    type State = NodeState;
+    type Timer = RaftTimer;
+
+    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+        o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
+        o.set_timer(RaftTimer::ReplicationTimeout, model_timeout());
+        NodeState::new(id.into(), self.peer_ids.len())
+    }
+
+    fn on_msg(
+        &self,
+        _id: Id,
+        state: &mut std::borrow::Cow<Self::State>,
+        _src: Id,
+        msg: Self::Msg,
+        o: &mut Out<Self>,
+    ) {
+        let state = state.to_mut();
+        match msg {
+            RaftMessage::VoteRequest(args) => {
+                if args.cterm > state.current_term {
+                    state.current_term = args.cterm;
+                    state.current_role = Role::Follower;
+                    state.voted_for = None;
+                }
+
+                let mut last_term = 0usize;
+                if state.log.len() > 0 {
+                    last_term = state.log.last().unwrap().term;
+                }
+
+                let log_ok = args.clog_term > last_term
+                    || (args.clog_term == last_term && args.clog_length >= state.log.len());
+
+                let mut granted = false;
+                if args.cterm == state.current_term
+                    && log_ok
+                    && (state.voted_for.is_none() || state.voted_for.unwrap() == args.cid)
+                {
+                    state.voted_for = Some(args.cid);
+                    granted = true;
+                }
+
+                let msg = VoteResponseArgs {
+                    voter_id: state.id,
+                    term: state.current_term,
+                    granted,
+                };
+                o.send(Id::from(args.cid), RaftMessage::VoteResponse(msg));
+            }
+            RaftMessage::VoteResponse(args) => {
+                if state.current_role == Role::Candidate && args.term == state.current_term && args.granted
+                {
+                    state.votes_received.insert(args.voter_id);
+
+                    if state.votes_received.len() >= ((self.peer_ids.len() + 1) + 1) / 2 {
+                        state.current_role = Role::Leader;
+                        state.current_leader = Some(state.id);
+                        self.try_drain_buffer(state, o);
+
+                        for i in 0..self.peer_ids.len() {
+                            if i == state.id {
+                                continue;
+                            }
+                            state.sent_length[i] = state.log.len();
+                            state.acked_length[i] = 0;
+                        }
+                        self.handle_replicate_log(&state, o);
+                    }
+                } else if args.term > state.current_term {
+                    state.current_term = args.term;
+                    state.current_role = Role::Follower;
+                    state.voted_for = None;
+                    o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
+                }
+            }
+            RaftMessage::LogRequest(args) => {
+                if args.term > state.current_term {
+                    state.current_term = args.term;
+                    state.voted_for = None;
+                    o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
+                }
+                if args.term == state.current_term {
+                    state.current_role = Role::Follower;
+                    state.current_leader = Some(args.leader_id);
+                    self.try_drain_buffer(state, o);
+                    o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
+                }
+                let log_ok = (state.log.len() >= args.prefix_len)
+                    && (args.prefix_len == 0
+                    || state.log[args.prefix_len - 1].term == args.prefix_term);
+
+                let mut ack = 0;
+                let mut success = false;
+
+                if args.term == state.current_term && log_ok {
+                    self.append_entries(
+                        state,
+                        args.prefix_len,
+                        args.leader_commit,
+                        args.suffix.clone(),
+                    );
+                    ack = args.prefix_len + args.suffix.len();
+                    success = true;
+                }
+                let msg = LogResponseArgs {
+                    follower: state.id,
+                    term: state.current_term,
+                    ack,
+                    success,
+                };
+
+                o.send(Id::from(args.leader_id), RaftMessage::LogResponse(msg));
+            }
+            RaftMessage::LogResponse(args) => {
+                if args.term == state.current_term && state.current_role == Role::Leader {
+                    if args.success && args.ack >= state.acked_length[args.follower] {
+                        state.sent_length[args.follower] = args.ack;
+                        state.acked_length[args.follower ] = args.ack;
+                        self.commit_log_entries(state, self.peer_ids.len());
+                    } else if state.sent_length[args.follower] > 0 {
+                        state.sent_length[args.follower] -= 1;
+                        let id = state.id;
+                        self.replicate_log(state, id, args.follower, o);
+                    }
+                } else if args.term > state.current_term {
+                    state.current_term = args.term;
+                    state.current_role = Role::Follower;
+                    state.voted_for = None;
+                    o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
+                }
+
+            }
+            RaftMessage::Broadcast(payload) => {
+                if state.current_role == Role::Leader {
+                    let entry = LogEntry {
+                        term: state.current_term,
+                        payload,
+                    };
+                    state.log.push(entry.clone());
+                    let id = state.id;
+                    state.acked_length[id] = state.log.len();
+                    self.handle_replicate_log(state, o);
+                } else {
+                    if state.current_leader.is_none() {
+                        state.buffer.push(payload);
+                    } else {
+                        o.send(Id::from(state.current_leader.unwrap()), RaftMessage::Broadcast(payload));
+                    }
+                }
+            }
+        }
+    }
+
+    fn on_timeout(
+        &self,
+        _id: Id,
+        state: &mut Cow<Self::State>,
+        timer: &Self::Timer,
+        o: &mut Out<Self>,
+    ) {
+        let state = state.to_mut();
+        match timer {
+            RaftTimer::ElectionTimeout => {
+                if state.current_role == Role::Leader {
+                    return;
+                }
+                let id = state.id;
+                state.current_term += 1;
+                state.voted_for = Some(id);
+                state.current_role = Role::Candidate;
+                state.votes_received.clear();
+                state.votes_received.insert(id);
+
+                let mut last_term = 0;
+                if state.log.len() > 0 {
+                    last_term = state.log.last().unwrap().term;
+                }
+
+                let msg = VoteRequestArgs {
+                    cid: id,
+                    cterm: state.current_term,
+                    clog_length: state.log.len(),
+                    clog_term: last_term,
+                };
+                for i in 0..self.peer_ids.len() {
+                    if i == id {
+                        continue;
+                    }
+                    o.send(Id::from(i), RaftMessage::VoteRequest(msg.clone()));
+                }
+            }
+            RaftTimer::ReplicationTimeout => {
+                self.handle_replicate_log(&state, o);
+            }
+        }
+
+    }
+}
+
+impl RaftActor {
+    fn handle_replicate_log(&self, state: &NodeState, o: &mut Out<Self>) {
+        if state.current_role != Role::Leader {
+            return;
+        }
+        let id = state.id;
+
+        for i in 0..self.peer_ids.len() {
+            if i == id {
+                continue;
+            }
+            self.replicate_log(state, id, i, o);
+        }
+    }
+
+    fn replicate_log(&self, state: &NodeState, leader_id: usize, follower_id: usize, o: &mut Out<Self>) {
+        let prefix_len = state.sent_length[follower_id];
+        let suffix = state.log[prefix_len as usize..].to_vec();
+        let mut prefix_term = 0;
+        if prefix_len > 0 {
+            prefix_term = state.log[prefix_len - 1].term;
+        }
+        let msg = LogRequestArgs {
+            leader_id,
+            term: state.current_term,
+            prefix_len,
+            prefix_term,
+            leader_commit: state.commit_length,
+            suffix,
+        };
+        o.send(Id::from(follower_id), RaftMessage::LogRequest(msg));
+    }
+
+    fn append_entries(
+        &self,
+        state: &mut NodeState,
+        prefix_len: usize,
+        leader_commit: usize,
+        suffix: Vec<LogEntry>,
+    ) {
+        if suffix.len() > 0 && state.log.len() > prefix_len {
+            let index = min(state.log.len(), prefix_len + suffix.len()) - 1;
+            if state.log[index].term != suffix[index - prefix_len].term {
+                state.log.truncate(prefix_len);
+            }
+        }
+        if prefix_len + suffix.len() > state.log.len() {
+            for i in state.log.len() - prefix_len..suffix.len() {
+                state.log.push(suffix[i].clone());
+            }
+        }
+        if leader_commit > state.commit_length {
+            for i in state.commit_length..leader_commit {
+                state.delivered_messages.push(state.log[i].payload.to_vec());
+            }
+            state.commit_length = leader_commit;
+        }
+    }
+
+    fn commit_log_entries(&self, state: &mut NodeState, peers_len: usize) {
+        let min_acks = ((peers_len + 1) + 1) / 2;
+        let mut ready_max = 0;
+        for i in state.commit_length + 1..state.log.len() + 1 {
+            if Self::acks(&state.acked_length, i) >= min_acks {
+                ready_max = i;
+            }
+        }
+        if ready_max > 0 && state.log[ready_max - 1].term == state.current_term {
+            for i in state.commit_length..ready_max {
+                state.delivered_messages.push(state.log[i].payload.to_vec());
+            }
+            state.commit_length = ready_max;
+        }
+    }
+
+    fn acks(acked_length: &Vec<usize>, length: usize) -> usize {
+        let mut acks = 0;
+        for i in 0..acked_length.len() {
+            if acked_length[i] >= length {
+                acks += 1;
+            }
+        }
+        acks
+    }
+
+    fn try_drain_buffer(&self, state: &mut NodeState, o: &mut Out<Self>) {
+        if state.current_role == Role::Leader && state.buffer.len() > 0 {
+            for payload in state.buffer.drain(..) {
+                o.send(Id::from(state.id), RaftMessage::Broadcast(payload));
+            }
+        }
+    }
+}
+
+fn main() -> Result<(), pico_args::Error> {
+    Ok(())
+}
