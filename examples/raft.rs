@@ -4,7 +4,9 @@ use std::collections::HashSet;
 use std::hash::Hash;
 use stateright::actor::model_timeout;
 use stateright::actor::{Actor, ActorModel, Id, Network, Out};
-use stateright::Expectation;
+use stateright::Checker;
+use stateright::{Expectation, Model};
+use stateright::report::WriteReporter;
 
 #[derive(PartialEq, Hash, Eq, Clone, Debug)]
 pub enum Role {
@@ -137,6 +139,12 @@ impl Actor for RaftActor {
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
         o.set_timer(RaftTimer::ReplicationTimeout, model_timeout());
+        let id: usize = id.into();
+        // broadcast a message (the id of the actor)
+        o.send(
+            Id::from(id),
+            RaftMessage::Broadcast(id.to_string().into_bytes()),
+        );
         NodeState::new(id.into(), self.peer_ids.len())
     }
 
@@ -425,6 +433,134 @@ impl RaftActor {
     }
 }
 
+#[derive(Clone)]
+pub struct RaftModelCfg {
+    pub server_count: usize,
+    pub network: Network<<RaftActor as Actor>::Msg>,
+}
+
+impl RaftModelCfg {
+    pub fn into_model(self) -> ActorModel<RaftActor, Self> {
+        let peers: Vec<usize> = (0..self.server_count).collect();
+        ActorModel::new(self.clone(), ())
+            .max_crashes((self.server_count - 1) / 2)
+            .actors((0..self.server_count).map(|_| RaftActor {
+                peer_ids: peers.clone(),
+            }))
+            .init_network(self.network)
+            .property(Expectation::Sometimes, "Election Liveness", |_, state| {
+                state.actor_states.iter().any(|s| {
+                    s.current_role == Role::Leader
+                })
+            })
+            .property(Expectation::Sometimes, "Log Liveness", |_, state| {
+                state
+                    .actor_states
+                    .iter()
+                    .any(|s| s.commit_length > 0)
+            })
+            .property(Expectation::Always, "Election Safety", |_, state| {
+                // at most one leader can be elected in a given term
+
+                let mut leaders_term = HashSet::new();
+                for s in &state.actor_states {
+                    if s.current_role == Role::Leader
+                        && !leaders_term.insert(s.current_term)
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
+            .property(Expectation::Always, "State Machine Safety", |_, state| {
+                // if a server has applied a log entry at a given index to its state machine, no other server will
+                // ever apply a different log entry for the same index.
+
+                let mut max_commit_length = 0;
+                let mut max_commit_length_actor_id = 0;
+                for (i, s) in state.actor_states.iter().enumerate() {
+                    if s.delivered_messages.len() > max_commit_length {
+                        max_commit_length = s.delivered_messages.len();
+                        max_commit_length_actor_id = i;
+                    }
+                }
+                if max_commit_length == 0 {
+                    return true;
+                }
+
+                for i in 0..max_commit_length {
+                    let ref_log = state.actor_states[max_commit_length_actor_id]
+                        .delivered_messages
+                        .get(i)
+                        .unwrap();
+                    for s in &state.actor_states {
+                        if let Some(log) = s.delivered_messages.get(i) {
+                            if log != ref_log {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            })
+    }
+}
+
 fn main() -> Result<(), pico_args::Error> {
+
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info")); // `RUST_LOG=${LEVEL}` env variable to override
+
+    let mut args = pico_args::Arguments::from_env();
+    match args.subcommand()?.as_deref() {
+        Some("check") => {
+            let server_count = args.opt_free_from_str()?.unwrap_or(3);
+            let network = args
+                .opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
+            println!(
+                "Model checking Raft with {} servers.",
+                server_count
+            );
+            RaftModelCfg {
+                server_count,
+                network,
+            }
+                .into_model()
+                .checker()
+                .threads(num_cpus::get())
+                .spawn_bfs()
+                .report(&mut WriteReporter::new(&mut std::io::stdout()));
+        }
+        Some("explore") => {
+            let server_count = args.opt_free_from_str()?.unwrap_or(3);
+            let address = args
+                .opt_free_from_str()?
+                .unwrap_or("localhost:3000".to_string());
+            let network = args
+                .opt_free_from_str()?
+                .unwrap_or(Network::new_unordered_nonduplicating([]));
+            println!(
+                "Exploring state space for Raft with {} servers on {}.",
+                server_count, address
+            );
+            RaftModelCfg {
+                server_count,
+                network,
+            }
+                .into_model()
+                .checker()
+                .threads(num_cpus::get())
+                .serve(address);
+        }
+        _ => {
+            println!("USAGE:");
+            println!("  ./raft check [SERVER_COUNT] [NETWORK]");
+            println!("  ./raft explore [SERVER_COUNT] [ADDRESS] [NETWORK]");
+            println!(
+                "NETWORK: {}",
+                Network::<<RaftActor as Actor>::Msg>::names().join(" | ")
+            );
+        }
+    }
     Ok(())
 }
