@@ -358,7 +358,7 @@ fn main() -> Result<(), pico_args::Error> {
 
     let mut args = pico_args::Arguments::from_env();
     match args.subcommand()?.as_deref() {
-        Some("check-bfs") => {
+        Some("check-bfs") | Some("check") => {
             let client_count = args.opt_free_from_str()?.unwrap_or(2);
             let network = args
                 .opt_free_from_str()?
