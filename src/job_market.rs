@@ -1,10 +1,5 @@
 use parking_lot::{Condvar, Mutex};
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-    thread::sleep,
-    time::{Duration, SystemTime},
-};
+use std::{collections::VecDeque, sync::Arc, thread::sleep, time::SystemTime};
 
 /// A market for synchronising the sharing of jobs.
 ///
@@ -70,17 +65,13 @@ where
             let s1 = s.clone();
             std::thread::Builder::new()
                 .name("timeout".to_owned())
-                .spawn(move || loop {
+                .spawn(move || {
+                    if let Ok(time_to_sleep) = closing_time.duration_since(SystemTime::now()) {
+                        sleep(time_to_sleep);
+                    }
                     let mut market = s1.market.lock();
-                    let now = SystemTime::now();
-                    if closing_time < now {
-                        log::debug!("Reached timeout, triggering shutdown");
-                        market.open = false;
-                    }
-                    if !market.open {
-                        break;
-                    }
-                    sleep(Duration::from_secs(1));
+                    log::debug!("Reached timeout, triggering shutdown");
+                    market.open = false;
                 })
                 .unwrap();
         }
