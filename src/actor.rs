@@ -31,6 +31,7 @@
 //!     type Msg = MsgWithTimestamp;
 //!     type State = Timestamp;
 //!     type Timer = ();
+//!     type Random = ();
 //!
 //!     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
 //!         // The actor either bootstraps or starts at time zero.
@@ -157,17 +158,19 @@ impl From<usize> for Id {
 
 /// Commands with which an actor can respond.
 #[derive(Debug, serde::Serialize)]
-pub enum Command<Msg, Timer> {
+pub enum Command<Msg, Timer, Random> {
     /// Cancel the timer if one is set.
     CancelTimer(Timer),
     /// Set/reset the timer.
     SetTimer(Timer, Range<Duration>),
     /// Send a message to a destination.
     Send(Id, Msg),
+    /// Choose a random
+    ChooseRandom(String, Vec<Random>),
 }
 
 /// Holds [`Command`]s output by an actor.
-pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer>>);
+pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer, A::Random>>);
 
 impl<A: Actor> Default for Out<A> {
     fn default() -> Self {
@@ -184,7 +187,7 @@ impl<A: Actor> Out<A> {
     /// Moves all [`Command`]s of `other` into `Self`, leaving `other` empty.
     pub fn append<B>(&mut self, other: &mut Out<B>)
     where
-        B: Actor<Msg = A::Msg, Timer = A::Timer>,
+        B: Actor<Msg = A::Msg, Timer = A::Timer, Random = A::Random>,
     {
         self.0.append(&mut other.0)
     }
@@ -213,6 +216,26 @@ impl<A: Actor> Out<A> {
             self.send(*recipient, msg.clone());
         }
     }
+
+    /// Records a non-deterministic choice by the actor.
+    ///
+    /// Actors can use this method to record a `random` vec of possible choices, creating a branch
+    /// in the search tree for the actor. The `key` is a unique identifier for the choice to be
+    /// made — `choose_random` will overwrite any previous calls with the same key.
+    ///
+    /// See [`Actor::on_random`].
+    pub fn choose_random(&mut self, key: impl Into<String>, random: Vec<A::Random>) {
+        self.0.push(Command::ChooseRandom(key.into(), random));
+    }
+
+    /// Records the need to cancel a random choice.
+    ///
+    /// Removes any previous `choose_random` calls with the same key.
+    ///
+    /// See [`Actor::on_random`].
+    pub fn remove_random(&mut self, key: impl Into<String>) {
+        self.0.push(Command::ChooseRandom(key.into(), vec![]));
+    }
 }
 
 impl<A: Actor> Debug for Out<A> {
@@ -222,21 +245,21 @@ impl<A: Actor> Debug for Out<A> {
 }
 
 impl<A: Actor> std::ops::Deref for Out<A> {
-    type Target = [Command<A::Msg, A::Timer>];
+    type Target = [Command<A::Msg, A::Timer, A::Random>];
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<A: Actor> std::iter::FromIterator<Command<A::Msg, A::Timer>> for Out<A> {
-    fn from_iter<I: IntoIterator<Item = Command<A::Msg, A::Timer>>>(iter: I) -> Self {
+impl<A: Actor> std::iter::FromIterator<Command<A::Msg, A::Timer, A::Random>> for Out<A> {
+    fn from_iter<I: IntoIterator<Item = Command<A::Msg, A::Timer, A::Random>>>(iter: I) -> Self {
         Out(Vec::from_iter(iter))
     }
 }
 
 impl<A: Actor> IntoIterator for Out<A> {
-    type Item = Command<A::Msg, A::Timer>;
-    type IntoIter = std::vec::IntoIter<Command<A::Msg, A::Timer>>;
+    type Item = Command<A::Msg, A::Timer, A::Random>;
+    type IntoIter = std::vec::IntoIter<Command<A::Msg, A::Timer, A::Random>>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
@@ -285,7 +308,6 @@ pub trait Actor: Sized {
     /// # Example
     ///
     /// ```
-    /// use serde::{Deserialize, Serialize};
     /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
     /// enum MyActorTimer { Event1, Event2 }
     /// ```
@@ -300,6 +322,16 @@ pub trait Actor: Sized {
     /// struct MyActorState { sequencer: u64 }
     /// ```
     type State: Clone + Debug + PartialEq + Hash;
+
+    /// The type for tagging random choices by an actor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    /// enum MyActorRandom { Choice1, Choice2 }
+    /// ```
+    type Random: Clone + Debug + Eq + Hash;
 
     /// Indicates the initial state and commands.
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State;
@@ -335,6 +367,22 @@ pub trait Actor: Sized {
         let _ = o;
     }
 
+    /// Indicates the next state and commands when a random choice is selected. See
+    /// [`Out::choose_random`].
+    fn on_random(
+        &self,
+        id: Id,
+        state: &mut Cow<Self::State>,
+        random: &Self::Random,
+        o: &mut Out<Self>,
+    ) {
+        // no-op by default
+        let _ = id;
+        let _ = state;
+        let _ = random;
+        let _ = o;
+    }
+
     fn name(&self) -> String {
         String::new()
     }
@@ -347,6 +395,7 @@ where
     type Msg = A::Msg;
     type State = Choice<A::State, Never>;
     type Timer = A::Timer;
+    type Random = A::Random;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         let actor = self.get();
@@ -399,16 +448,18 @@ where
     }
 }
 
-impl<Msg, Timer, A1, A2> Actor for Choice<A1, A2>
+impl<Msg, Timer, Random, A1, A2> Actor for Choice<A1, A2>
 where
     Msg: Clone + Debug + Eq + Hash,
     Timer: Clone + Debug + Eq + Hash + serde::Serialize,
-    A1: Actor<Msg = Msg, Timer = Timer>,
-    A2: Actor<Msg = Msg, Timer = Timer>,
+    Random: Clone + Debug + Eq + Hash,
+    A1: Actor<Msg = Msg, Timer = Timer, Random = Random>,
+    A2: Actor<Msg = Msg, Timer = Timer, Random = Random>,
 {
     type Msg = Msg;
     type State = Choice<A1::State, A2::State>;
     type Timer = Timer;
+    type Random = Random;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         match self {
@@ -503,6 +554,7 @@ impl Actor for () {
     type State = ();
     type Msg = ();
     type Timer = ();
+    type Random = ();
     fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State {}
     fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
     fn name(&self) -> String {
@@ -519,6 +571,7 @@ where
     type Msg = Msg;
     type State = usize;
     type Timer = ();
+    type Random = ();
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
         if let Some((dst, msg)) = self.first() {

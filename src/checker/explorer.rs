@@ -322,7 +322,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::actor::Timers;
+    use crate::actor::{RandomChoices, Timers};
     use crate::test_util::binary_clock::*;
     use lazy_static::lazy_static;
 
@@ -426,6 +426,7 @@ mod test {
                         actor_states: vec![Arc::new(0), Arc::new(0)],
                         history: (0, 1),
                         timers_set: vec![Timers::new(); 2],
+                        random_choices: vec![RandomChoices::default(); 2],
                         crashed: vec![false; 2],
                         network: Network::new_unordered_nonduplicating([
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
@@ -450,6 +451,7 @@ mod test {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     timers_set: vec![Timers::new(); 2],
+                    random_choices: vec![RandomChoices::default(); 2],
                     crashed: vec![false; 2],
                     network: Network::new_unordered_nonduplicating([Envelope {
                         src: Id::from(0),
@@ -471,6 +473,7 @@ mod test {
                     actor_states: vec![Arc::new(0), Arc::new(0)],
                     history: (0, 1),
                     timers_set: vec![Timers::new(); 2],
+                    random_choices: vec![RandomChoices::default(); 2],
                     crashed: vec![false; 2],
                     network: Network::new_unordered_nonduplicating([]),
                 }),
@@ -496,6 +499,7 @@ mod test {
                     ],
                     history: (1, 2),
                     timers_set: vec![Timers::new(); 2],
+                    random_choices: vec![RandomChoices::default(); 2],
                     crashed: vec![false; 2],
                     network: Network::new_unordered_nonduplicating([
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },

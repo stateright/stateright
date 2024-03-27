@@ -65,6 +65,7 @@ impl Actor for AbdActor {
     type Msg = RegisterMsg<RequestId, Value, AbdMsg>;
     type State = AbdState;
     type Timer = ();
+    type Random = ();
 
     fn on_start(&self, id: Id, _o: &mut Out<Self>) -> Self::State {
         AbdState {

@@ -102,6 +102,7 @@ impl Actor for Counter {
     type Msg = Msg;
     type State = CounterState;
     type Timer = InputTimer;
+    type Random = ();
 
     fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
         self.initial_state
@@ -155,6 +156,7 @@ impl Actor for Client {
     type Msg = Msg;
     type State = InputState;
     type Timer = InputTimer;
+    type Random = ();
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
         // Set a timeout to trigger sending increment request.

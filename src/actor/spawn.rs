@@ -131,7 +131,14 @@ where
                     } else {
                         let min_timer = min_timer.unwrap();
                         next_interrupts.remove(&min_timer); // timer is no longer valid
-                        actor.on_timeout(id, &mut state, &min_timer, &mut out);
+                        match &min_timer {
+                            Interrupt::Timeout(min_timer) => {
+                                actor.on_timeout(id, &mut state, min_timer, &mut out);
+                            },
+                            Interrupt::Random(random) => {
+                                actor.on_random(id, &mut state, random, &mut out);
+                            },
+                        }
                     }
 
                     // Handle commands and update state.
@@ -146,13 +153,19 @@ where
     })
 }
 
+#[derive(Hash, PartialEq, Eq, Clone)]
+enum Interrupt<T, R> {
+    Timeout(T),
+    Random(R),
+}
+
 /// The effect to perform in response to spawned actor outputs.
 fn on_command<A, E>(
     addr: SocketAddrV4,
-    command: Command<A::Msg, A::Timer>,
+    command: Command<A::Msg, A::Timer, A::Random>,
     serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
     socket: &UdpSocket,
-    next_interrupts: &mut HashMap<A::Timer, Instant>,
+    next_interrupts: &mut HashMap<Interrupt<A::Timer, A::Random>, Instant>,
 ) where
     A: Actor,
     A::Msg: Debug,
@@ -192,15 +205,28 @@ fn on_command<A, E>(
                 range.start
             };
             next_interrupts
-                .entry(timer)
+                .entry(Interrupt::Timeout(timer))
                 .and_modify(|d| *d = Instant::now() + duration)
                 .or_insert_with(|| Instant::now() + duration);
         }
         Command::CancelTimer(timer) => {
             // if not already set then that's fine to leave
             next_interrupts
-                .entry(timer)
+                .entry(Interrupt::Timeout(timer))
                 .and_modify(|d| *d = practically_never());
+        }
+        Command::ChooseRandom(_key, random) => {
+            use rand::prelude::{Rng, SliceRandom};
+            if random.is_empty() {
+                return;
+            }
+            let mut rng = rand::thread_rng();
+            let duration = rng.gen_range(Duration::ZERO..Duration::from_secs(10));
+            let chosen_random = random.choose(&mut rng).unwrap();
+            next_interrupts
+                .entry(Interrupt::Random(chosen_random.clone()))
+                .and_modify(|d| *d = Instant::now() + duration)
+                .or_insert_with(|| Instant::now() + duration);
         }
     }
 }
