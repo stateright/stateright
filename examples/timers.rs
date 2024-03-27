@@ -33,6 +33,7 @@ impl Actor for PingerActor {
     type Msg = PingerMsg;
     type State = PingerState;
     type Timer = PingerTimer;
+    type Random = ();
 
     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
         o.set_timer(PingerTimer::Even, model_timeout());

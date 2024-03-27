@@ -2,6 +2,7 @@
 
 use crate::actor::{
     is_no_op, is_no_op_with_timer, Actor, ActorModelState, Command, Envelope, Id, Network, Out,
+    RandomChoices,
 };
 use crate::{Expectation, Model, Path, Property};
 use std::borrow::Cow;
@@ -39,8 +40,8 @@ where
 }
 
 /// Indicates possible steps that an actor system can take as it evolves.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ActorModelAction<Msg, Timer> {
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ActorModelAction<Msg, Timer, Random> {
     /// A message can be delivered to an actor.
     Deliver {
         src: Id,
@@ -52,6 +53,12 @@ pub enum ActorModelAction<Msg, Timer> {
     /// An actor can by notified after a timeout.
     Timeout(Id, Timer),
     Crash(Id),
+    /// A random selection by a node.
+    SelectRandom {
+        actor: Id,
+        key: String,
+        random: Random,
+    },
 }
 
 /// Indicates whether the network loses messages. Note that as long as invariants do not check
@@ -206,6 +213,13 @@ where
                 Command::CancelTimer(timer) => {
                     state.timers_set[index].cancel(&timer);
                 }
+                Command::ChooseRandom(key, random) => {
+                    if random.is_empty() {
+                        state.random_choices[index].remove(&key);
+                    } else {
+                        state.random_choices[index].insert(key, random)
+                    }
+                }
             }
         }
     }
@@ -217,13 +231,14 @@ where
     H: Clone + Debug + Hash,
 {
     type State = ActorModelState<A, H>;
-    type Action = ActorModelAction<A::Msg, A::Timer>;
+    type Action = ActorModelAction<A::Msg, A::Timer, A::Random>;
 
     fn init_states(&self) -> Vec<Self::State> {
         let mut init_sys_state = ActorModelState {
             actor_states: Vec::with_capacity(self.actors.len()),
             history: self.init_history.clone(),
             timers_set: vec![Timers::new(); self.actors.len()],
+            random_choices: vec![RandomChoices::default(); self.actors.len()],
             network: self.init_network.clone(),
             crashed: vec![false; self.actors.len()],
         };
@@ -282,6 +297,19 @@ where
                 .enumerate()
                 .filter_map(|(index, &crashed)| if !crashed { Some(index) } else { None })
                 .for_each(|index| actions.push(ActorModelAction::Crash(Id::from(index))));
+        }
+
+        // option 5: random choice
+        for (actor_index, random_decisions) in state.random_choices.iter().enumerate() {
+            for (key, decision) in random_decisions.map.into_iter() {
+                for choice in decision {
+                    actions.push(ActorModelAction::SelectRandom {
+                        actor: Id::from(actor_index),
+                        key: key.clone(),
+                        random: choice.clone(),
+                    });
+                }
+            }
         }
     }
 
@@ -374,18 +402,40 @@ where
 
                 let mut next_sys_state = last_sys_state.clone();
                 next_sys_state.timers_set[index].cancel_all();
+                next_sys_state.random_choices[index].map.clear();
                 next_sys_state.crashed[index] = true;
 
+                Some(next_sys_state)
+            }
+            ActorModelAction::SelectRandom { actor, key, random } => {
+                let actor_index = usize::from(actor);
+                let mut state = Cow::Borrowed(&*last_sys_state.actor_states[actor_index]);
+                let mut out = Out::new();
+                self.actors[actor_index].on_random(actor, &mut state, &random, &mut out);
+                let mut next_sys_state = last_sys_state.clone();
+                // This random choice is no longer valid.
+                next_sys_state.random_choices[actor_index].remove(&key);
+
+                if let Cow::Owned(next_actor_state) = state {
+                    next_sys_state.actor_states[actor_index] = Arc::new(next_actor_state);
+                }
+                self.process_commands(actor, out, &mut next_sys_state);
                 Some(next_sys_state)
             }
         }
     }
 
     fn format_action(&self, action: &Self::Action) -> String {
-        if let ActorModelAction::Deliver { src, dst, msg } = action {
-            format!("{:?} → {:?} → {:?}", src, msg, dst)
-        } else {
-            format!("{:?}", action)
+        match action {
+            ActorModelAction::Deliver { src, dst, msg } => {
+                format!("{:?} → {:?} → {:?}", src, msg, dst)
+            }
+            ActorModelAction::SelectRandom {
+                actor,
+                key: _,
+                random,
+            } => format!("{actor:?} select random {random:?}"),
+            _ => format!("{:?}", action),
         }
     }
 
@@ -468,6 +518,31 @@ where
                         }
                     )
                 })
+            }
+            ActorModelAction::SelectRandom {
+                actor,
+                key: _,
+                random,
+            } => {
+                let index = usize::from(actor);
+                let last_actor_state = match last_state.actor_states.get(index) {
+                    None => return None,
+                    Some(last_actor_state) => &**last_actor_state,
+                };
+                let mut actor_state = Cow::Borrowed(last_actor_state);
+                let mut out = Out::new();
+                self.actors[index].on_random(actor, &mut actor_state, &random, &mut out);
+                Some(format!(
+                    "{}",
+                    ActorStep {
+                        last_state: last_actor_state,
+                        next_state: match actor_state {
+                            Cow::Borrowed(_) => None,
+                            Cow::Owned(next_actor_state) => Some(next_actor_state),
+                        },
+                        out,
+                    }
+                ))
             }
         }
     }
@@ -596,6 +671,32 @@ where
                     )
                     .unwrap();
                 }
+                Some(ActorModelAction::SelectRandom {
+                    actor,
+                    key: _,
+                    random,
+                }) => {
+                    let (x, y) = plot(actor.into(), time);
+                    writeln!(
+                        &mut svg,
+                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
+                        x, y
+                    )
+                    .unwrap();
+
+                    // Track sends to facilitate building arrows.
+                    let index = usize::from(actor);
+                    if let Some(actor_state) = state.actor_states.get(index) {
+                        let mut actor_state = Cow::Borrowed(&**actor_state);
+                        let mut out = Out::new();
+                        self.actors[index].on_random(actor, &mut actor_state, &random, &mut out);
+                        for command in out {
+                            if let Command::Send(dst, msg) = command {
+                                send_time.insert((actor, dst, msg), time);
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -628,6 +729,19 @@ where
                         &mut svg,
                         "<text x='{}' y='{}' class='svg-event-label'>Crash</text>",
                         x, y
+                    )
+                    .unwrap();
+                }
+                Some(ActorModelAction::SelectRandom {
+                    actor,
+                    key: _,
+                    random,
+                }) => {
+                    let (x, y) = plot(actor.into(), time);
+                    writeln!(
+                        &mut svg,
+                        "<text x='{}' y='{}' class='svg-event-label'>Random({:?})</text>",
+                        x, y, random
                     )
                     .unwrap();
                 }
@@ -672,6 +786,7 @@ mod test {
                     actor_states: states.into_iter().map(Arc::new).collect::<Vec<_>>(),
                     network: Network::new_unordered_duplicating_with_last_msg(envelopes, last_msg),
                     timers_set,
+                    random_choices: vec![],
                     crashed,
                     history: (0_u32, 0_u32), // constant as `maintains_history: false`
                 }
@@ -792,6 +907,7 @@ mod test {
             type Msg = Msg;
             type State = String;
             type Timer = ();
+            type Random = ();
             fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
                 if let MyActor::Client { server } = self {
                     o.send(*server, Msg::Ignored);
@@ -983,6 +1099,7 @@ mod test {
             type Msg = u8;
             type State = Vec<u8>;
             type Timer = ();
+            type Random = ();
             fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
                 if id == 0.into() {
                     // Count down.
@@ -1051,7 +1168,7 @@ mod test {
         fn enumerate_action_sequences(
             lossy: LossyNetwork,
             init_network: Network<()>,
-        ) -> HashSet<Vec<ActorModelAction<(), ()>>> {
+        ) -> HashSet<Vec<ActorModelAction<(), (), ()>>> {
             // There are two actors, and the first sends the same two messages to the second, which
             // counts them.
             struct A;
@@ -1059,6 +1176,7 @@ mod test {
                 type Msg = ();
                 type State = usize; // receipt count
                 type Timer = ();
+                type Random = ();
 
                 fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
                     if id == 0.into() {
@@ -1098,12 +1216,12 @@ mod test {
         }
 
         // The actions are named here for brevity. These implement `Copy`.
-        let deliver = ActorModelAction::<(), ()>::Deliver {
+        let deliver = ActorModelAction::<(), (), ()>::Deliver {
             src: 0.into(),
             msg: (),
             dst: 1.into(),
         };
-        let drop = ActorModelAction::<(), ()>::Drop(Envelope {
+        let drop = ActorModelAction::<(), (), ()>::Drop(Envelope {
             src: 0.into(),
             msg: (),
             dst: 1.into(),
@@ -1112,12 +1230,16 @@ mod test {
         // Ordered networks can deliver/drop both messages.
         let ordered_lossless =
             enumerate_action_sequences(LossyNetwork::No, Network::new_ordered([]));
-        assert!(ordered_lossless.contains(&vec![deliver, deliver]));
-        assert!(!ordered_lossless.contains(&vec![deliver, deliver, deliver]));
+        assert!(ordered_lossless.contains(&vec![deliver.clone(), deliver.clone()]));
+        assert!(!ordered_lossless.contains(&vec![
+            deliver.clone(),
+            deliver.clone(),
+            deliver.clone()
+        ]));
         let ordered_lossy = enumerate_action_sequences(LossyNetwork::Yes, Network::new_ordered([]));
-        assert!(ordered_lossy.contains(&vec![deliver, deliver]));
-        assert!(ordered_lossy.contains(&vec![deliver, drop])); // same state as "drop, deliver"
-        assert!(ordered_lossy.contains(&vec![drop, drop]));
+        assert!(ordered_lossy.contains(&vec![deliver.clone(), deliver.clone()]));
+        assert!(ordered_lossy.contains(&vec![deliver.clone(), drop.clone()])); // same state as "drop, deliver"
+        assert!(ordered_lossy.contains(&vec![drop.clone(), drop.clone()]));
 
         // Unordered duplicating networks can deliver/drop duplicates.
         //
@@ -1126,25 +1248,29 @@ mod test {
         //            latter.
         let unord_dup_lossless =
             enumerate_action_sequences(LossyNetwork::No, Network::new_unordered_duplicating([]));
-        assert!(unord_dup_lossless.contains(&vec![deliver, deliver, deliver]));
+        assert!(unord_dup_lossless.contains(&vec![
+            deliver.clone(),
+            deliver.clone(),
+            deliver.clone()
+        ]));
         let unord_dup_lossy =
             enumerate_action_sequences(LossyNetwork::Yes, Network::new_unordered_duplicating([]));
-        assert!(unord_dup_lossy.contains(&vec![deliver, deliver, deliver]));
-        assert!(unord_dup_lossy.contains(&vec![deliver, deliver, drop]));
-        assert!(unord_dup_lossy.contains(&vec![deliver, drop]));
-        assert!(unord_dup_lossy.contains(&vec![drop]));
-        assert!(!unord_dup_lossy.contains(&vec![drop, deliver])); // b/c drop means "never deliver again"
+        assert!(unord_dup_lossy.contains(&vec![deliver.clone(), deliver.clone(), deliver.clone()]));
+        assert!(unord_dup_lossy.contains(&vec![deliver.clone(), deliver.clone(), drop.clone()]));
+        assert!(unord_dup_lossy.contains(&vec![deliver.clone(), drop.clone()]));
+        assert!(unord_dup_lossy.contains(&vec![drop.clone()]));
+        assert!(!unord_dup_lossy.contains(&vec![drop.clone(), deliver.clone()])); // b/c drop means "never deliver again"
 
         // Unordered nonduplicating networks can deliver/drop both messages.
         let unord_nondup_lossless =
             enumerate_action_sequences(LossyNetwork::No, Network::new_unordered_nonduplicating([]));
-        assert!(unord_nondup_lossless.contains(&vec![deliver, deliver]));
+        assert!(unord_nondup_lossless.contains(&vec![deliver.clone(), deliver.clone()]));
         let unord_nondup_lossy = enumerate_action_sequences(
             LossyNetwork::Yes,
             Network::new_unordered_nonduplicating([]),
         );
-        assert!(unord_nondup_lossy.contains(&vec![deliver, drop]));
-        assert!(unord_nondup_lossy.contains(&vec![drop, drop]));
+        assert!(unord_nondup_lossy.contains(&vec![deliver.clone(), drop.clone()]));
+        assert!(unord_nondup_lossy.contains(&vec![drop.clone(), drop.clone()]));
     }
 
     #[test]
@@ -1154,6 +1280,7 @@ mod test {
             type State = ();
             type Msg = ();
             type Timer = ();
+            type Random = ();
             fn on_start(&self, _: Id, o: &mut Out<Self>) {
                 o.set_timer((), model_timeout());
             }
@@ -1180,6 +1307,139 @@ mod test {
             2
         );
     }
+
+    #[test]
+    fn choose_random() {
+        #[derive(Hash, PartialEq, Eq, Debug, Clone)]
+        enum TestRandom {
+            Choice1,
+            Choice2,
+            Choice3,
+        }
+
+        struct TestActor;
+        impl Actor for TestActor {
+            type State = Option<TestRandom>;
+            type Msg = ();
+            type Timer = ();
+            type Random = TestRandom;
+            fn on_start(&self, _: Id, o: &mut Out<Self>) -> Option<TestRandom> {
+                o.choose_random(
+                    "key1",
+                    vec![
+                        TestRandom::Choice1,
+                        TestRandom::Choice2,
+                        TestRandom::Choice3,
+                    ],
+                );
+                None
+            }
+            fn on_msg(
+                &self,
+                _: Id,
+                _: &mut Cow<Self::State>,
+                _: Id,
+                _: Self::Msg,
+                _: &mut Out<Self>,
+            ) {
+            }
+            fn on_random(
+                &self,
+                _: Id,
+                state: &mut Cow<Self::State>,
+                random: &Self::Random,
+                _: &mut Out<Self>,
+            ) {
+                *state.to_mut() = Some(random.clone());
+            }
+        }
+
+        // Init state with a random choice, followed by 3 possible next states.
+        assert_eq!(
+            ActorModel::new((), ())
+                .actor(TestActor)
+                .property(Expectation::Always, "unused", |_, _| true) // force full traversal
+                .checker()
+                .spawn_bfs()
+                .join()
+                .unique_state_count(),
+            4
+        );
+    }
+
+    #[test]
+    fn overwite_choose_random() {
+        #[derive(Hash, PartialEq, Eq, Debug, Clone)]
+        enum TestRandom {
+            Choice1,
+            Choice2,
+            Choice3,
+        }
+
+        struct TestActor;
+        impl Actor for TestActor {
+            type State = Vec<TestRandom>;
+            type Msg = ();
+            type Timer = ();
+            type Random = TestRandom;
+            fn on_start(&self, _: Id, o: &mut Out<Self>) -> Vec<TestRandom> {
+                o.choose_random(
+                    "key1",
+                    vec![
+                        TestRandom::Choice1,
+                    ],
+                );
+                o.choose_random(
+                    "key2",
+                    vec![
+                        TestRandom::Choice2,
+                        TestRandom::Choice3,
+                    ],
+                );
+                Vec::new()
+            }
+            fn on_msg(
+                &self,
+                _: Id,
+                _: &mut Cow<Self::State>,
+                _: Id,
+                _: Self::Msg,
+                _: &mut Out<Self>,
+            ) {
+            }
+            fn on_random(
+                &self,
+                _: Id,
+                state: &mut Cow<Self::State>,
+                random: &Self::Random,
+                o: &mut Out<Self>,
+            ) {
+                if *random == TestRandom::Choice1 {
+                    // If choice1 is chosen, set "key2" to just Choice3.
+                    // If "key2" hasn't been taken yet, this will reduce the choice from [2,3] to
+                    //    just [3].
+                    // If "key2" has already been taken, this will allow the actor to choose "key2"
+                    //    again, this time with just one option ([Choice3]).
+                    o.choose_random("key2", vec![TestRandom::Choice3]);
+                }
+                state.to_mut().push(random.clone());
+            }
+        }
+
+        //      /-> key1:Choice1 -> key2:Choice3
+        // Init --> key2:Choice2 -> key1:Choice1 -> key2:Choice3
+        //      \-> key2:Choice3 -> key1:Choice1 -> key2:Choice3
+        assert_eq!(
+            ActorModel::new((), ())
+                .actor(TestActor)
+                .property(Expectation::Always, "unused", |_, _| true) // force full traversal
+                .checker()
+                .spawn_bfs()
+                .join()
+                .unique_state_count(),
+            9
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1196,6 +1456,7 @@ mod choice_test {
         type State = u8;
         type Msg = ();
         type Timer = ();
+        type Random = ();
         fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
             1
         }
@@ -1220,6 +1481,7 @@ mod choice_test {
         type State = char;
         type Msg = ();
         type Timer = ();
+        type Random = ();
         fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
             'a'
         }
@@ -1244,6 +1506,7 @@ mod choice_test {
         type State = String;
         type Msg = ();
         type Timer = ();
+        type Random = ();
         fn on_start(&self, _: Id, o: &mut Out<Self>) -> Self::State {
             o.send(self.a, ());
             "I".to_string()

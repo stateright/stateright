@@ -112,6 +112,7 @@ impl Actor for PaxosActor {
     type Msg = RegisterMsg<RequestId, Value, PaxosMsg>;
     type State = PaxosState;
     type Timer = ();
+    type Random = ();
 
     fn name(&self) -> String {
         "Paxos Server".to_owned()
