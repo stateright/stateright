@@ -19,6 +19,7 @@ pub mod ping_pong {
         type Msg = PingPongMsg;
         type State = u32; // count
         type Timer = ();
+        type Random = ();
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let Some(id) = self.serve_to {
