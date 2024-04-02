@@ -19,7 +19,7 @@ struct LwwRegister<T> {
 
 impl<T: Clone> LwwRegister<T> {
     fn merge(a: &Self, b: &Self) -> Self {
-        if (a.timestamp,) > (b.timestamp,) {
+        if (a.timestamp, a.updater_id) > (b.timestamp, b.updater_id) {
             a.clone()
         } else {
             b.clone()
@@ -50,6 +50,7 @@ enum LwwActorActions<T> {
 struct LwwActorState {
     register: Option<LwwRegister<Value>>,
     local_clock: u128,
+    maximum_used_clock: u128,
 }
 
 impl LwwActorState {
@@ -57,6 +58,7 @@ impl LwwActorState {
         Self {
             register: None,
             local_clock: 1000,
+            maximum_used_clock: 1000,
         }
     }
 }
@@ -108,7 +110,10 @@ impl Actor for LwwActor {
             LwwActorActions::SetValue(value) => {
                 let state_mut = state.to_mut();
                 if let Some(register) = &mut state_mut.register {
-                    register.set(value.clone(), state_mut.local_clock, usize::from(id));
+                    // Ensure clock value is unique per node
+                    let clock_value = state_mut.local_clock.max(state_mut.maximum_used_clock + 1);
+                    register.set(value.clone(), clock_value, usize::from(id));
+                    state_mut.maximum_used_clock = clock_value;
                 } else {
                     state_mut.register = Some(LwwRegister {
                         value: value.clone(),
