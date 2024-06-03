@@ -1,5 +1,20 @@
 # Changes
 
+## 0.30.2
+
+Andrew Jeffery <dev@jeffas.io>
+
+- Add ability to define when checking finishes via `HasDiscoveries`.
+- Add optional checker timeout.
+
+D. Reusche <code@degregat.net>
+
+- Add `interaction.rs` example.
+
+Liangrun Da <liangrun_da@outlook.com>
+
+- Fix handling of non-unique states for unordered duplicating networks.
+
 ## 0.30.1
 
 Andrew Jeffery <dev@jeffas.io>
