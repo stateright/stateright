@@ -132,6 +132,7 @@ where
     type Msg = WORegisterMsg<u64, char, InternalMsg>;
     type State = WORegisterActorState<ServerActor::State, u64>;
     type Timer = ServerActor::Timer;
+    type Random = ServerActor::Random;
 
     #[allow(clippy::identity_op)]
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {

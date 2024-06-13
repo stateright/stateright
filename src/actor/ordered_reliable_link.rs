@@ -82,6 +82,7 @@ where
     type Msg = MsgWrapper<A::Msg>;
     type State = StateWrapper<A::Msg, A::State>;
     type Timer = TimerWrapper<A::Timer>;
+    type Random = A::Random;
 
     fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
         o.set_timer(TimerWrapper::Network, self.resend_interval.clone());
@@ -204,6 +205,9 @@ fn process_output<A: Actor>(
                     .insert(state.next_send_seq, (dst, inner_msg));
                 state.next_send_seq += 1;
             }
+            Command::ChooseRandom(_, _) => {
+                todo!("ChooseRandom is not supported at this time");
+            }
         }
     }
 }
@@ -229,6 +233,7 @@ mod test {
         type Msg = TestMsg;
         type State = Received;
         type Timer = ();
+        type Random = ();
 
         fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
             if let TestActor::Sender { receiver_id } = self {

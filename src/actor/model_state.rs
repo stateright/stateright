@@ -1,6 +1,9 @@
 //! Private module for selective re-export.
 
+use serde::Serialize;
+
 use crate::actor::{Actor, Id, Network};
+use crate::util::HashableHashMap;
 use crate::{Representative, Rewrite, RewritePlan};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -13,8 +16,49 @@ pub struct ActorModelState<A: Actor, H = ()> {
     pub actor_states: Vec<Arc<A::State>>,
     pub network: Network<A::Msg>,
     pub timers_set: Vec<Timers<A::Timer>>,
+    pub random_choices: Vec<RandomChoices<A::Random>>,
     pub crashed: Vec<bool>,
     pub history: H,
+}
+
+/// Represents a set of random choices for one actor.
+#[derive(Clone, Debug, Serialize)]
+pub struct RandomChoices<Random> {
+    /// The map of random choices for an actor.
+    ///
+    /// The string key is the key given in [`Actor::choose_random`], and the value vec contains the
+    /// possible random choices to select from.
+    pub map: HashableHashMap<String, Vec<Random>>,
+}
+
+impl<Random> Default for RandomChoices<Random> {
+    fn default() -> Self {
+        Self {
+            map: Default::default(),
+        }
+    }
+}
+
+impl<Random> RandomChoices<Random> {
+    pub fn insert(&mut self, key: String, choices: Vec<Random>) {
+        self.map.insert(key, choices);
+    }
+
+    pub fn remove(&mut self, key: &String) -> Option<Vec<Random>> {
+        self.map.remove(key)
+    }
+}
+
+impl<Random: Rewrite<Id>> Rewrite<Id> for RandomChoices<Random> {
+    fn rewrite<S>(&self, plan: &RewritePlan<Id, S>) -> Self {
+        Self {
+            map: self
+                .map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.iter().map(|r| r.rewrite(plan)).collect()))
+                .collect::<HashableHashMap<_, _, _>>(),
+        }
+    }
 }
 
 impl<A, H> serde::Serialize for ActorModelState<A, H>
@@ -23,6 +67,7 @@ where
     A::State: serde::Serialize,
     A::Msg: serde::Serialize,
     A::Timer: serde::Serialize,
+    A::Random: serde::Serialize,
     H: serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
@@ -31,6 +76,7 @@ where
         out.serialize_field("actor_states", &self.actor_states)?;
         out.serialize_field("network", &self.network)?;
         out.serialize_field("is_timer_set", &self.timers_set)?;
+        out.serialize_field("random_choices", &self.random_choices)?;
         out.serialize_field("history", &self.history)?;
         out.end()
     }
@@ -48,6 +94,7 @@ where
             actor_states: self.actor_states.clone(),
             history: self.history.clone(),
             timers_set: self.timers_set.clone(),
+            random_choices: self.random_choices.clone(),
             network: self.network.clone(),
             crashed: self.crashed.clone(),
         }
@@ -66,6 +113,7 @@ where
         builder.field("actor_states", &self.actor_states);
         builder.field("history", &self.history);
         builder.field("is_timer_set", &self.timers_set);
+        builder.field("random_choices", &self.random_choices);
         builder.field("network", &self.network);
         builder.finish()
     }
@@ -117,6 +165,7 @@ where
     A: Actor,
     A::Msg: Rewrite<Id>,
     A::State: Ord + Rewrite<Id>,
+    A::Random: Rewrite<Id>,
     H: Rewrite<Id>,
 {
     fn representative(&self) -> Self {
@@ -125,6 +174,7 @@ where
             actor_states: plan.reindex(&self.actor_states),
             network: self.network.rewrite(&plan),
             timers_set: plan.reindex(&self.timers_set),
+            random_choices: plan.reindex(&self.random_choices),
             crashed: plan.reindex(&self.crashed),
             history: self.history.rewrite(&plan),
         }
@@ -134,7 +184,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::actor::timers::Timers;
-    use crate::actor::{Actor, ActorModelState, Envelope, Id, Network, Out};
+    use crate::actor::{Actor, ActorModelState, Envelope, Id, Network, Out, RandomChoices};
     use crate::{Representative, Rewrite, RewritePlan};
     use std::sync::Arc;
 
@@ -163,6 +213,7 @@ mod test {
                 Envelope { src: 1.into(), dst: 2.into(), msg: "Ack(Y)" },
             ]),
             timers_set: vec![non_empty_timers.clone(), empty_timers.clone(), non_empty_timers.clone()],
+            random_choices: vec![RandomChoices::default(); 3],
             crashed: vec![false; 3],
             history: History {
                 send_sequence: vec![
@@ -201,6 +252,7 @@ mod test {
                 Envelope { src: 0.into(), dst: 1.into(), msg: "Ack(Y)" },
             ]),
             timers_set: vec![empty_timers, non_empty_timers.clone(), non_empty_timers.clone()],
+            random_choices: vec![RandomChoices::default(); 3],
             crashed: vec![false; 3],
             history: History {
                 send_sequence: vec![
@@ -222,6 +274,7 @@ mod test {
         type Msg = &'static str;
         type State = ActorState;
         type Timer = ();
+        type Random = ();
         fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
             unimplemented!();
         }

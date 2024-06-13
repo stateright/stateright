@@ -126,6 +126,7 @@ where
     type Msg = RegisterMsg<u64, char, InternalMsg>;
     type State = RegisterActorState<ServerActor::State, u64>;
     type Timer = ServerActor::Timer;
+    type Random = ServerActor::Random;
 
     fn name(&self) -> String {
         match self {
