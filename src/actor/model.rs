@@ -768,7 +768,7 @@ mod test {
     use crate::actor::actor_test_util::ping_pong::{PingPongCfg, PingPongMsg, PingPongMsg::*};
     use crate::actor::ActorModelAction::*;
     use crate::{Checker, PathRecorder, StateRecorder};
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::sync::Arc;
 
     #[test]
@@ -1134,11 +1134,11 @@ mod test {
             .visitor(recorder)
             .spawn_bfs()
             .join();
-        let recipient_states: Vec<Vec<u8>> = accessor()
+        let recipient_states: BTreeSet<Vec<u8>> = accessor()
             .into_iter()
             .map(|s| (*s.actor_states[1]).clone())
             .collect();
-        assert_eq!(recipient_states, vec![vec![], vec![2], vec![2, 1],]);
+        assert_eq!(recipient_states, BTreeSet::from([vec![], vec![2], vec![2, 1]]));
 
         // More states if network is not ordered.
         let (recorder, accessor) = StateRecorder::new_with_accessor();
@@ -1148,13 +1148,13 @@ mod test {
             .visitor(recorder)
             .spawn_bfs()
             .join();
-        let recipient_states: Vec<Vec<u8>> = accessor()
+        let recipient_states: BTreeSet<Vec<u8>> = accessor()
             .into_iter()
             .map(|s| (*s.actor_states[1]).clone())
             .collect();
         assert_eq!(
             recipient_states,
-            vec![vec![], vec![1], vec![2], vec![1, 2], vec![2, 1],]
+            BTreeSet::from([vec![], vec![1], vec![2], vec![1, 2], vec![2, 1]]),
         );
     }
 
