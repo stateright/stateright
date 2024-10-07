@@ -78,11 +78,11 @@ where
 {
     /// Constructs a `RewritePlan` by sorting values in a specified iterator. Favor using the
     ///  [`RewritePlan::new`] constructor over this one as it provides additional type safety.
-    pub fn from_values_to_sort<'a, V: 'a>(to_sort: impl IntoIterator<Item = &'a V>) -> Self
+    pub fn from_values_to_sort<'a, V>(to_sort: impl IntoIterator<Item = &'a V>) -> Self
     where
         R: From<usize>,
         usize: From<R>,
-        V: Ord,
+        V: 'a + Ord,
     {
         // Example in comments
         // [B,C,A]
