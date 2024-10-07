@@ -121,10 +121,7 @@ impl Actor for LwwActor {
                         updater_id: usize::from(id),
                     })
                 }
-                o.broadcast(
-                    self.peers.iter(),
-                    state_mut.register.as_ref().unwrap(),
-                );
+                o.broadcast(self.peers.iter(), state_mut.register.as_ref().unwrap());
             }
             LwwActorActions::SetTime(time) => {
                 state.to_mut().local_clock = *time;

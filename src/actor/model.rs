@@ -1383,19 +1383,8 @@ mod test {
             type Timer = ();
             type Random = TestRandom;
             fn on_start(&self, _: Id, o: &mut Out<Self>) -> Vec<TestRandom> {
-                o.choose_random(
-                    "key1",
-                    vec![
-                        TestRandom::Choice1,
-                    ],
-                );
-                o.choose_random(
-                    "key2",
-                    vec![
-                        TestRandom::Choice2,
-                        TestRandom::Choice3,
-                    ],
-                );
+                o.choose_random("key1", vec![TestRandom::Choice1]);
+                o.choose_random("key2", vec![TestRandom::Choice2, TestRandom::Choice3]);
                 Vec::new()
             }
             fn on_msg(
