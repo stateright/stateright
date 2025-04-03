@@ -109,7 +109,7 @@ impl<Job> JobBroker<Job> {
                 market.open_count = market.open_count.saturating_sub(1);
                 if market.open_count == 0 {
                     // we are the last running thread, notify all others and return so we can
-                    // shutdown properly
+                    // shut down properly
                     log::trace!(
                         "{}: No jobs. Last running thread.",
                         std::thread::current().name().unwrap_or_default()

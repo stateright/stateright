@@ -92,7 +92,7 @@ impl<RequestId, Value, InternalMsg> RegisterMsg<RequestId, Value, InternalMsg> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RegisterActor<ServerActor> {
-    /// A client that [`RegisterMsg::Put`]s a message and upon receving a
+    /// A client that [`RegisterMsg::Put`]s a message and upon receiving a
     /// corresponding [`RegisterMsg::PutOk`] follows up with a
     /// [`RegisterMsg::Get`].
     Client {

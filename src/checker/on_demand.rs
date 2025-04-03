@@ -318,7 +318,7 @@ where
                         ..
                     } => {
                         // The checker early exits after finding discoveries for every property,
-                        // and "eventually" property discoveries are only identifid at terminal
+                        // and "eventually" property discoveries are only identified at terminal
                         // states, so if we are here it means we are still awaiting a corresponding
                         // discovery regardless of whether the eventually property is now satisfied
                         // (i.e. it might be falsifiable via a different path).

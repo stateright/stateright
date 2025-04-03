@@ -50,7 +50,7 @@ pub enum ActorModelAction<Msg, Timer, Random> {
     },
     /// A message can be dropped if the network is lossy.
     Drop(Envelope<Msg>),
-    /// An actor can by notified after a timeout.
+    /// An actor can be notified after a timeout.
     Timeout(Id, Timer),
     Crash(Id),
     /// A random selection by a node.
@@ -328,7 +328,7 @@ where
                 let index = usize::from(id);
                 let last_actor_state = &last_sys_state.actor_states.get(index);
 
-                // Not all messags can be delivered, so ignore those.
+                // Not all messages can be delivered, so ignore those.
                 if last_actor_state.is_none() {
                     return None;
                 }
@@ -1244,7 +1244,7 @@ mod test {
         // Unordered duplicating networks can deliver/drop duplicates.
         //
         // IMPORTANT: in the context of a duplicating network, "dropping" must either entail:
-        //            (1) a no-op or (2) never deliving again. This implementation favors the
+        //            (1) a no-op or (2) never delivering again. This implementation favors the
         //            latter.
         let unord_dup_lossless =
             enumerate_action_sequences(LossyNetwork::No, Network::new_unordered_duplicating([]));
@@ -1368,7 +1368,7 @@ mod test {
     }
 
     #[test]
-    fn overwite_choose_random() {
+    fn overwrite_choose_random() {
         #[derive(Hash, PartialEq, Eq, Debug, Clone)]
         enum TestRandom {
             Choice1,

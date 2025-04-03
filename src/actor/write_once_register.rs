@@ -98,7 +98,7 @@ impl<RequestId, Value, InternalMsg> WORegisterMsg<RequestId, Value, InternalMsg>
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WORegisterActor<ServerActor> {
-    /// A client that [`WORegisterMsg::Put`]s a message and upon receving a
+    /// A client that [`WORegisterMsg::Put`]s a message and upon receiving a
     /// corresponding [`WORegisterMsg::PutOk`] follows up with a
     /// [`WORegisterMsg::Get`].
     Client {

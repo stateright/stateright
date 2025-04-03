@@ -3,7 +3,7 @@
 //!
 //! # The Algorithm
 //!
-//! The Paxos algorithm is comprised of two phases. These are best understood in reverse order.
+//! The Paxos algorithm is composed of two phases. These are best understood in reverse order.
 //!
 //! ## Phase 2
 //!
