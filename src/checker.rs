@@ -152,7 +152,7 @@ impl<M: Model> CheckerBuilder<M> {
 
     /// Spawns a breadth-first search model checker. This traversal strategy uses more memory than
     /// [`CheckerBuilder::spawn_dfs`] but will find the shortest [`Path`] to each discovery if
-    /// checking is single threadeded (the default behavior, which [`CheckerBuilder::threads`]
+    /// checking is single threaded (the default behavior, which [`CheckerBuilder::threads`]
     /// overrides).
     ///
     /// This call does not block the current thread. Call [`Checker::join`] to block until checking

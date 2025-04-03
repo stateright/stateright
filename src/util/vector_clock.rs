@@ -5,7 +5,7 @@ use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 /// A [vector clock](https://en.wikipedia.org/wiki/Vector_clock), which provides a partial causal
-/// order on events in a distributed sytem.
+/// order on events in a distributed system.
 #[derive(Clone, Debug, Default, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VectorClock(Vec<u32>);
 

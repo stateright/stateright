@@ -33,7 +33,7 @@
 //! In the rest of this explanation, to match the implementation we use `i` to represent `SHARED`,
 //! `ts[_]` to represent each `thread_local`, and `pcs[_]` to represent each program counter.
 //!
-//! Without symmetry reduction, the state space is comprised of 13 unique states:
+//! Without symmetry reduction, the state space is composed of 13 unique states:
 //!
 //! ```
 //! // 1. The system has a deterministic initial state.

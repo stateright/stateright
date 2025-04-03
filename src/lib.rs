@@ -256,7 +256,7 @@ pub trait Model: Sized {
     }
 }
 
-/// A named predicate, such as "an epoch *sometimes* has no leader" (for which the the model
+/// A named predicate, such as "an epoch *sometimes* has no leader" (for which the model
 /// checker would find an example) or "an epoch *always* has at most one leader" (for which the
 /// model checker would find a counterexample) or "a proposal is *eventually* accepted" (for
 /// which the model checker would find a counterexample path leading from the initial state
@@ -287,7 +287,7 @@ impl<M: Model> Property<M> {
     /// paths (those that end in either states with no successors or checking boundaries). A path
     /// ending in a cycle is not viewed as _terminating_ in that cycle, as the checker does not
     /// differentiate cycles from DAG joins, and so an `eventually` property that has not been met
-    /// by the cycle-closing edge will ignored -- a false negative.
+    /// by the cycle-closing edge will be ignored -- a false negative.
     pub fn eventually(name: &'static str, condition: fn(&M, &M::State) -> bool) -> Property<M> {
         Property {
             expectation: Expectation::Eventually,
