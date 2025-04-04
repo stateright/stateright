@@ -22,7 +22,7 @@ pub struct ActorModelState<A: Actor, H = ()> {
 }
 
 /// Represents a set of random choices for one actor.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Hash, Eq, PartialEq)]
 pub struct RandomChoices<Random> {
     /// The map of random choices for an actor.
     ///
@@ -72,11 +72,12 @@ where
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         use serde::ser::SerializeStruct;
-        let mut out = ser.serialize_struct("ActorModelState", 4)?;
+        let mut out = ser.serialize_struct("ActorModelState", 6)?;
         out.serialize_field("actor_states", &self.actor_states)?;
         out.serialize_field("network", &self.network)?;
-        out.serialize_field("is_timer_set", &self.timers_set)?;
+        out.serialize_field("timers_set", &self.timers_set)?;
         out.serialize_field("random_choices", &self.random_choices)?;
+        out.serialize_field("crashed", &self.crashed)?;
         out.serialize_field("history", &self.history)?;
         out.end()
     }
@@ -112,8 +113,9 @@ where
         let mut builder = f.debug_struct("ActorModelState");
         builder.field("actor_states", &self.actor_states);
         builder.field("history", &self.history);
-        builder.field("is_timer_set", &self.timers_set);
+        builder.field("timers_set", &self.timers_set);
         builder.field("random_choices", &self.random_choices);
+        builder.field("crashed", &self.crashed);
         builder.field("network", &self.network);
         builder.finish()
     }
@@ -141,6 +143,8 @@ where
         self.history.hash(state);
         self.timers_set.hash(state);
         self.network.hash(state);
+        self.random_choices.hash(state);
+        self.crashed.hash(state);
     }
 }
 
@@ -157,6 +161,8 @@ where
             && self.history.eq(&other.history)
             && self.timers_set.eq(&other.timers_set)
             && self.network.eq(&other.network)
+            && self.random_choices.eq(&other.random_choices)
+            && self.crashed.eq(&other.crashed)
     }
 }
 
