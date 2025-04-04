@@ -786,7 +786,7 @@ mod test {
                     actor_states: states.into_iter().map(Arc::new).collect::<Vec<_>>(),
                     network: Network::new_unordered_duplicating_with_last_msg(envelopes, last_msg),
                     timers_set,
-                    random_choices: vec![],
+                    random_choices: vec![RandomChoices::default(); 2],
                     crashed,
                     history: (0_u32, 0_u32), // constant as `maintains_history: false`
                 }
