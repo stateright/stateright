@@ -20,8 +20,8 @@ impl Actor for SingleCopyActor {
     type State = Value;
     type Timer = ();
     type Random = ();
-
-    fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
+    type Storage = ();
+    fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, _o: &mut Out<Self>) -> Self::State {
         Value::default()
     }
 
@@ -209,6 +209,8 @@ fn main() -> Result<(), pico_args::Error> {
             // WARNING: Omits `ordered_reliable_link` to keep the message
             //          protocol simple for `nc`.
             spawn(
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
                 serde_json::to_vec,
                 |bytes| serde_json::from_slice(bytes),
                 vec![(
