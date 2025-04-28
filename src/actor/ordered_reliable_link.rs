@@ -6,7 +6,7 @@
 //! Order is maintained for messages between a source/destination pair. Order is not maintained
 //! between different destinations or different sources.
 //!
-//! The implementation assumes that actors cannot restart. A later version could persist sequencer
+//! The implementation assumes that actors can restart, by persisting sequencer
 //! information to properly handle actor restarts.
 //!
 //! # See Also
@@ -48,7 +48,7 @@ pub type Sequencer = u64;
 
 /// Maintains state for the ORL.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct StateWrapper<Msg, State> {
+pub struct StateWrapper<Msg, State, Storage> {
     // send side
     next_send_seq: Sequencer,
     msgs_pending_ack: HashableHashMap<Sequencer, (Id, Msg)>,
@@ -57,6 +57,7 @@ pub struct StateWrapper<Msg, State> {
     last_delivered_seqs: HashableHashMap<Id, Sequencer>,
 
     wrapped_state: State,
+    wrapped_storage: Option<Storage>,
 }
 
 /// Wrapper for timers.
@@ -64,6 +65,19 @@ pub struct StateWrapper<Msg, State> {
 pub enum TimerWrapper<Timer> {
     Network,
     User(Timer),
+}
+
+/// Maintains storage for the ORL.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct StorageWrapper<Msg, Storage> {
+    // send side
+    next_send_seq: Sequencer,
+    msgs_pending_ack: HashableHashMap<Sequencer, (Id, Msg)>,
+
+    // receive (ack'ing) side
+    last_delivered_seqs: HashableHashMap<Id, Sequencer>,
+
+    wrapped_storage: Option<Storage>,
 }
 
 impl<A: Actor> ActorWrapper<A> {
@@ -80,19 +94,38 @@ where
     A::Msg: Hash,
 {
     type Msg = MsgWrapper<A::Msg>;
-    type State = StateWrapper<A::Msg, A::State>;
+    type State = StateWrapper<A::Msg, A::State, A::Storage>;
     type Timer = TimerWrapper<A::Timer>;
     type Random = A::Random;
+    type Storage = StorageWrapper<A::Msg, A::Storage>;
 
-    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+    fn on_start(&self, id: Id, storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
         o.set_timer(TimerWrapper::Network, self.resend_interval.clone());
 
         let mut wrapped_out = Out::new();
+        let (next_send_seq, msgs_pending_ack, last_delivered_seqs, wrapped_storage) = match storage
+        {
+            Some(StorageWrapper {
+                next_send_seq,
+                msgs_pending_ack,
+                last_delivered_seqs,
+                wrapped_storage,
+            }) => (
+                *next_send_seq,
+                msgs_pending_ack.clone(),
+                last_delivered_seqs.clone(),
+                wrapped_storage.clone(),
+            ),
+            None => (1, Default::default(), Default::default(), None),
+        };
         let mut state = StateWrapper {
-            next_send_seq: 1,
-            msgs_pending_ack: Default::default(),
-            last_delivered_seqs: Default::default(),
-            wrapped_state: self.wrapped_actor.on_start(id, &mut wrapped_out),
+            next_send_seq,
+            msgs_pending_ack,
+            last_delivered_seqs,
+            wrapped_state: self
+                .wrapped_actor
+                .on_start(id, &wrapped_storage, &mut wrapped_out),
+            wrapped_storage: wrapped_storage.clone(),
         };
         process_output(&mut state, wrapped_out, o);
         state
@@ -137,6 +170,7 @@ where
                         msgs_pending_ack: state.msgs_pending_ack.clone(),
                         last_delivered_seqs: state.last_delivered_seqs.clone(),
                         wrapped_state,
+                        wrapped_storage: state.wrapped_storage.clone(),
                     });
                 }
                 state.to_mut().last_delivered_seqs.insert(src, seq);
@@ -146,6 +180,13 @@ where
                 state.to_mut().msgs_pending_ack.remove(&seq);
             }
         }
+        // Non-volatile fields in Storage are changed, persist them.
+        o.save(StorageWrapper {
+            next_send_seq: state.next_send_seq,
+            msgs_pending_ack: state.msgs_pending_ack.clone(),
+            last_delivered_seqs: state.last_delivered_seqs.clone(),
+            wrapped_storage: state.wrapped_storage.clone(),
+        })
     }
 
     fn on_timeout(
@@ -181,19 +222,20 @@ where
 }
 
 fn process_output<A: Actor>(
-    state: &mut StateWrapper<A::Msg, A::State>,
+    state: &mut StateWrapper<A::Msg, A::State, A::Storage>,
     wrapped_out: Out<A>,
     o: &mut Out<ActorWrapper<A>>,
 ) where
     A::Msg: Hash,
 {
+    let mut should_save_storage = false;
     for command in wrapped_out {
         match command {
-            Command::CancelTimer(_) => {
-                todo!("CancelTimer is not supported at this time");
+            Command::CancelTimer(timer) => {
+                o.cancel_timer(TimerWrapper::User(timer));
             }
-            Command::SetTimer(_, _) => {
-                todo!("SetTimer is not supported at this time");
+            Command::SetTimer(timer, duration) => {
+                o.set_timer(TimerWrapper::User(timer), duration);
             }
             Command::Send(dst, inner_msg) => {
                 o.send(
@@ -204,11 +246,25 @@ fn process_output<A: Actor>(
                     .msgs_pending_ack
                     .insert(state.next_send_seq, (dst, inner_msg));
                 state.next_send_seq += 1;
+                should_save_storage = true;
             }
             Command::ChooseRandom(_, _) => {
                 todo!("ChooseRandom is not supported at this time");
             }
+            Command::Save(storage) => {
+                should_save_storage = true;
+                state.wrapped_storage = Some(storage);
+            }
         }
+    }
+    if should_save_storage {
+        // Non-volatile fields in Storage are changed, persist them.
+        o.save(StorageWrapper {
+            next_send_seq: state.next_send_seq,
+            msgs_pending_ack: state.msgs_pending_ack.clone(),
+            last_delivered_seqs: state.last_delivered_seqs.clone(),
+            wrapped_storage: state.wrapped_storage.clone(),
+        })
     }
 }
 
@@ -234,8 +290,13 @@ mod test {
         type State = Received;
         type Timer = ();
         type Random = ();
-
-        fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+        type Storage = ();
+        fn on_start(
+            &self,
+            _id: Id,
+            _storage: &Option<Self::Storage>,
+            o: &mut Out<Self>,
+        ) -> Self::State {
             if let TestActor::Sender { receiver_id } = self {
                 o.send(*receiver_id, TestMsg(42));
                 o.send(*receiver_id, TestMsg(43));

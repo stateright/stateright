@@ -52,8 +52,11 @@ pub enum ActorModelAction<Msg, Timer, Random> {
     Drop(Envelope<Msg>),
     /// An actor can be notified after a timeout.
     Timeout(Id, Timer),
+    /// An actor can crash, i.e. losing all its volatile state.
     Crash(Id),
-    /// A random selection by a node.
+    /// An actor can recover, i.e. restoring all its non-volatile state in Self::Storage.
+    Recover(Id),
+    /// A random selection by an actor.
     SelectRandom {
         actor: Id,
         key: String,
@@ -220,6 +223,13 @@ where
                         state.random_choices[index].insert(key, random)
                     }
                 }
+                Command::Save(storage) => {
+                    // must use the index to infer how large as actor state may not be initialized yet
+                    if state.actor_storages.len() <= index {
+                        state.actor_storages.resize_with(index + 1, Default::default);
+                    }
+                    state.actor_storages[index] = Some(storage);
+                }
             }
         }
     }
@@ -241,13 +251,14 @@ where
             random_choices: vec![RandomChoices::default(); self.actors.len()],
             network: self.init_network.clone(),
             crashed: vec![false; self.actors.len()],
+            actor_storages: vec![None; self.actors.len()],
         };
 
         // init each actor
         for (index, actor) in self.actors.iter().enumerate() {
             let id = Id::from(index);
             let mut out = Out::new();
-            let state = actor.on_start(id, &mut out);
+            let state = actor.on_start(id, &init_sys_state.actor_storages[index], &mut out);
             init_sys_state.actor_states.push(Arc::new(state));
             self.process_commands(id, out, &mut init_sys_state);
         }
@@ -299,7 +310,15 @@ where
                 .for_each(|index| actions.push(ActorModelAction::Crash(Id::from(index))));
         }
 
-        // option 5: random choice
+        // option 5: actor recover
+        state
+            .crashed
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &crashed)| if crashed { Some(index) } else { None })
+            .for_each(|index| actions.push(ActorModelAction::Recover(Id::from(index))));
+
+        // option 6: random choice
         for (actor_index, random_decisions) in state.random_choices.iter().enumerate() {
             for (key, decision) in random_decisions.map.into_iter() {
                 for choice in decision {
@@ -405,6 +424,18 @@ where
                 next_sys_state.random_choices[index].map.clear();
                 next_sys_state.crashed[index] = true;
 
+                Some(next_sys_state)
+            }
+            ActorModelAction::Recover(id) => {
+                let index = usize::from(id);
+                assert_eq!(last_sys_state.crashed[index], true);
+                let mut out = Out::new();
+                let state =
+                    self.actors[index].on_start(id, &last_sys_state.actor_storages[index], &mut out);
+                let mut next_sys_state = last_sys_state.clone();
+                next_sys_state.actor_states[index] = Arc::new(state);
+                next_sys_state.crashed[index] = false;
+                self.process_commands(id, out, &mut next_sys_state);
                 Some(next_sys_state)
             }
             ActorModelAction::SelectRandom { actor, key, random } => {
@@ -518,6 +549,24 @@ where
                         }
                     )
                 })
+            }
+            ActorModelAction::Recover(id) => {
+                let index = usize::from(id);
+                let last_actor_state = match last_state.actor_states.get(index) {
+                    None => return None,
+                    Some(last_actor_state) => &**last_actor_state,
+                };
+                let mut out = Out::new();
+                let actor_state =
+                    self.actors[index].on_start(id, &last_state.actor_storages[index], &mut out);
+                Some(format!(
+                    "{}",
+                    ActorStep {
+                        last_state: last_actor_state,
+                        next_state: Some(actor_state),
+                        out,
+                    }
+                ))
             }
             ActorModelAction::SelectRandom {
                 actor,
@@ -697,6 +746,15 @@ where
                         }
                     }
                 }
+                Some(ActorModelAction::Recover(actor_id)) => {
+                    let (x, y) = plot(actor_id.into(), time);
+                    writeln!(
+                        &mut svg,
+                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
+                        x, y
+                    )
+                    .unwrap();
+                }
                 _ => {}
             }
         }
@@ -745,6 +803,15 @@ where
                     )
                     .unwrap();
                 }
+                Some(ActorModelAction::Recover(id)) => {
+                    let (x, y) = plot(id.into(), time);
+                    writeln!(
+                        &mut svg,
+                        "<text x='{}' y='{}' class='svg-event-label'>Recover</text>",
+                        x, y
+                    )
+                    .unwrap();
+                }
                 _ => {}
             }
         }
@@ -780,15 +847,17 @@ mod test {
             |states: Vec<u32>,
              envelopes: Vec<Envelope<_>>,
              last_msg: Option<Envelope<PingPongMsg>>| {
-                let timers_set = vec![Timers::new(); states.len()];
+                let states_len = states.len();
+                let timers_set = vec![Timers::new(); states_len];
                 let crashed = vec![false; states.len()];
                 ActorModelState {
                     actor_states: states.into_iter().map(Arc::new).collect::<Vec<_>>(),
                     network: Network::new_unordered_duplicating_with_last_msg(envelopes, last_msg),
                     timers_set,
-                    random_choices: vec![RandomChoices::default(); 2],
+                    random_choices: vec![RandomChoices::default(); states_len],
                     crashed,
                     history: (0_u32, 0_u32), // constant as `maintains_history: false`
+                    actor_storages: vec![None; states_len],
                 }
             };
 
@@ -908,7 +977,13 @@ mod test {
             type State = String;
             type Timer = ();
             type Random = ();
-            fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+            type Storage = ();
+            fn on_start(
+                &self,
+                _id: Id,
+                _storage: &Option<Self::Storage>,
+                o: &mut Out<Self>,
+            ) -> Self::State {
                 if let MyActor::Client { server } = self {
                     o.send(*server, Msg::Ignored);
                     o.send(*server, Msg::Interesting);
@@ -1100,7 +1175,13 @@ mod test {
             type State = Vec<u8>;
             type Timer = ();
             type Random = ();
-            fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+            type Storage = ();
+            fn on_start(
+                &self,
+                id: Id,
+                _storage: &Option<Self::Storage>,
+                o: &mut Out<Self>,
+            ) -> Self::State {
                 if id == 0.into() {
                     // Count down.
                     o.send(1.into(), 2);
@@ -1138,7 +1219,10 @@ mod test {
             .into_iter()
             .map(|s| (*s.actor_states[1]).clone())
             .collect();
-        assert_eq!(recipient_states, BTreeSet::from([vec![], vec![2], vec![2, 1]]));
+        assert_eq!(
+            recipient_states,
+            BTreeSet::from([vec![], vec![2], vec![2, 1]])
+        );
 
         // More states if network is not ordered.
         let (recorder, accessor) = StateRecorder::new_with_accessor();
@@ -1177,8 +1261,14 @@ mod test {
                 type State = usize; // receipt count
                 type Timer = ();
                 type Random = ();
+                type Storage = ();
 
-                fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+                fn on_start(
+                    &self,
+                    id: Id,
+                    _storage: &Option<Self::Storage>,
+                    o: &mut Out<Self>,
+                ) -> Self::State {
                     if id == 0.into() {
                         o.send(1.into(), ());
                         o.send(1.into(), ());
@@ -1281,7 +1371,8 @@ mod test {
             type Msg = ();
             type Timer = ();
             type Random = ();
-            fn on_start(&self, _: Id, o: &mut Out<Self>) {
+            type Storage = ();
+            fn on_start(&self, _: Id, _: &Option<Self::Storage>, o: &mut Out<Self>) {
                 o.set_timer((), model_timeout());
             }
             fn on_msg(
@@ -1323,7 +1414,13 @@ mod test {
             type Msg = ();
             type Timer = ();
             type Random = TestRandom;
-            fn on_start(&self, _: Id, o: &mut Out<Self>) -> Option<TestRandom> {
+            type Storage = ();
+            fn on_start(
+                &self,
+                _: Id,
+                _: &Option<Self::Storage>,
+                o: &mut Out<Self>,
+            ) -> Option<TestRandom> {
                 o.choose_random(
                     "key1",
                     vec![
@@ -1382,7 +1479,13 @@ mod test {
             type Msg = ();
             type Timer = ();
             type Random = TestRandom;
-            fn on_start(&self, _: Id, o: &mut Out<Self>) -> Vec<TestRandom> {
+            type Storage = ();
+            fn on_start(
+                &self,
+                _: Id,
+                _: &Option<Self::Storage>,
+                o: &mut Out<Self>,
+            ) -> Vec<TestRandom> {
                 o.choose_random("key1", vec![TestRandom::Choice1]);
                 o.choose_random("key2", vec![TestRandom::Choice2, TestRandom::Choice3]);
                 Vec::new()
@@ -1429,6 +1532,114 @@ mod test {
             9
         );
     }
+
+    #[test]
+    fn crash_test() {
+        #[derive(Clone)]
+        struct TestActor;
+        impl Actor for TestActor {
+            type Msg = ();
+            type Timer = ();
+            type State = ();
+            type Storage = ();
+            type Random = ();
+            fn on_start(
+                &self,
+                _id: Id,
+                _storage: &Option<Self::Storage>,
+                _o: &mut Out<Self>,
+            ) -> Self::State {
+                ()
+            }
+        }
+
+        assert_eq!(
+            ActorModel::new((), ())
+                .actors(vec![TestActor; 3])
+                .max_crashes(1)
+                .property(Expectation::Always, "unused", |_, _| true) // force full traversal
+                .checker()
+                .spawn_bfs()
+                .join()
+                .unique_state_count(),
+            // comb(3, 1) + 1 (no actor is crashed) = 3 + 1 = 4
+            4
+        )
+    }
+
+    #[test]
+    fn recover_test() {
+        #[derive(Clone)]
+        struct TestActor(usize); // carry a counter to limit the model space
+        #[derive(Clone, Debug, PartialEq, Hash)]
+        struct TestState {
+            volatile: usize,
+            non_volatile: usize,
+        }
+        #[derive(Clone, Debug, PartialEq, Hash)]
+        struct TestStorage {
+            non_volatile: usize,
+        }
+
+        impl Actor for TestActor {
+            type Msg = ();
+            type Timer = ();
+            type State = TestState;
+            type Storage = TestStorage;
+            type Random = ();
+
+            fn on_start(
+                &self,
+                _id: Id,
+                storage: &Option<Self::Storage>,
+                o: &mut Out<Self>,
+            ) -> Self::State {
+                o.set_timer((), model_timeout());
+                if let Some(storage) = storage {
+                    Self::State {
+                        volatile: 0,
+                        non_volatile: storage.non_volatile, // restore non-volatile state from `storage`
+                    }
+                } else {
+                    Self::State {
+                        volatile: 0,
+                        non_volatile: 0, // no available `storage`
+                    }
+                }
+            }
+
+            fn on_timeout(
+                &self,
+                _id: Id,
+                state: &mut Cow<Self::State>,
+                _timer: &Self::Timer,
+                o: &mut Out<Self>,
+            ) {
+                let state = state.to_mut();
+                state.volatile += 1;
+                state.non_volatile += 1;
+                o.save(TestStorage {
+                    non_volatile: state.non_volatile,
+                });
+                if state.non_volatile < self.0 {
+                    // restore the timer
+                    o.set_timer((), model_timeout());
+                }
+            }
+        }
+
+        let checker = ActorModel::new((), ())
+            .actor(TestActor(3))
+            .property(Expectation::Sometimes, "recovered", |_, state| {
+                let actor_state = state.actor_states.get(0).unwrap();
+                actor_state.non_volatile > actor_state.volatile
+            })
+            .max_crashes(1)
+            .checker()
+            .spawn_bfs()
+            .join();
+        checker.assert_any_discovery("recovered");
+    }
 }
 
 #[cfg(test)]
@@ -1446,7 +1657,8 @@ mod choice_test {
         type Msg = ();
         type Timer = ();
         type Random = ();
-        fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
+        type Storage = ();
+        fn on_start(&self, _: Id, _: &Option<Self::Storage>, _: &mut Out<Self>) -> Self::State {
             1
         }
         fn on_msg(
@@ -1471,7 +1683,8 @@ mod choice_test {
         type Msg = ();
         type Timer = ();
         type Random = ();
-        fn on_start(&self, _: Id, _: &mut Out<Self>) -> Self::State {
+        type Storage = ();
+        fn on_start(&self, _: Id, _: &Option<Self::Storage>, _: &mut Out<Self>) -> Self::State {
             'a'
         }
         fn on_msg(
@@ -1496,7 +1709,8 @@ mod choice_test {
         type Msg = ();
         type Timer = ();
         type Random = ();
-        fn on_start(&self, _: Id, o: &mut Out<Self>) -> Self::State {
+        type Storage = ();
+        fn on_start(&self, _: Id, _: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
             o.send(self.a, ());
             "I".to_string()
         }

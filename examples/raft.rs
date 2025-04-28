@@ -135,8 +135,10 @@ impl Actor for RaftActor {
     type Msg = RaftMessage;
     type State = NodeState;
     type Timer = RaftTimer;
+    type Random = ();
+    type Storage = ();
 
-    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+    fn on_start(&self, id: Id, _storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
         o.set_timer(RaftTimer::ElectionTimeout, model_timeout());
         o.set_timer(RaftTimer::ReplicationTimeout, model_timeout());
         let id: usize = id.into();
