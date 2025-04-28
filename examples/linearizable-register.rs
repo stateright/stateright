@@ -66,8 +66,9 @@ impl Actor for AbdActor {
     type State = AbdState;
     type Timer = ();
     type Random = ();
+    type Storage = ();
 
-    fn on_start(&self, id: Id, _o: &mut Out<Self>) -> Self::State {
+    fn on_start(&self, id: Id, _storage: &Option<Self::Storage>, _o: &mut Out<Self>) -> Self::State {
         AbdState {
             seq: (0, id),
             val: Value::default(),
@@ -387,6 +388,8 @@ fn main() -> Result<(), pico_args::Error> {
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             spawn(
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
                 serde_json::to_vec,
                 |bytes| serde_json::from_slice(bytes),
                 vec![

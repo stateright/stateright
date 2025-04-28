@@ -88,10 +88,12 @@ impl Actor for LwwActor {
     type Timer = ();
     type State = LwwActorState;
     type Random = LwwActorActions<Value>;
+    type Storage = ();
 
     fn on_start(
         &self,
         _: stateright::actor::Id,
+        _: &Option<Self::Storage>,
         o: &mut stateright::actor::Out<Self>,
     ) -> Self::State {
         let state = LwwActorState::new();
@@ -223,6 +225,8 @@ pub fn main() -> Result<(), pico_args::Error> {
             let id1 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 1));
             let id2 = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port + 2));
             spawn(
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
                 serde_json::to_vec,
                 |bytes| serde_json::from_slice(bytes),
                 vec![

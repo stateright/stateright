@@ -431,6 +431,7 @@ mod test {
                         network: Network::new_unordered_nonduplicating([
                             Envelope { src: Id::from(0), dst: Id::from(1), msg: Ping(0) },
                         ]),
+                        actor_storages: vec![None; 2],
                     }),
                     properties: vec![
                         (Expectation::Always, "delta within 1".into(), None),
@@ -458,6 +459,7 @@ mod test {
                         dst: Id::from(1),
                         msg: Ping(0),
                     }]),
+                    actor_storages: vec![None; 2],
                 });
                 format!("/{}", fp)
             };
@@ -476,6 +478,7 @@ mod test {
                     random_choices: vec![RandomChoices::default(); 2],
                     crashed: vec![false; 2],
                     network: Network::new_unordered_nonduplicating([]),
+                    actor_storages: vec![None; 2],
                 }),
                 properties: vec![
                     (Expectation::Always, "delta within 1".into(), None),
@@ -504,6 +507,7 @@ mod test {
                     network: Network::new_unordered_nonduplicating([
                         Envelope { src: Id::from(1), dst: Id::from(0), msg: Pong(0) },
                     ]),
+                    actor_storages: vec![None; 2],
                 }),
                 properties: vec![
                     (Expectation::Always, "delta within 1".into(), None),

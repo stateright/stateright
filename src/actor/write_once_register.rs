@@ -133,9 +133,10 @@ where
     type State = WORegisterActorState<ServerActor::State, u64>;
     type Timer = ServerActor::Timer;
     type Random = ServerActor::Random;
+    type Storage = ServerActor::Storage;
 
     #[allow(clippy::identity_op)]
-    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+    fn on_start(&self, id: Id, storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
         match self {
             WORegisterActor::Client {
                 put_count,
@@ -168,8 +169,11 @@ where
             }
             WORegisterActor::Server(server_actor) => {
                 let mut server_out = Out::new();
-                let state =
-                    WORegisterActorState::Server(server_actor.on_start(id, &mut server_out));
+                let state = WORegisterActorState::Server(server_actor.on_start(
+                    id,
+                    storage,
+                    &mut server_out,
+                ));
                 o.append(&mut server_out);
                 state
             }

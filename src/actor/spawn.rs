@@ -4,7 +4,11 @@ use crate::actor::*;
 use crossbeam_utils::thread;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 impl From<Id> for SocketAddrV4 {
@@ -56,20 +60,25 @@ fn practically_never() -> Instant {
 /// spawn(
 ///     serde_json::to_vec,
 ///     |bytes| serde_json::from_slice(bytes),
+///     serde_json::to_vec,
+///     |bytes| serde_json::from_slice(bytes),
 ///     vec![
 ///         (id1, actor1),
 ///         (id2, actor2),
 ///     ]);
 /// ```
 pub fn spawn<A, E: Debug + 'static>(
-    serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
-    deserialize: fn(&[u8]) -> Result<A::Msg, E>,
+    msg_serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
+    msg_deserialize: fn(&[u8]) -> Result<A::Msg, E>,
+    storage_serialize: fn(&A::Storage) -> Result<Vec<u8>, E>,
+    storage_deserialize: fn(&[u8]) -> Result<A::Storage, E>,
     actors: Vec<(impl Into<Id>, A)>,
 ) -> Result<(), Box<dyn std::any::Any + Send + 'static>>
 where
     A: 'static + Send + Actor,
     A::Msg: Debug,
     A::State: Debug,
+    A::Storage: Debug,
 {
     thread::scope(|s| {
         for (id, actor) in actors {
@@ -83,10 +92,15 @@ where
                 let mut next_interrupts = HashMap::new();
 
                 let mut out = Out::new();
-                let mut state = Cow::Owned(actor.on_start(id, &mut out));
+                let filename = format!("{}.storage", addr);
+                let path = PathBuf::from(filename);
+                let storage: Option<A::Storage> = fs::read(&path)
+                    .ok()
+                    .and_then(|bytes| storage_deserialize(&bytes).ok());
+                let mut state = Cow::Owned(actor.on_start(id, &storage, &mut out));
                 log::info!("Actor started. id={}, state={:?}, out={:?}", addr, state, out);
                 for c in out {
-                    on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupts);
+                    on_command::<A, E>(addr, c, msg_serialize, storage_serialize, &socket, &mut next_interrupts);
                 }
 
                 loop {
@@ -108,7 +122,7 @@ where
                                 continue;
                             },
                             Ok((count, src_addr)) => {
-                                match deserialize(&in_buf[..count]) {
+                                match msg_deserialize(&in_buf[..count]) {
                                     Ok(msg) => {
                                         if let SocketAddr::V4(src_addr) = src_addr {
                                             log::info!("Received message. id={}, src={}, msg={}",
@@ -146,7 +160,7 @@ where
                         log::debug!("Acted. id={}, state={:?}, out={:?}",
                                     addr, state, out);
                     }
-                    for c in out { on_command::<A, E>(addr, c, serialize, &socket, &mut next_interrupts); }
+                    for c in out { on_command::<A, E>(addr, c, msg_serialize, storage_serialize, &socket, &mut next_interrupts); }
                 }
             });
         }
@@ -162,8 +176,9 @@ enum Interrupt<T, R> {
 /// The effect to perform in response to spawned actor outputs.
 fn on_command<A, E>(
     addr: SocketAddrV4,
-    command: Command<A::Msg, A::Timer, A::Random>,
-    serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
+    command: Command<A::Msg, A::Timer, A::Random, A::Storage>,
+    msg_serialize: fn(&A::Msg) -> Result<Vec<u8>, E>,
+    storage_serialize: fn(&A::Storage) -> Result<Vec<u8>, E>,
     socket: &UdpSocket,
     next_interrupts: &mut HashMap<Interrupt<A::Timer, A::Random>, Instant>,
 ) where
@@ -174,7 +189,7 @@ fn on_command<A, E>(
     match command {
         Command::Send(dst, msg) => {
             let dst_addr = SocketAddrV4::from(dst);
-            match serialize(&msg) {
+            match msg_serialize(&msg) {
                 Err(e) => {
                     log::warn!(
                         "Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
@@ -228,13 +243,25 @@ fn on_command<A, E>(
                 .and_modify(|d| *d = Instant::now() + duration)
                 .or_insert_with(|| Instant::now() + duration);
         }
+        Command::Save(storage) => {
+            let filename = format!("{}.storage", addr);
+            let path = PathBuf::from(filename);
+            let bytes = storage_serialize(&storage).expect("serialize storage failed");
+            let mut file =
+                File::create(&path).expect(format!("failed to create file {:?}", path).as_str());
+            file.write_all(&bytes)
+                .expect(format!("failed to write to file {:?}", path).as_str());
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::actor::*;
+    use serde::{Deserialize, Serialize};
+    use std::fs;
     use std::net::{Ipv4Addr, SocketAddrV4};
+    use std::path::PathBuf;
 
     #[test]
     fn can_encode_id() {
@@ -246,5 +273,114 @@ mod test {
     fn can_decode_id() {
         let addr = SocketAddrV4::new(Ipv4Addr::new(1, 2, 3, 4), 5);
         assert_eq!(SocketAddrV4::from(Id::from(addr)), addr);
+    }
+
+    #[test]
+    fn can_crash_and_then_recover() {
+        #[derive(Clone)]
+        struct TestActor;
+        #[derive(Clone, Debug, PartialEq, Hash)]
+        struct TestState {
+            volatile: usize,
+            non_volatile: usize,
+        }
+        #[derive(Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
+        struct TestStorage {
+            non_volatile: usize,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Hash, Eq)]
+        enum TestTimer {
+            Increase,
+            Crash,
+        }
+        impl Actor for TestActor {
+            type Msg = ();
+            type Timer = TestTimer;
+            type State = TestState;
+            type Storage = TestStorage;
+            type Random = ();
+
+            fn on_start(
+                &self,
+                _id: Id,
+                storage: &Option<Self::Storage>,
+                o: &mut Out<Self>,
+            ) -> Self::State {
+                o.set_timer(
+                    TestTimer::Crash,
+                    Duration::from_secs(2)..Duration::from_secs(3),
+                );
+                o.set_timer(
+                    TestTimer::Increase,
+                    Duration::from_millis(50)..Duration::from_millis(100),
+                );
+                if let Some(storage) = storage {
+                    assert!(storage.non_volatile > 0);
+                    Self::State {
+                        volatile: 0,
+                        non_volatile: storage.non_volatile, // restore non-volatile state from `storage`
+                    }
+                } else {
+                    Self::State {
+                        volatile: 0,
+                        non_volatile: 0, // no available `storage`
+                    }
+                }
+            }
+
+            fn on_timeout(
+                &self,
+                _id: Id,
+                state: &mut Cow<Self::State>,
+                timer: &Self::Timer,
+                o: &mut Out<Self>,
+            ) {
+                match timer {
+                    TestTimer::Increase => {
+                        let state = state.to_mut();
+                        state.volatile += 1;
+                        state.non_volatile += 1;
+                        o.save(TestStorage {
+                            non_volatile: state.non_volatile,
+                        });
+                        o.set_timer(
+                            TestTimer::Increase,
+                            Duration::from_millis(50)..Duration::from_millis(100),
+                        );
+                    }
+                    TestTimer::Crash => {
+                        panic!("Actor crashed!");
+                    }
+                }
+            }
+        }
+
+        let id = Id::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 1234));
+        let result = std::panic::catch_unwind(|| {
+            spawn(
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
+                serde_json::to_vec,
+                |bytes| serde_json::from_slice(bytes),
+                vec![(id, TestActor)],
+            )
+        });
+        if result.is_err() {
+            // restart the actor
+            let _ = std::panic::catch_unwind(|| {
+                spawn(
+                    serde_json::to_vec,
+                    |bytes| serde_json::from_slice(bytes),
+                    serde_json::to_vec,
+                    |bytes| serde_json::from_slice(bytes),
+                    vec![(id, TestActor)],
+                )
+            });
+        }
+        // delete the storage file
+        let filename = format!("{}.storage", SocketAddrV4::new(Ipv4Addr::LOCALHOST, 1234));
+        let path = PathBuf::from(filename);
+        fs::remove_file(&path).expect(&format!("failed to remove file {:?}", path));
     }
 }

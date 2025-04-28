@@ -32,8 +32,9 @@
 //!     type State = Timestamp;
 //!     type Timer = ();
 //!     type Random = ();
+//!     type Storage = ();
 //!
-//!     fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+//!     fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
 //!         // The actor either bootstraps or starts at time zero.
 //!         if let Some(peer_id) = self.bootstrap_to_id {
 //!             o.send(peer_id, MsgWithTimestamp(1));
@@ -158,19 +159,21 @@ impl From<usize> for Id {
 
 /// Commands with which an actor can respond.
 #[derive(Debug, serde::Serialize)]
-pub enum Command<Msg, Timer, Random> {
+pub enum Command<Msg, Timer, Random, Storage> {
     /// Cancel the timer if one is set.
     CancelTimer(Timer),
     /// Set/reset the timer.
     SetTimer(Timer, Range<Duration>),
     /// Send a message to a destination.
     Send(Id, Msg),
-    /// Choose a random
+    /// Choose a random.
     ChooseRandom(String, Vec<Random>),
+    /// Save non-volatile state.
+    Save(Storage),
 }
 
 /// Holds [`Command`]s output by an actor.
-pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer, A::Random>>);
+pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer, A::Random, A::Storage>>);
 
 impl<A: Actor> Default for Out<A> {
     fn default() -> Self {
@@ -187,7 +190,7 @@ impl<A: Actor> Out<A> {
     /// Moves all [`Command`]s of `other` into `Self`, leaving `other` empty.
     pub fn append<B>(&mut self, other: &mut Out<B>)
     where
-        B: Actor<Msg = A::Msg, Timer = A::Timer, Random = A::Random>,
+        B: Actor<Msg = A::Msg, Timer = A::Timer, Random = A::Random, Storage = A::Storage>,
     {
         self.0.append(&mut other.0)
     }
@@ -236,6 +239,11 @@ impl<A: Actor> Out<A> {
     pub fn remove_random(&mut self, key: impl Into<String>) {
         self.0.push(Command::ChooseRandom(key.into(), vec![]));
     }
+
+    /// Records the need to save non-volatile state. See [`Actor::on_start`].
+    pub fn save(&mut self, storage: A::Storage) {
+        self.0.push(Command::Save(storage));
+    }
 }
 
 impl<A: Actor> Debug for Out<A> {
@@ -245,21 +253,25 @@ impl<A: Actor> Debug for Out<A> {
 }
 
 impl<A: Actor> std::ops::Deref for Out<A> {
-    type Target = [Command<A::Msg, A::Timer, A::Random>];
+    type Target = [Command<A::Msg, A::Timer, A::Random, A::Storage>];
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<A: Actor> std::iter::FromIterator<Command<A::Msg, A::Timer, A::Random>> for Out<A> {
-    fn from_iter<I: IntoIterator<Item = Command<A::Msg, A::Timer, A::Random>>>(iter: I) -> Self {
+impl<A: Actor> std::iter::FromIterator<Command<A::Msg, A::Timer, A::Random, A::Storage>>
+    for Out<A>
+{
+    fn from_iter<I: IntoIterator<Item = Command<A::Msg, A::Timer, A::Random, A::Storage>>>(
+        iter: I,
+    ) -> Self {
         Out(Vec::from_iter(iter))
     }
 }
 
 impl<A: Actor> IntoIterator for Out<A> {
-    type Item = Command<A::Msg, A::Timer, A::Random>;
-    type IntoIter = std::vec::IntoIter<Command<A::Msg, A::Timer, A::Random>>;
+    type Item = Command<A::Msg, A::Timer, A::Random, A::Storage>;
+    type IntoIter = std::vec::IntoIter<Command<A::Msg, A::Timer, A::Random, A::Storage>>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
@@ -323,6 +335,16 @@ pub trait Actor: Sized {
     /// ```
     type State: Clone + Debug + PartialEq + Hash;
 
+    /// The type of non-volatile state maintained by the server.
+    /// This should be a subset of the `State` field.
+    ///
+    /// # Example
+    /// ```
+    /// #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    /// struct MyActorStorage { sequencer: u64 }
+    /// ```
+    type Storage: Clone + Debug + PartialEq + Hash;
+
     /// The type for tagging random choices by an actor.
     ///
     /// # Example
@@ -334,7 +356,7 @@ pub trait Actor: Sized {
     type Random: Clone + Debug + Eq + Hash;
 
     /// Indicates the initial state and commands.
-    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State;
+    fn on_start(&self, id: Id, storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State;
 
     /// Indicates the next state and commands when a message is received. See [`Out::send`].
     fn on_msg(
@@ -396,12 +418,12 @@ where
     type State = Choice<A::State, Never>;
     type Timer = A::Timer;
     type Random = A::Random;
+    type Storage = A::Storage;
 
-    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+    fn on_start(&self, id: Id, storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
         let actor = self.get();
         let mut o_prime = Out::new();
-        let state = actor.on_start(id, &mut o_prime);
-
+        let state = actor.on_start(id, storage, &mut o_prime);
         o.append(&mut o_prime);
         Choice::new(state)
     }
@@ -448,30 +470,31 @@ where
     }
 }
 
-impl<Msg, Timer, Random, A1, A2> Actor for Choice<A1, A2>
+impl<Msg, Timer, Random, Storage, A1, A2> Actor for Choice<A1, A2>
 where
     Msg: Clone + Debug + Eq + Hash,
     Timer: Clone + Debug + Eq + Hash + serde::Serialize,
     Random: Clone + Debug + Eq + Hash,
-    A1: Actor<Msg = Msg, Timer = Timer, Random = Random>,
-    A2: Actor<Msg = Msg, Timer = Timer, Random = Random>,
+    Storage: Clone + Debug + Eq + Hash + serde::Serialize,
+    A1: Actor<Msg = Msg, Timer = Timer, Storage = Storage, Random = Random>,
+    A2: Actor<Msg = Msg, Timer = Timer, Storage = Storage, Random = Random>,
 {
     type Msg = Msg;
     type State = Choice<A1::State, A2::State>;
     type Timer = Timer;
     type Random = Random;
-
-    fn on_start(&self, id: Id, o: &mut Out<Self>) -> Self::State {
+    type Storage = Storage;
+    fn on_start(&self, id: Id, storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
         match self {
             Choice::L(actor) => {
                 let mut o_prime = Out::new();
-                let state = actor.on_start(id, &mut o_prime);
+                let state = actor.on_start(id, storage, &mut o_prime);
                 o.append(&mut o_prime);
                 Choice::L(state)
             }
             Choice::R(actor) => {
                 let mut o_prime = Out::new();
-                let state = actor.on_start(id, &mut o_prime);
+                let state = actor.on_start(id, storage, &mut o_prime);
                 o.append(&mut o_prime);
                 Choice::R(state)
             }
@@ -555,7 +578,9 @@ impl Actor for () {
     type Msg = ();
     type Timer = ();
     type Random = ();
-    fn on_start(&self, _: Id, _o: &mut Out<Self>) -> Self::State {}
+    type Storage = ();
+    fn on_start(&self, _: Id, _storage: &Option<Self::Storage>, _o: &mut Out<Self>) -> Self::State {
+    }
     fn on_msg(&self, _: Id, _: &mut Cow<Self::State>, _: Id, _: Self::Msg, _: &mut Out<Self>) {}
     fn name(&self) -> String {
         String::new()
@@ -572,8 +597,13 @@ where
     type State = usize;
     type Timer = ();
     type Random = ();
-
-    fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+    type Storage = ();
+    fn on_start(
+        &self,
+        _id: Id,
+        _storage: &Option<Self::Storage>,
+        o: &mut Out<Self>,
+    ) -> Self::State {
         if let Some((dst, msg)) = self.first() {
             o.send(*dst, msg.clone());
             1

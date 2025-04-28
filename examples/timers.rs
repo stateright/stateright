@@ -34,8 +34,8 @@ impl Actor for PingerActor {
     type State = PingerState;
     type Timer = PingerTimer;
     type Random = ();
-
-    fn on_start(&self, _id: Id, o: &mut Out<Self>) -> Self::State {
+    type Storage = ();
+    fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
         o.set_timer(PingerTimer::Even, model_timeout());
         o.set_timer(PingerTimer::Odd, model_timeout());
         o.set_timer(PingerTimer::NoOp, model_timeout());
