@@ -13,7 +13,7 @@ categories = ["algorithms", "concurrency", "development-tools", "network-program
 keywords = ["actor", "model-checking", "paxos", "raft", "simulation"]
 
 [dependencies]
-ahash = "0.8.11"
+ahash = "0.8"
 tiny_http = "0.12"
 choice = "0.0.2"
 crossbeam-utils = "0.8"
