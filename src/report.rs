@@ -57,7 +57,7 @@ impl<'a, W> WriteReporter<'a, W> {
     }
 }
 
-impl<'a, M, W> Reporter<M> for WriteReporter<'a, W>
+impl<M, W> Reporter<M> for WriteReporter<'_, W>
 where
     M: Model,
     W: Write,
