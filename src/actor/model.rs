@@ -480,7 +480,7 @@ where
             next_state: Option<A::State>,
             out: Out<A>,
         }
-        impl<'a, A: Actor> Display for ActorStep<'a, A> {
+        impl<A: Actor> Display for ActorStep<'_, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 writeln!(f, "OUT: {:?}", self.out)?;
                 writeln!(f)?;
