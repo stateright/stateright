@@ -43,11 +43,7 @@ where
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ActorModelAction<Msg, Timer, Random> {
     /// A message can be delivered to an actor.
-    Deliver {
-        src: Id,
-        dst: Id,
-        msg: Msg,
-    },
+    Deliver { src: Id, dst: Id, msg: Msg },
     /// A message can be dropped if the network is lossy.
     Drop(Envelope<Msg>),
     /// An actor can be notified after a timeout.
@@ -226,7 +222,9 @@ where
                 Command::Save(storage) => {
                     // must use the index to infer how large as actor state may not be initialized yet
                     if state.actor_storages.len() <= index {
-                        state.actor_storages.resize_with(index + 1, Default::default);
+                        state
+                            .actor_storages
+                            .resize_with(index + 1, Default::default);
                     }
                     state.actor_storages[index] = Some(storage);
                 }
@@ -428,10 +426,13 @@ where
             }
             ActorModelAction::Recover(id) => {
                 let index = usize::from(id);
-                assert_eq!(last_sys_state.crashed[index], true);
+                assert!(last_sys_state.crashed[index]);
                 let mut out = Out::new();
-                let state =
-                    self.actors[index].on_start(id, &last_sys_state.actor_storages[index], &mut out);
+                let state = self.actors[index].on_start(
+                    id,
+                    &last_sys_state.actor_storages[index],
+                    &mut out,
+                );
                 let mut next_sys_state = last_sys_state.clone();
                 next_sys_state.actor_states[index] = Arc::new(state);
                 next_sys_state.crashed[index] = false;
@@ -459,14 +460,14 @@ where
     fn format_action(&self, action: &Self::Action) -> String {
         match action {
             ActorModelAction::Deliver { src, dst, msg } => {
-                format!("{:?} → {:?} → {:?}", src, msg, dst)
+                format!("{src:?} → {msg:?} → {dst:?}")
             }
             ActorModelAction::SelectRandom {
                 actor,
                 key: _,
                 random,
             } => format!("{actor:?} select random {random:?}"),
-            _ => format!("{:?}", action),
+            _ => format!("{action:?}"),
         }
     }
 
@@ -484,7 +485,7 @@ where
                 writeln!(f, "OUT: {:?}", self.out)?;
                 writeln!(f)?;
                 if let Some(next_state) = &self.next_state {
-                    writeln!(f, "NEXT_STATE: {:#?}", next_state)?;
+                    writeln!(f, "NEXT_STATE: {next_state:#?}")?;
                     writeln!(f)?;
                     writeln!(f, "PREV_STATE: {:#?}", self.last_state)
                 } else {
@@ -494,7 +495,7 @@ where
         }
 
         match action {
-            ActorModelAction::Drop(env) => Some(format!("DROP: {:?}", env)),
+            ActorModelAction::Drop(env) => Some(format!("DROP: {env:?}")),
             ActorModelAction::Deliver { src, dst: id, msg } => {
                 let index = usize::from(id);
                 let last_actor_state = match last_state.actor_states.get(index) {
@@ -610,7 +611,7 @@ where
                 if name.is_empty() {
                     i.to_string()
                 } else {
-                    format!("{} {}", i, name)
+                    format!("{i} {name}")
                 }
             })
             .collect::<Vec<_>>();
@@ -652,14 +653,12 @@ where
             let (x2, y2) = plot(actor_index, path.len());
             writeln!(
                 &mut svg,
-                "<line x1='{}' y1='{}' x2='{}' y2='{}' class='svg-actor-timeline' />",
-                x1, y1, x2, y2
+                "<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' class='svg-actor-timeline' />"
             )
             .unwrap();
             writeln!(
                 &mut svg,
-                "<text x='{}' y='{}' class='svg-actor-label'>{}</text>",
-                x1, y1, actor_name,
+                "<text x='{x1}' y='{y1}' class='svg-actor-label'>{actor_name}</text>"
             )
             .unwrap();
         }
@@ -673,8 +672,7 @@ where
                     let src_time = *send_time.get(&(src, id, msg.clone())).unwrap_or(&0);
                     let (x1, y1) = plot(src.into(), src_time);
                     let (x2, y2) = plot(id.into(), time);
-                    writeln!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-line' />",
-                           x1, x2, y1, y2).unwrap();
+                    writeln!(&mut svg, "<line x1='{x1}' x2='{x2}' y1='{y1}' y2='{y2}' marker-end='url(#arrow)' class='svg-event-line' />").unwrap();
 
                     // Track sends to facilitate building arrows.
                     let index = usize::from(id);
@@ -693,8 +691,7 @@ where
                     let (x, y) = plot(actor_id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />"
                     )
                     .unwrap();
 
@@ -715,8 +712,7 @@ where
                     let (x, y) = plot(actor_id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />",
                     )
                     .unwrap();
                 }
@@ -728,8 +724,7 @@ where
                     let (x, y) = plot(actor.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />"
                     )
                     .unwrap();
 
@@ -750,8 +745,7 @@ where
                     let (x, y) = plot(actor_id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />"
                     )
                     .unwrap();
                 }
@@ -767,8 +761,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>",
-                        x, y, msg
+                        "<text x='{x}' y='{y}' class='svg-event-label'>{msg:?}</text>"
                     )
                     .unwrap();
                 }
@@ -776,8 +769,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Timeout({:?})</text>",
-                        x, y, timer
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Timeout({timer:?})</text>"
                     )
                     .unwrap();
                 }
@@ -785,8 +777,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Crash</text>",
-                        x, y
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Crash</text>"
                     )
                     .unwrap();
                 }
@@ -798,8 +789,7 @@ where
                     let (x, y) = plot(actor.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Random({:?})</text>",
-                        x, y, random
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Random({random:?})</text>",
                     )
                     .unwrap();
                 }
@@ -807,8 +797,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Recover</text>",
-                        x, y
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Recover</text>"
                     )
                     .unwrap();
                 }
@@ -1549,7 +1538,6 @@ mod test {
                 _storage: &Option<Self::Storage>,
                 _o: &mut Out<Self>,
             ) -> Self::State {
-                ()
             }
         }
 
@@ -1631,7 +1619,7 @@ mod test {
         let checker = ActorModel::new((), ())
             .actor(TestActor(3))
             .property(Expectation::Sometimes, "recovered", |_, state| {
-                let actor_state = state.actor_states.get(0).unwrap();
+                let actor_state = state.actor_states.first().unwrap();
                 actor_state.non_volatile > actor_state.volatile
             })
             .max_crashes(1)

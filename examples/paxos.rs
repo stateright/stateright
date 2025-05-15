@@ -119,7 +119,12 @@ impl Actor for PaxosActor {
         "Paxos Server".to_owned()
     }
 
-    fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, _o: &mut Out<Self>) -> Self::State {
+    fn on_start(
+        &self,
+        _id: Id,
+        _storage: &Option<Self::Storage>,
+        _o: &mut Out<Self>,
+    ) -> Self::State {
         PaxosState {
             // shared state
             ballot: (0, Id::from(0)),
@@ -365,10 +370,7 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!(
-                "Model checking Single Decree Paxos with {} clients.",
-                client_count
-            );
+            println!("Model checking Single Decree Paxos with {client_count} clients.");
             PaxosModelCfg {
                 client_count,
                 server_count: 3,
@@ -385,10 +387,7 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!(
-                "Model checking Single Decree Paxos with {} clients.",
-                client_count
-            );
+            println!("Model checking Single Decree Paxos with {client_count} clients.");
             PaxosModelCfg {
                 client_count,
                 server_count: 3,
@@ -405,10 +404,7 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!(
-                "Model checking Single Decree Paxos with {} clients.",
-                client_count
-            );
+            println!("Model checking Single Decree Paxos with {client_count} clients.");
             PaxosModelCfg {
                 client_count,
                 server_count: 3,
@@ -430,8 +426,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
             println!(
-                "Exploring state space for Single Decree Paxos with {} clients on {}.",
-                client_count, address
+                "Exploring state space for Single Decree Paxos with {client_count} clients on {address}."
             );
             PaxosModelCfg {
                 client_count,
@@ -451,7 +446,7 @@ fn main() -> Result<(), pico_args::Error> {
             println!("  Use `tcpdump -D` if you see error `lo0: No such device exists`.");
             println!("Examples:");
             println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
-            println!("$ nc -u localhost {}", port);
+            println!("$ nc -u localhost {port}");
             println!(
                 "{}",
                 serde_json::to_string(&RegisterMsg::Put::<RequestId, Value, ()>(1, 'X')).unwrap()

@@ -43,7 +43,7 @@ impl Display for VectorClock {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "<")?;
         for c in &self.0 {
-            write!(f, "{}, ", c)?;
+            write!(f, "{c}, ")?;
         }
         write!(f, "...>")?;
         Ok(())

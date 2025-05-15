@@ -172,6 +172,7 @@ pub enum Command<Msg, Timer, Random, Storage> {
     Save(Storage),
 }
 
+#[allow(clippy::type_complexity)]
 /// Holds [`Command`]s output by an actor.
 pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer, A::Random, A::Storage>>);
 

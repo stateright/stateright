@@ -102,9 +102,9 @@ where
             let discoveries = Arc::clone(&discoveries);
             handles.push(
                 std::thread::Builder::new()
-                    .name(format!("checker-{}", t))
+                    .name(format!("checker-{t}"))
                     .spawn(move || {
-                        log::debug!("{}: Thread started.", t);
+                        log::debug!("{t}: Thread started.");
                         let mut pending = VecDeque::new();
                         loop {
                             // Step 1: Do work.
@@ -220,7 +220,7 @@ where
 
             if let Some(target_max_depth) = target_max_depth {
                 if max_depth >= target_max_depth {
-                    log::trace!("Skipping state as past max depth {}", max_depth);
+                    log::trace!("Skipping state as past max depth {max_depth}");
                     continue;
                 }
             }

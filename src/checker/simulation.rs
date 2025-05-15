@@ -147,15 +147,15 @@ where
             let chooser = chooser.clone();
             handles.push(
                 std::thread::Builder::new()
-                    .name(format!("checker-{}", t))
+                    .name(format!("checker-{t}"))
                     .spawn(move || {
                         let mut seed = thread_seed;
-                        log::debug!("{}: Thread started with seed={}.", t, seed);
+                        log::debug!("{t}: Thread started with seed={seed}.");
                         // FIXME: use a reproducible rng, one that will not change over versions.
                         let mut rng = StdRng::seed_from_u64(seed);
                         loop {
                             if shutdown.load(Ordering::Relaxed) {
-                                log::debug!("{}: Got shutdown signal.", t);
+                                log::debug!("{t}: Got shutdown signal.");
                                 break;
                             }
 
@@ -178,21 +178,20 @@ where
                                 &discoveries.iter().map(|r| *r.key()).collect(),
                                 &properties,
                             ) {
-                                log::debug!("{}: Discovery complete. Shutting down...", t,);
+                                log::debug!("{t}: Discovery complete. Shutting down...");
                                 return;
                             }
                             if let Some(target_state_count) = target_state_count {
                                 if target_state_count.get() <= state_count.load(Ordering::Relaxed) {
                                     log::debug!(
-                                        "{}: Reached target state count. Shutting down...",
-                                        t,
+                                        "{t}: Reached target state count. Shutting down..."
                                     );
                                     return;
                                 }
                             }
 
                             seed = rng.gen();
-                            log::trace!("{}: Generated new thread seed={}", t, seed);
+                            log::trace!("{t}: Generated new thread seed={seed}");
                         }
                     })
                     .expect("Failed to spawn a thread"),
