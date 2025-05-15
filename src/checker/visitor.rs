@@ -61,6 +61,7 @@ where
     M::Action: Clone,
     M::State: Clone,
 {
+    #[allow(clippy::type_complexity)]
     /// Instantiates a ([`PathRecorder`], accessor) pair.
     pub fn new_with_accessor() -> (Self, impl Fn() -> HashSet<Path<M::State, M::Action>>) {
         let recorder = Self(Arc::new(Mutex::new(Default::default())));

@@ -37,7 +37,23 @@ where
     State: Debug + Hash,
 {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
-        let mut out = ser.serialize_struct("StateView", 3)?;
+        let mut field_cnt: usize = 0;
+        if self.action.is_some() {
+            field_cnt += 1;
+        }
+        if self.outcome.is_some() {
+            field_cnt += 1;
+        }
+        if self.state.is_some() {
+            field_cnt += 2; // state and its fingerprint
+        }
+        if !self.properties.is_empty() {
+            field_cnt += 1;
+        }
+        if self.svg.is_some() {
+            field_cnt += 1;
+        }
+        let mut out = ser.serialize_struct("StateView", field_cnt)?;
         if let Some(ref action) = self.action {
             out.serialize_field("action", action)?;
         }
@@ -45,7 +61,7 @@ where
             out.serialize_field("outcome", outcome)?;
         }
         if let Some(ref state) = self.state {
-            out.serialize_field("state", &format!("{:#?}", state))?;
+            out.serialize_field("state", &format!("{state:#?}"))?;
             out.serialize_field("fingerprint", &format!("{:?}", fingerprint(&state)))?;
         }
         if !self.properties.is_empty() {
@@ -185,7 +201,7 @@ where
         unique_state_count: checker.unique_state_count(),
         max_depth: checker.max_depth(),
         properties: get_properties(checker),
-        recent_path: snapshot.read().1.as_ref().map(|p| format!("{:?}", p)),
+        recent_path: snapshot.read().1.as_ref().map(|p| format!("{p:?}")),
     }
 }
 
@@ -244,7 +260,7 @@ where
 
     // ensure all but the first string (which is empty) were parsed
     if fingerprints.len() + 1 != fingerprints_str.split('/').count() {
-        return Err(format!("Unable to parse fingerprints {}", fingerprints_str));
+        return Err(format!("Unable to parse fingerprints {fingerprints_str}"));
     }
 
     // now build up all the subsequent `StateView`s
@@ -311,8 +327,7 @@ where
         }
     } else {
         return Err(format!(
-            "Unable to find state following fingerprints {}",
-            fingerprints_str
+            "Unable to find state following fingerprints {fingerprints_str}"
         ));
     }
 
@@ -363,7 +378,7 @@ mod test {
         // ```
         let first = fingerprint(&1_i8);
         let second = fingerprint(&0_i8);
-        println!("Expecting path: /{}/{}", first, second);
+        println!("Expecting path: /{first}/{second}");
         assert_eq!(
             get_states(
                 Arc::clone(&checker),
@@ -461,7 +476,7 @@ mod test {
                     }]),
                     actor_storages: vec![None; 2],
                 });
-                format!("/{}", fp)
+                format!("/{fp}")
             };
         }
         let states = get_states(Arc::clone(&checker), PATH.as_ref()).unwrap();

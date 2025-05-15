@@ -87,6 +87,7 @@ impl<M: Model> CheckerBuilder<M> {
         }
     }
 
+    #[allow(clippy::doc_overindented_list_items)]
     /// Starts a web service for interactively exploring a model ([demo](http://demo.stateright.rs:3000/)).
     ///
     /// ![Stateright Explorer screenshot](https://raw.githubusercontent.com/stateright/stateright/master/explorer.png)
@@ -488,10 +489,9 @@ pub trait Checker<M: Model> {
         }
         assert!(
             self.is_done(),
-            "Discovery for \"{}\" not found, but model checking is incomplete.",
-            name
+            "Discovery for \"{name}\" not found, but model checking is incomplete."
         );
-        panic!("Discovery for \"{}\" not found.", name);
+        panic!("Discovery for \"{name}\" not found.");
     }
 
     /// Panics if a particular discovery is found.
@@ -511,8 +511,7 @@ pub trait Checker<M: Model> {
         }
         assert!(
             self.is_done(),
-            "Discovery for \"{}\" not found, but model checking is incomplete.",
-            name
+            "Discovery for \"{name}\" not found, but model checking is incomplete."
         );
     }
 
@@ -728,8 +727,7 @@ mod test_report {
                 Checking. states=1, unique=1, depth=0\n\
                 Done. states=15, unique=12, depth=4, sec="
             ),
-            "Output did not start as expected (see test). output={:?}`",
-            output
+            "Output did not start as expected (see test). output={output:?}`"
         );
         assert!(
             output.ends_with(
@@ -740,8 +738,7 @@ mod test_report {
                 - IncreaseY\n\
                 Fingerprint path: 16309487358465187103/4054010254685319810/14694746594177136764/4487299314074331070\n"
             ),
-            "Output did not end as expected (see test). output={:?}`",
-            output
+            "Output did not end as expected (see test). output={output:?}`"
         );
 
         // DFS
@@ -757,8 +754,7 @@ mod test_report {
                 Checking. states=1, unique=1, depth=0\n\
                 Done. states=55, unique=55, depth=28, sec="
             ),
-            "Output did not start as expected (see test). output={:?}`",
-            output
+            "Output did not start as expected (see test). output={output:?}`"
         );
         assert!(
             output.ends_with(
@@ -793,8 +789,7 @@ mod test_report {
                 - IncreaseY\n\
                 Fingerprint path: 16309487358465187103/4831423781950625701/16619844540305726739/12533105667452372613/3990830794503798808/16404477134879477635/15029999401018116540/12635432686257652764/5731717400168108395/11799661968520620327/10247191817427584860/17489788904632259311/5108719434779808037/14444227259923214149/8951907838241788528/6224853060915121328/14761813229303177416/5002190365317749106/17266499614293479757/6040176458240602590/5690727464021230627/17935965727896813147/6638580672402335984/7744930589914529004/103690611876300118/5243119980325930440/1013265194698294052/7804529378088234188\n"
             ),
-            "Output did not end as expected (see test). output={:?}`",
-            output
+            "Output did not end as expected (see test). output={output:?}`"
         );
     }
 }

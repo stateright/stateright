@@ -177,7 +177,7 @@ pub trait Model: Sized {
     where
         Self::Action: Debug,
     {
-        format!("{:?}", action)
+        format!("{action:?}")
     }
 
     /// Converts a step of this model to a more intuitive representation (e.g. for Explorer).
@@ -186,7 +186,7 @@ pub trait Model: Sized {
         Self::State: Debug,
     {
         self.next_state(last_state, action)
-            .map(|next_state| format!("{:#?}", next_state))
+            .map(|next_state| format!("{next_state:#?}"))
     }
 
     /// Returns an [SVG](https://developer.mozilla.org/en-US/docs/Web/SVG) representation of a
@@ -234,10 +234,7 @@ pub trait Model: Sized {
             p
         } else {
             let available: Vec<_> = self.properties().iter().map(|p| p.name).collect();
-            panic!(
-                "Unknown property. requested={}, available={:?}",
-                name, available
-            );
+            panic!("Unknown property. requested={name}, available={available:?}");
         }
     }
 
