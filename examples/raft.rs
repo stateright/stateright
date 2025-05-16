@@ -198,7 +198,7 @@ impl Actor for RaftActor {
                 {
                     state.votes_received.insert(args.voter_id);
 
-                    if state.votes_received.len() >= ((self.peer_ids.len() + 1) + 1) / 2 {
+                    if state.votes_received.len() >= (self.peer_ids.len() + 1).div_ceil(2) {
                         state.current_role = Role::Leader;
                         state.current_leader = Some(state.id);
                         self.try_drain_buffer(state, o);
@@ -408,7 +408,7 @@ impl RaftActor {
     }
 
     fn commit_log_entries(&self, state: &mut NodeState, peers_len: usize) {
-        let min_acks = ((peers_len + 1) + 1) / 2;
+        let min_acks = (peers_len + 1).div_ceil(2);
         let mut ready_max = 0;
         for i in state.commit_length + 1..state.log.len() + 1 {
             if Self::acks(&state.acked_length, i) >= min_acks {
@@ -522,7 +522,7 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!("Model checking Raft with {} servers.", server_count);
+            println!("Model checking Raft with {server_count} servers.");
             RaftModelCfg {
                 server_count,
                 network,
@@ -542,10 +542,7 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!(
-                "Exploring state space for Raft with {} servers on {}.",
-                server_count, address
-            );
+            println!("Exploring state space for Raft with {server_count} servers on {address}.");
             RaftModelCfg {
                 server_count,
                 network,

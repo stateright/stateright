@@ -106,9 +106,9 @@ where
 
             handles.push(
                 std::thread::Builder::new()
-                    .name(format!("checker-{}", t))
+                    .name(format!("checker-{t}"))
                     .spawn(move || {
-                        log::debug!("{}: Thread started.", t);
+                        log::debug!("{t}: Thread started.");
                         let mut pending = VecDeque::new();
                         let mut targetted_pending = VecDeque::new();
                         let mut wait_for_fingerprints = true;
@@ -161,7 +161,7 @@ where
                                                 }
                                             }
                                             ControlFlow::RunToCompletion => {
-                                                log::debug!("{}: running to completion", t);
+                                                log::debug!("{t}: running to completion");
                                                 wait_for_fingerprints = false;
                                                 break;
                                             }
@@ -339,11 +339,7 @@ where
             let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
             for next_state in next_states {
                 let next_fp = fingerprint(&next_state);
-                log::debug!(
-                    "checker generated state transition: {} -> {}",
-                    state_fp,
-                    next_fp
-                );
+                log::debug!("checker generated state transition: {state_fp} -> {next_fp}",);
                 // Skip if outside boundary.
                 if !model.within_boundary(&next_state) {
                     continue;
@@ -404,7 +400,7 @@ where
     }
 
     fn check_fingerprint(&self, fingerprint: Fingerprint) {
-        log::debug!("asking to check fingerprint {}", fingerprint);
+        log::debug!("asking to check fingerprint {fingerprint}");
         let _ = self
             .control_flow
             .send(ControlFlow::CheckFingerprint(fingerprint));

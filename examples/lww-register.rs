@@ -203,8 +203,7 @@ pub fn main() -> Result<(), pico_args::Error> {
                 .opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
             println!(
-                "Exploring state space for last-writer-wins register with {} clients on {}.",
-                client_count, address
+                "Exploring state space for last-writer-wins register with {client_count} clients on {address}."
             );
             build_checker(client_count).serve(address);
         }
@@ -216,7 +215,7 @@ pub fn main() -> Result<(), pico_args::Error> {
             println!("  Use `tcpdump -D` if you see error `lo0: No such device exists`.");
             println!("Examples:");
             println!("$ sudo tcpdump -i lo0 -s 0 -nnX");
-            println!("$ nc -u localhost {}", port);
+            println!("$ nc -u localhost {port}");
             println!();
             println!("  This will run indefinitely to explore the state space.");
             println!();

@@ -92,13 +92,13 @@ where
                 let mut next_interrupts = HashMap::new();
 
                 let mut out = Out::new();
-                let filename = format!("{}.storage", addr);
+                let filename = format!("{addr}.storage");
                 let path = PathBuf::from(filename);
                 let storage: Option<A::Storage> = fs::read(&path)
                     .ok()
                     .and_then(|bytes| storage_deserialize(&bytes).ok());
                 let mut state = Cow::Owned(actor.on_start(id, &storage, &mut out));
-                log::info!("Actor started. id={}, state={:?}, out={:?}", addr, state, out);
+                log::info!("Actor started. id={addr}, state={state:?}, out={out:?}");
                 for c in out {
                     on_command::<A, E>(addr, c, msg_serialize, storage_serialize, &socket, &mut next_interrupts);
                 }
@@ -117,7 +117,7 @@ where
                             Err(e) => {
                                 // Timeout (`WouldBlock`) ignored since next iteration will apply interrupt.
                                 if e.kind() != std::io::ErrorKind::WouldBlock {
-                                    log::warn!("Unable to read socket. Ignoring. id={}, err={:?}", addr, e);
+                                    log::warn!("Unable to read socket. Ignoring. id={addr}, err={e:?}");
                                 }
                                 continue;
                             },
@@ -125,12 +125,10 @@ where
                                 match msg_deserialize(&in_buf[..count]) {
                                     Ok(msg) => {
                                         if let SocketAddr::V4(src_addr) = src_addr {
-                                            log::info!("Received message. id={}, src={}, msg={}",
-                                                        addr, src_addr, format!("{:?}", msg));
+                                            log::info!("Received message. id={addr}, src={src_addr}, msg={msg:?}");
                                             actor.on_msg(id, &mut state, Id::from(src_addr), msg, &mut out);
                                         } else {
-                                            log::debug!("Received non-IPv4 message. Ignoring. id={}, src={}, msg={}",
-                                                       addr, src_addr, format!("{:?}", msg));
+                                            log::debug!("Received non-IPv4 message. Ignoring. id={addr}, src={src_addr}, msg={msg:?}");
                                             continue;
                                         }
                                     },
@@ -157,8 +155,7 @@ where
 
                     // Handle commands and update state.
                     if !is_no_op(&state, &out) {
-                        log::debug!("Acted. id={}, state={:?}, out={:?}",
-                                    addr, state, out);
+                        log::debug!("Acted. id={addr}, state={state:?}, out={out:?}");
                     }
                     for c in out { on_command::<A, E>(addr, c, msg_serialize, storage_serialize, &socket, &mut next_interrupts); }
                 }
@@ -192,21 +189,12 @@ fn on_command<A, E>(
             match msg_serialize(&msg) {
                 Err(e) => {
                     log::warn!(
-                        "Unable to serialize. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
-                        addr,
-                        dst_addr,
-                        msg,
-                        e
-                    );
+                        "Unable to serialize. Ignoring. src={addr}, dst={dst_addr}, msg={msg:?}, err={e:?}");
                 }
                 Ok(out_buf) => {
                     if let Err(e) = socket.send_to(&out_buf, dst_addr) {
                         log::warn!(
-                            "Unable to send. Ignoring. src={}, dst={}, msg={:?}, err={:?}",
-                            addr,
-                            dst_addr,
-                            msg,
-                            e
+                            "Unable to send. Ignoring. src={addr}, dst={dst_addr}, msg={msg:?}, err={e:?}"
                         );
                     }
                 }
@@ -244,13 +232,13 @@ fn on_command<A, E>(
                 .or_insert_with(|| Instant::now() + duration);
         }
         Command::Save(storage) => {
-            let filename = format!("{}.storage", addr);
+            let filename = format!("{addr}.storage");
             let path = PathBuf::from(filename);
             let bytes = storage_serialize(&storage).expect("serialize storage failed");
             let mut file =
-                File::create(&path).expect(format!("failed to create file {:?}", path).as_str());
+                File::create(&path).unwrap_or_else(|_| panic!("failed to create file {path:?}"));
             file.write_all(&bytes)
-                .expect(format!("failed to write to file {:?}", path).as_str());
+                .unwrap_or_else(|_| panic!("failed to write to file {path:?}"));
         }
     }
 }
@@ -381,6 +369,6 @@ mod test {
         // delete the storage file
         let filename = format!("{}.storage", SocketAddrV4::new(Ipv4Addr::LOCALHOST, 1234));
         let path = PathBuf::from(filename);
-        fs::remove_file(&path).expect(&format!("failed to remove file {:?}", path));
+        fs::remove_file(&path).unwrap_or_else(|_| panic!("failed to remove file {path:?}"));
     }
 }

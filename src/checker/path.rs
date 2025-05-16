@@ -114,14 +114,10 @@ Available next fingerprints (none of which match): {:?}"#,
         }
         let mut prev_state = init_state;
         for action in actions {
-            let (action, next_state) = match model
+            let (action, next_state) = model
                 .next_steps(&prev_state)
                 .into_iter()
-                .find(|(a, _)| a == action)
-            {
-                None => return None,
-                Some(found) => found,
-            };
+                .find(|(a, _)| a == action)?;
             output.push((prev_state, Some(action)));
             prev_state = next_state;
         }
@@ -139,27 +135,16 @@ Available next fingerprints (none of which match): {:?}"#,
         M: Model<State = State, Action = Action>,
         M::State: Hash,
     {
-        let init_print = match fingerprints.pop_front() {
-            Some(init_print) => init_print,
-            None => return None,
-        };
-        let mut matching_state = match model
+        let init_print = fingerprints.pop_front()?;
+        let mut matching_state = model
             .init_states()
             .into_iter()
-            .find(|s| fingerprint(&s) == init_print)
-        {
-            Some(matching_state) => matching_state,
-            None => return None,
-        };
+            .find(|s| fingerprint(&s) == init_print)?;
         while let Some(next_print) = fingerprints.pop_front() {
-            matching_state = match model
+            matching_state = model
                 .next_states(&matching_state)
                 .into_iter()
-                .find(|s| fingerprint(&s) == next_print)
-            {
-                Some(matching_state) => matching_state,
-                None => return None,
-            };
+                .find(|s| fingerprint(&s) == next_print)?;
         }
         Some(matching_state)
     }
@@ -213,7 +198,7 @@ where
         writeln!(f, "Path[{}]:", self.0.len() - 1)?;
         for (_state, action) in &self.0 {
             if let Some(action) = action {
-                writeln!(f, "- {:?}", action)?;
+                writeln!(f, "- {action:?}")?;
             }
         }
         Ok(())

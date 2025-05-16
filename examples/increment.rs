@@ -203,10 +203,7 @@ fn main() -> Result<(), pico_args::Error> {
     match args.subcommand()?.as_deref() {
         Some("check") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
-            println!(
-                "Model checking increment_lock with {} threads.",
-                thread_count
-            );
+            println!("Model checking increment_lock with {thread_count} threads.");
 
             State::new(thread_count)
                 .checker()
@@ -217,8 +214,7 @@ fn main() -> Result<(), pico_args::Error> {
         Some("check-sym") => {
             let thread_count = args.opt_free_from_str()?.unwrap_or(3);
             println!(
-                "Model checking increment_lock with {} threads using symmetry reduction.",
-                thread_count
+                "Model checking increment_lock with {thread_count} threads using symmetry reduction."
             );
 
             State::new(thread_count)
@@ -234,8 +230,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
             println!(
-                "Exploring the state space of increment_lock with {} threads on {}.",
-                thread_count, address
+                "Exploring the state space of increment_lock with {thread_count} threads on {address}."
             );
             State::new(thread_count)
                 .checker()

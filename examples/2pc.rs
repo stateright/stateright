@@ -146,6 +146,35 @@ impl Model for TwoPhaseSys {
     }
 }
 
+// Implementing this trait enables symmetry reduction to speed up model checking (optional).
+impl Representative for TwoPhaseState {
+    fn representative(&self) -> Self {
+        let plan = RewritePlan::from_values_to_sort(&self.rm_state);
+        Self {
+            rm_state: plan.reindex(&self.rm_state),
+            tm_state: self.tm_state.clone(),
+            tm_prepared: plan.reindex(&self.tm_prepared),
+            msgs: self
+                .msgs
+                .iter()
+                .map(|m| match m {
+                    Message::Prepared { rm } => Message::Prepared {
+                        rm: plan.rewrite(rm),
+                    },
+                    Message::Commit => Message::Commit,
+                    Message::Abort => Message::Abort,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl<T> Rewrite<T> for RmState {
+    fn rewrite<S>(&self, _: &RewritePlan<T, S>) -> Self {
+        self.clone()
+    }
+}
+
 #[cfg(test)]
 #[test]
 fn can_model_2pc() {
@@ -176,10 +205,7 @@ fn main() -> Result<(), pico_args::Error> {
     match args.subcommand()?.as_deref() {
         Some("check") => {
             let rm_count = args.opt_free_from_str()?.unwrap_or(2);
-            println!(
-                "Checking two phase commit with {} resource managers.",
-                rm_count
-            );
+            println!("Checking two phase commit with {rm_count} resource managers.");
             TwoPhaseSys { rms: 0..rm_count }
                 .checker()
                 .threads(num_cpus::get())
@@ -189,8 +215,7 @@ fn main() -> Result<(), pico_args::Error> {
         Some("check-sym") => {
             let rm_count = args.opt_free_from_str()?.unwrap_or(2);
             println!(
-                "Checking two phase commit with {} resource managers using symmetry reduction.",
-                rm_count
+                "Checking two phase commit with {rm_count} resource managers using symmetry reduction."
             );
             TwoPhaseSys { rms: 0..rm_count }
                 .checker()
@@ -198,34 +223,6 @@ fn main() -> Result<(), pico_args::Error> {
                 .symmetry()
                 .spawn_dfs()
                 .report(&mut WriteReporter::new(&mut std::io::stdout()));
-
-            // Implementing this trait enables symmetry reduction to speed up model checking (optional).
-            impl Representative for TwoPhaseState {
-                fn representative(&self) -> Self {
-                    let plan = RewritePlan::from_values_to_sort(&self.rm_state);
-                    Self {
-                        rm_state: plan.reindex(&self.rm_state),
-                        tm_state: self.tm_state.clone(),
-                        tm_prepared: plan.reindex(&self.tm_prepared),
-                        msgs: self
-                            .msgs
-                            .iter()
-                            .map(|m| match m {
-                                Message::Prepared { rm } => Message::Prepared {
-                                    rm: plan.rewrite(rm),
-                                },
-                                Message::Commit => Message::Commit,
-                                Message::Abort => Message::Abort,
-                            })
-                            .collect(),
-                    }
-                }
-            }
-            impl<T> Rewrite<T> for RmState {
-                fn rewrite<S>(&self, _: &RewritePlan<T, S>) -> Self {
-                    self.clone()
-                }
-            }
         }
         Some("explore") => {
             let rm_count = args.opt_free_from_str()?.unwrap_or(2);
@@ -233,8 +230,7 @@ fn main() -> Result<(), pico_args::Error> {
                 .opt_free_from_str()?
                 .unwrap_or("localhost:3000".to_string());
             println!(
-                "Exploring state space for two phase commit with {} resource managers on {}.",
-                rm_count, address
+                "Exploring state space for two phase commit with {rm_count} resource managers on {address}."
             );
             TwoPhaseSys { rms: 0..rm_count }
                 .checker()
