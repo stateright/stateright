@@ -691,6 +691,19 @@ mod test_eventually_property_checker {
             None
         ); // FIXME: `unwrap().into_states()` should be [0, 2, 4, 6]
     }
+    #[test]
+    fn cannot_overwrite_discovery_when_having_other_properties() {
+      assert_eq!(
+        DGraph::with_properties(vec![eventually_odd(), Property::always("ge_0", |_, s| *s >= 10)])
+            .with_path(vec![ 12, 14])
+            .with_path(vec![ 12, 15]) 
+            .check()
+            .discovery("odd")
+            .unwrap()
+            .into_states(),
+        vec![12, 14]
+      )
+    }
 }
 
 #[cfg(test)]
