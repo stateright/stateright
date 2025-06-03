@@ -56,16 +56,20 @@ pub mod dgraph {
     pub struct DGraph {
         inits: BTreeSet<u8>,
         edges: BTreeMap<u8, BTreeSet<u8>>,
-        property: Property<DGraph>,
+        property: Vec<Property<DGraph>>,
     }
 
     impl DGraph {
-        pub fn with_property(property: Property<DGraph>) -> Self {
+        pub fn with_properties(properties: Vec<Property<DGraph>>) -> Self {
             DGraph {
                 inits: Default::default(),
                 edges: Default::default(),
-                property,
+                property: properties,
             }
+        }
+
+        pub fn with_property(property: Property<DGraph>) -> Self {
+            Self::with_properties(vec![property])
         }
 
         pub fn with_path(mut self, path: Vec<u8>) -> Self {
@@ -110,7 +114,7 @@ pub mod dgraph {
         }
 
         fn properties(&self) -> Vec<Property<Self>> {
-            vec![self.property.clone()]
+            self.property.clone()
         }
     }
 }
