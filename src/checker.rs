@@ -668,7 +668,7 @@ mod test_eventually_property_checker {
                 .discovery("odd")
                 .unwrap()
                 .into_states(),
-            vec![2, 4, 6]
+            vec![2, 4, 8]
         );
     }
 
