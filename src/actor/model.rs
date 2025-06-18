@@ -150,6 +150,8 @@ where
         name: &'static str,
         condition: fn(&ActorModel<A, C, H>, &ActorModelState<A, H>) -> bool,
     ) -> Self {
+        assert!(!self.properties.iter().any(|p| p.name == name),
+            "Property with name '{}' already exists", name);
         self.properties.push(Property {
             expectation,
             name,
