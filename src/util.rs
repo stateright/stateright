@@ -36,7 +36,7 @@
 //! # use stateright::util::HashableHashSet;
 //! #
 //! # struct MyModel;
-//! type MyState = HashableHashSet<u64>;
+//! # type MyState = HashableHashSet<u64>;
 //! # type MyAction = String;
 //! # impl Model for MyModel {
 //! #     type State = MyState;

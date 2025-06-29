@@ -24,7 +24,7 @@
 //! struct Timestamp(u32);
 //!
 //! /// And we define a generic message containing a timestamp.
-//! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+//! #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 //! struct MsgWithTimestamp(u32);
 //!
 //! impl Actor for LogicalClockActor {
@@ -172,6 +172,7 @@ pub enum Command<Msg, Timer, Random, Storage> {
     Save(Storage),
 }
 
+#[allow(clippy::type_complexity)]
 /// Holds [`Command`]s output by an actor.
 pub struct Out<A: Actor>(Vec<Command<A::Msg, A::Timer, A::Random, A::Storage>>);
 
@@ -350,10 +351,10 @@ pub trait Actor: Sized {
     /// # Example
     ///
     /// ```
-    /// #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    /// #[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
     /// enum MyActorRandom { Choice1, Choice2 }
     /// ```
-    type Random: Clone + Debug + Eq + Hash;
+    type Random: Clone + Debug + Eq + Hash + Ord;
 
     /// Indicates the initial state and commands.
     fn on_start(&self, id: Id, storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State;
@@ -413,6 +414,7 @@ pub trait Actor: Sized {
 impl<A> Actor for Choice<A, Never>
 where
     A: Actor,
+    A::Random: Ord,
 {
     type Msg = A::Msg;
     type State = Choice<A::State, Never>;
@@ -474,7 +476,7 @@ impl<Msg, Timer, Random, Storage, A1, A2> Actor for Choice<A1, A2>
 where
     Msg: Clone + Debug + Eq + Hash,
     Timer: Clone + Debug + Eq + Hash + serde::Serialize,
-    Random: Clone + Debug + Eq + Hash,
+    Random: Clone + Debug + Eq + Hash + Ord,
     Storage: Clone + Debug + Eq + Hash + serde::Serialize,
     A1: Actor<Msg = Msg, Timer = Timer, Storage = Storage, Random = Random>,
     A2: Actor<Msg = Msg, Timer = Timer, Storage = Storage, Random = Random>,

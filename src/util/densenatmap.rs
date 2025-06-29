@@ -166,10 +166,7 @@ where
                     .enumerate()
                     .map(|(i_expected, (i, v))| {
                         if i != i_expected {
-                            panic!(
-                                "Invalid key at index. index={}, expected_index={}",
-                                i, i_expected
-                            );
+                            panic!("Invalid key at index. index={i}, expected_index={i_expected}");
                         }
                         v
                     })

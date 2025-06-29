@@ -24,6 +24,8 @@ use super::timers::Timers;
 pub struct ActorModel<A, C = (), H = ()>
 where
     A: Actor,
+    A::Msg: Ord,
+    A::Timer: Ord,
     H: Clone + Debug + Hash,
 {
     pub actors: Vec<A>,
@@ -43,11 +45,7 @@ where
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ActorModelAction<Msg, Timer, Random> {
     /// A message can be delivered to an actor.
-    Deliver {
-        src: Id,
-        dst: Id,
-        msg: Msg,
-    },
+    Deliver { src: Id, dst: Id, msg: Msg },
     /// A message can be dropped if the network is lossy.
     Drop(Envelope<Msg>),
     /// An actor can be notified after a timeout.
@@ -92,6 +90,8 @@ pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
 impl<A, C, H> ActorModel<A, C, H>
 where
     A: Actor,
+    A::Msg: Ord,
+    A::Timer: Ord,
     H: Clone + Debug + Hash,
 {
     /// Initializes an [`ActorModel`] with a specified configuration and history.
@@ -226,7 +226,9 @@ where
                 Command::Save(storage) => {
                     // must use the index to infer how large as actor state may not be initialized yet
                     if state.actor_storages.len() <= index {
-                        state.actor_storages.resize_with(index + 1, Default::default);
+                        state
+                            .actor_storages
+                            .resize_with(index + 1, Default::default);
                     }
                     state.actor_storages[index] = Some(storage);
                 }
@@ -238,6 +240,8 @@ where
 impl<A, C, H> Model for ActorModel<A, C, H>
 where
     A: Actor,
+    A::Msg: Ord,
+    A::Timer: Ord,
     H: Clone + Debug + Hash,
 {
     type State = ActorModelState<A, H>;
@@ -330,6 +334,54 @@ where
                 }
             }
         }
+
+        // Action indices based `Path` construction relies on the consistent ordering of the returned actions.
+        // Some iterators like `HashableHashSet` do not guarantee a stable order.
+        // For simplicity, we sort actions here.
+        actions.sort_unstable_by(|a, b| {
+            use ActorModelAction::*;
+            let variant_order = |act: &ActorModelAction<_, _, _>| match act {
+                Drop(_) => 0,
+                Deliver { .. } => 1,
+                Timeout(_, _) => 2,
+                Crash(_) => 3,
+                Recover(_) => 4,
+                SelectRandom { .. } => 5,
+            };
+            let va = variant_order(a);
+            let vb = variant_order(b);
+            va.cmp(&vb).then_with(|| match (a, b) {
+                (
+                    Deliver {
+                        src: s1,
+                        dst: d1,
+                        msg: m1,
+                    },
+                    Deliver {
+                        src: s2,
+                        dst: d2,
+                        msg: m2,
+                    },
+                ) => s1.cmp(s2).then_with(|| d1.cmp(d2)).then_with(|| m1.cmp(m2)),
+                (Drop(e1), Drop(e2)) => e1.cmp(e2),
+                (Timeout(id1, t1), Timeout(id2, t2)) => id1.cmp(id2).then_with(|| t1.cmp(t2)),
+                (Crash(id1), Crash(id2)) => id1.cmp(id2),
+                (Recover(id1), Recover(id2)) => id1.cmp(id2),
+                (
+                    SelectRandom {
+                        actor: a1,
+                        key: k1,
+                        random: r1,
+                    },
+                    SelectRandom {
+                        actor: a2,
+                        key: k2,
+                        random: r2,
+                    },
+                ) => a1.cmp(a2).then_with(|| k1.cmp(k2)).then_with(|| r1.cmp(r2)),
+                _ => std::cmp::Ordering::Equal,
+            })
+        });
     }
 
     fn next_state(
@@ -428,10 +480,13 @@ where
             }
             ActorModelAction::Recover(id) => {
                 let index = usize::from(id);
-                assert_eq!(last_sys_state.crashed[index], true);
+                assert!(last_sys_state.crashed[index]);
                 let mut out = Out::new();
-                let state =
-                    self.actors[index].on_start(id, &last_sys_state.actor_storages[index], &mut out);
+                let state = self.actors[index].on_start(
+                    id,
+                    &last_sys_state.actor_storages[index],
+                    &mut out,
+                );
                 let mut next_sys_state = last_sys_state.clone();
                 next_sys_state.actor_states[index] = Arc::new(state);
                 next_sys_state.crashed[index] = false;
@@ -459,14 +514,14 @@ where
     fn format_action(&self, action: &Self::Action) -> String {
         match action {
             ActorModelAction::Deliver { src, dst, msg } => {
-                format!("{:?} → {:?} → {:?}", src, msg, dst)
+                format!("{src:?} → {msg:?} → {dst:?}")
             }
             ActorModelAction::SelectRandom {
                 actor,
                 key: _,
                 random,
             } => format!("{actor:?} select random {random:?}"),
-            _ => format!("{:?}", action),
+            _ => format!("{action:?}"),
         }
     }
 
@@ -479,12 +534,12 @@ where
             next_state: Option<A::State>,
             out: Out<A>,
         }
-        impl<'a, A: Actor> Display for ActorStep<'a, A> {
+        impl<A: Actor> Display for ActorStep<'_, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 writeln!(f, "OUT: {:?}", self.out)?;
                 writeln!(f)?;
                 if let Some(next_state) = &self.next_state {
-                    writeln!(f, "NEXT_STATE: {:#?}", next_state)?;
+                    writeln!(f, "NEXT_STATE: {next_state:#?}")?;
                     writeln!(f)?;
                     writeln!(f, "PREV_STATE: {:#?}", self.last_state)
                 } else {
@@ -494,7 +549,7 @@ where
         }
 
         match action {
-            ActorModelAction::Drop(env) => Some(format!("DROP: {:?}", env)),
+            ActorModelAction::Drop(env) => Some(format!("DROP: {env:?}")),
             ActorModelAction::Deliver { src, dst: id, msg } => {
                 let index = usize::from(id);
                 let last_actor_state = match last_state.actor_states.get(index) {
@@ -610,7 +665,7 @@ where
                 if name.is_empty() {
                     i.to_string()
                 } else {
-                    format!("{} {}", i, name)
+                    format!("{i} {name}")
                 }
             })
             .collect::<Vec<_>>();
@@ -652,14 +707,12 @@ where
             let (x2, y2) = plot(actor_index, path.len());
             writeln!(
                 &mut svg,
-                "<line x1='{}' y1='{}' x2='{}' y2='{}' class='svg-actor-timeline' />",
-                x1, y1, x2, y2
+                "<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' class='svg-actor-timeline' />"
             )
             .unwrap();
             writeln!(
                 &mut svg,
-                "<text x='{}' y='{}' class='svg-actor-label'>{}</text>",
-                x1, y1, actor_name,
+                "<text x='{x1}' y='{y1}' class='svg-actor-label'>{actor_name}</text>"
             )
             .unwrap();
         }
@@ -673,8 +726,7 @@ where
                     let src_time = *send_time.get(&(src, id, msg.clone())).unwrap_or(&0);
                     let (x1, y1) = plot(src.into(), src_time);
                     let (x2, y2) = plot(id.into(), time);
-                    writeln!(&mut svg, "<line x1='{}' x2='{}' y1='{}' y2='{}' marker-end='url(#arrow)' class='svg-event-line' />",
-                           x1, x2, y1, y2).unwrap();
+                    writeln!(&mut svg, "<line x1='{x1}' x2='{x2}' y1='{y1}' y2='{y2}' marker-end='url(#arrow)' class='svg-event-line' />").unwrap();
 
                     // Track sends to facilitate building arrows.
                     let index = usize::from(id);
@@ -693,8 +745,7 @@ where
                     let (x, y) = plot(actor_id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />"
                     )
                     .unwrap();
 
@@ -715,8 +766,7 @@ where
                     let (x, y) = plot(actor_id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />",
                     )
                     .unwrap();
                 }
@@ -728,8 +778,7 @@ where
                     let (x, y) = plot(actor.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />"
                     )
                     .unwrap();
 
@@ -750,8 +799,7 @@ where
                     let (x, y) = plot(actor_id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<circle cx='{}' cy='{}' r='10' class='svg-event-shape' />",
-                        x, y
+                        "<circle cx='{x}' cy='{y}' r='10' class='svg-event-shape' />"
                     )
                     .unwrap();
                 }
@@ -767,8 +815,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>{:?}</text>",
-                        x, y, msg
+                        "<text x='{x}' y='{y}' class='svg-event-label'>{msg:?}</text>"
                     )
                     .unwrap();
                 }
@@ -776,8 +823,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Timeout({:?})</text>",
-                        x, y, timer
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Timeout({timer:?})</text>"
                     )
                     .unwrap();
                 }
@@ -785,8 +831,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Crash</text>",
-                        x, y
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Crash</text>"
                     )
                     .unwrap();
                 }
@@ -798,8 +843,7 @@ where
                     let (x, y) = plot(actor.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Random({:?})</text>",
-                        x, y, random
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Random({random:?})</text>",
                     )
                     .unwrap();
                 }
@@ -807,8 +851,7 @@ where
                     let (x, y) = plot(id.into(), time);
                     writeln!(
                         &mut svg,
-                        "<text x='{}' y='{}' class='svg-event-label'>Recover</text>",
-                        x, y
+                        "<text x='{x}' y='{y}' class='svg-event-label'>Recover</text>"
                     )
                     .unwrap();
                 }
@@ -967,7 +1010,7 @@ mod test {
             Client { server: Id },
             Server,
         }
-        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
         enum Msg {
             Ignored,
             Interesting,
@@ -1401,7 +1444,7 @@ mod test {
 
     #[test]
     fn choose_random() {
-        #[derive(Hash, PartialEq, Eq, Debug, Clone)]
+        #[derive(Hash, PartialEq, Eq, Debug, Clone, Ord, PartialOrd)]
         enum TestRandom {
             Choice1,
             Choice2,
@@ -1466,7 +1509,7 @@ mod test {
 
     #[test]
     fn overwrite_choose_random() {
-        #[derive(Hash, PartialEq, Eq, Debug, Clone)]
+        #[derive(Hash, PartialEq, Eq, Debug, Clone, Ord, PartialOrd)]
         enum TestRandom {
             Choice1,
             Choice2,
@@ -1549,7 +1592,6 @@ mod test {
                 _storage: &Option<Self::Storage>,
                 _o: &mut Out<Self>,
             ) -> Self::State {
-                ()
             }
         }
 
@@ -1631,7 +1673,7 @@ mod test {
         let checker = ActorModel::new((), ())
             .actor(TestActor(3))
             .property(Expectation::Sometimes, "recovered", |_, state| {
-                let actor_state = state.actor_states.get(0).unwrap();
+                let actor_state = state.actor_states.first().unwrap();
                 actor_state.non_volatile > actor_state.volatile
             })
             .max_crashes(1)

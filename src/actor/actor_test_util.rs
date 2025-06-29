@@ -9,7 +9,7 @@ pub mod ping_pong {
         serve_to: Option<Id>,
     }
 
-    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Eq, Ord, PartialEq, PartialOrd, Clone, Debug, Hash)]
     pub enum PingPongMsg {
         Ping(u32),
         Pong(u32),
@@ -21,7 +21,12 @@ pub mod ping_pong {
         type Timer = ();
         type Random = ();
         type Storage = ();
-        fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
+        fn on_start(
+            &self,
+            _id: Id,
+            _storage: &Option<Self::Storage>,
+            o: &mut Out<Self>,
+        ) -> Self::State {
             if let Some(id) = self.serve_to {
                 o.send(id, PingPongMsg::Ping(0));
             }

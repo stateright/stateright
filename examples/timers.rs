@@ -5,13 +5,13 @@ use stateright::report::WriteReporter;
 use stateright::{Checker, Model};
 use std::borrow::Cow;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 enum PingerMsg {
     Ping,
     Pong,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 enum PingerTimer {
     Even,
     Odd,
@@ -35,7 +35,12 @@ impl Actor for PingerActor {
     type Timer = PingerTimer;
     type Random = ();
     type Storage = ();
-    fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
+    fn on_start(
+        &self,
+        _id: Id,
+        _storage: &Option<Self::Storage>,
+        o: &mut Out<Self>,
+    ) -> Self::State {
         o.set_timer(PingerTimer::Even, model_timeout());
         o.set_timer(PingerTimer::Odd, model_timeout());
         o.set_timer(PingerTimer::NoOp, model_timeout());
@@ -140,7 +145,7 @@ fn main() -> Result<(), pico_args::Error> {
             let network = args
                 .opt_free_from_str()?
                 .unwrap_or(Network::new_unordered_nonduplicating([]));
-            println!("Exploring state space for Pingers on {}.", address);
+            println!("Exploring state space for Pingers on {address}.");
             PingerModelCfg {
                 server_count: 3,
                 network,

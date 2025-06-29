@@ -325,7 +325,7 @@ where
             "ordered" => Ok(Self::new_ordered([])),
             "unordered_duplicating" => Ok(Self::new_unordered_duplicating([])),
             "unordered_nonduplicating" => Ok(Self::new_unordered_nonduplicating([])),
-            _ => Err(format!("unable to parse network name: {}", s)),
+            _ => Err(format!("unable to parse network name: {s}")),
         }
     }
 }

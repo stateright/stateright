@@ -78,7 +78,7 @@ fn state_filter_success(s: &Arc<choice![InputState, CounterState]>) -> bool {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Msg {
     IncrementRequest(CounterSize),
     ReportRequest(),
@@ -104,7 +104,12 @@ impl Actor for Counter {
     type Timer = InputTimer;
     type Random = ();
     type Storage = ();
-    fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, _o: &mut Out<Self>) -> Self::State {
+    fn on_start(
+        &self,
+        _id: Id,
+        _storage: &Option<Self::Storage>,
+        _o: &mut Out<Self>,
+    ) -> Self::State {
         self.initial_state
     }
 
@@ -146,7 +151,7 @@ pub struct InputState {
 
 // Timers are discrete and time out immediately for model checking purposes.
 // To trigger actions in certain orders they need to be set by the correct events.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum InputTimer {
     ClientInput,
     ClientQuery,
@@ -159,7 +164,12 @@ impl Actor for Client {
     type Random = ();
     type Storage = ();
 
-    fn on_start(&self, _id: Id, _storage: &Option<Self::Storage>, o: &mut Out<Self>) -> Self::State {
+    fn on_start(
+        &self,
+        _id: Id,
+        _storage: &Option<Self::Storage>,
+        o: &mut Out<Self>,
+    ) -> Self::State {
         // Set a timeout to trigger sending increment request.
         o.set_timer(InputTimer::ClientInput, model_timeout());
         InputState {
