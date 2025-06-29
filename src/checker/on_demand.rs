@@ -30,17 +30,25 @@ pub(crate) struct OnDemandChecker<M: Model> {
     max_depth: Arc<AtomicUsize>,
     generated:
         Arc<DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>>,
-    discoveries: Arc<DashMap<&'static str, Fingerprint>>,
+    // In the original fingerprint-based Path construction, the value type of `discovery` was a
+    // single fingerprint since the path could be reconstructed in reverse using the parent
+    // relationships in `generated`. However, with action indices encoding, this is not possible,
+    // so we must store a Vec (like in dfs.rs).
+    discoveries: Arc<DashMap<&'static str, Vec<usize>>>,
     control_flow: std::sync::mpsc::SyncSender<ControlFlow>,
 }
-type Job<State> = (State, Fingerprint, EventuallyBits, NonZeroUsize);
+type Job<State> = (State, Fingerprint, EventuallyBits, NonZeroUsize, Vec<usize>);
 
 impl<M> OnDemandChecker<M>
 where
     M: Model + Send + Sync + 'static,
     M::State: Hash + Send + 'static,
 {
-    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
+    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         let model = Arc::new(options.model);
         let target_state_count = options.target_state_count;
         let thread_count = options.thread_count;
@@ -80,9 +88,10 @@ where
         };
         let pending: VecDeque<_> = init_states
             .into_iter()
-            .map(|s| {
+            .enumerate()
+            .map(|(i, s)| {
                 let fp = fingerprint(&s);
-                (s, fp, ebits.clone(), NonZeroUsize::new(1).unwrap())
+                (s, fp, ebits.clone(), NonZeroUsize::new(1).unwrap(), vec![i])
             })
             .collect();
         let discoveries = Arc::new(DashMap::default());
@@ -129,7 +138,7 @@ where
                                 };
                                 log::debug!(
                                     "got new pending states: {:?}",
-                                    pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
+                                    pending.iter().map(|(_, f, _, _, _)| f).collect::<Vec<_>>()
                                 );
                             }
 
@@ -143,14 +152,14 @@ where
                                                 log::debug!(
                                             "received fingerprint to check: {}, pending is {:?}",
                                             fingerprint,
-                                            pending.iter().map(|(_, f, _, _)| f).collect::<Vec<_>>()
+                                            pending.iter().map(|(_, f, _, _, _)| f).collect::<Vec<_>>()
                                         );
                                                 if pending.is_empty() {
                                                     break;
                                                 }
                                                 if let Some(index) = pending
                                                     .iter()
-                                                    .position(|(_, f, _, _)| *f == fingerprint)
+                                                    .position(|(_, f, _, _, _)| *f == fingerprint)
                                                 {
                                                     targetted_pending
                                                         .push_back(pending.remove(index).unwrap());
@@ -248,11 +257,14 @@ where
             BuildHasherDefault<NoHashHasher<u64>>,
         >,
         pending: &mut VecDeque<Job<M::State>>,
-        discoveries: &DashMap<&'static str, Fingerprint>,
+        discoveries: &DashMap<&'static str, Vec<usize>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         max_count: usize,
         global_max_depth: &AtomicUsize,
-    ) {
+    ) where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         let properties = model.properties();
 
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
@@ -262,7 +274,7 @@ where
             .collect::<Vec<_>>();
         loop {
             // Done if none pending.
-            let (state, state_fp, mut ebits, max_depth) = match local_pending.pop() {
+            let (state, state_fp, mut ebits, max_depth, action_path) = match local_pending.pop() {
                 None => return,
                 Some(pair) => pair,
             };
@@ -278,7 +290,10 @@ where
             }
 
             if let Some(visitor) = visitor {
-                visitor.visit(model, reconstruct_path(model, generated, state_fp));
+                visitor.visit(
+                    model,
+                    Path::from_action_indices(model, VecDeque::from(action_path.clone())),
+                );
             }
 
             // Done if discoveries found for all properties.
@@ -295,7 +310,7 @@ where
                     } => {
                         if !always(model, &state) {
                             // Races other threads, but that's fine.
-                            discoveries.insert(property.name, state_fp);
+                            discoveries.insert(property.name, action_path.clone());
                         } else {
                             is_awaiting_discoveries = true;
                         }
@@ -307,7 +322,7 @@ where
                     } => {
                         if sometimes(model, &state) {
                             // Races other threads, but that's fine.
-                            discoveries.insert(property.name, state_fp);
+                            discoveries.insert(property.name, action_path.clone());
                         } else {
                             is_awaiting_discoveries = true;
                         }
@@ -336,8 +351,14 @@ where
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            let next_states = actions.drain(..).flat_map(|a| model.next_state(&state, a));
-            for next_state in next_states {
+            for (action_idx, action) in actions.drain(..).enumerate() {
+                let next_state = model.next_state(&state, action);
+                if next_state.is_none() {
+                    continue;
+                }
+                let mut next_action_path = action_path.clone();
+                next_action_path.push(action_idx);
+                let next_state = next_state.unwrap();
                 let next_fp = fingerprint(&next_state);
                 log::debug!("checker generated state transition: {state_fp} -> {next_fp}",);
                 // Skip if outside boundary.
@@ -376,13 +397,14 @@ where
                     next_fp,
                     ebits.clone(),
                     NonZeroUsize::new(max_depth.get() + 1).unwrap(),
+                    next_action_path,
                 ));
             }
             if is_terminal {
                 for (i, property) in properties.iter().enumerate() {
                     if ebits.contains(i) {
                         // Races other threads, but that's fine.
-                        discoveries.insert(property.name, state_fp);
+                        discoveries.insert(property.name, action_path.clone());
                     }
                 }
             }
@@ -422,13 +444,17 @@ where
         self.max_depth.load(Ordering::Relaxed)
     }
 
-    fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
+    fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         self.discoveries
             .iter()
             .map(|mapref| {
                 (
                     <&'static str>::clone(mapref.key()),
-                    reconstruct_path(self.model(), &self.generated, *mapref.value()),
+                    Path::from_action_indices(self.model(), VecDeque::from(mapref.value().clone())),
                 )
             })
             .collect()
@@ -441,37 +467,6 @@ where
     fn is_done(&self) -> bool {
         self.job_broker.is_closed() || self.discoveries.len() == self.model.properties().len()
     }
-}
-
-fn reconstruct_path<M>(
-    model: &M,
-    generated: &DashMap<Fingerprint, Option<Fingerprint>, BuildHasherDefault<NoHashHasher<u64>>>,
-    fp: Fingerprint,
-) -> Path<M::State, M::Action>
-where
-    M: Model,
-    M::State: Hash,
-{
-    // First build a stack of digests representing the path (with the init digest at top of
-    // stack). Then unwind the stack of digests into a vector of states. The TLC model checker
-    // uses a similar technique, which is documented in the paper "Model Checking TLA+
-    // Specifications" by Yu, Manolios, and Lamport.
-
-    let mut fingerprints = VecDeque::new();
-    let mut next_fp = fp;
-    while let Some(source) = generated.get(&next_fp) {
-        match *source {
-            Some(prev_fingerprint) => {
-                fingerprints.push_front(next_fp);
-                next_fp = prev_fingerprint;
-            }
-            None => {
-                fingerprints.push_front(next_fp);
-                break;
-            }
-        }
-    }
-    Path::from_fingerprints(model, fingerprints)
 }
 
 #[cfg(test)]

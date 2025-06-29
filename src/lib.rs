@@ -163,9 +163,15 @@ pub trait Model: Sized {
     type Action;
 
     /// Returns the initial possible states.
+    ///
+    /// Note: The order of init states must be deterministic so that the action indices (the 0th
+    /// index is for the init state) based `Path` construction can work properly.
     fn init_states(&self) -> Vec<Self::State>;
 
     /// Collects the subsequent possible actions based on a previous state.
+    ///
+    /// Note: The order of actions must be deterministic for the same input state so that the action
+    /// indices based `Path` construction can work properly.
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>);
 
     /// Converts a previous state and action to a resulting state. [`None`] indicates that the action

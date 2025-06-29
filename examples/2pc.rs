@@ -45,7 +45,7 @@ enum TmState {
     Aborted,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Action {
     TmRcvPrepared(R),
     TmCommit,

@@ -78,7 +78,7 @@ fn state_filter_success(s: &Arc<choice![InputState, CounterState]>) -> bool {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Msg {
     IncrementRequest(CounterSize),
     ReportRequest(),
@@ -151,7 +151,7 @@ pub struct InputState {
 
 // Timers are discrete and time out immediately for model checking purposes.
 // To trigger actions in certain orders they need to be set by the correct events.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum InputTimer {
     ClientInput,
     ClientQuery,

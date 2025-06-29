@@ -1,6 +1,6 @@
 use stateright::{report::WriteReporter, *};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Lock(usize),
     Read(usize),

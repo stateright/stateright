@@ -9,7 +9,7 @@ pub mod ping_pong {
         serve_to: Option<Id>,
     }
 
-    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[derive(Eq, Ord, PartialEq, PartialOrd, Clone, Debug, Hash)]
     pub enum PingPongMsg {
         Ping(u32),
         Pong(u32),

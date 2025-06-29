@@ -63,7 +63,7 @@ type Proposal = (RequestId, Id, Value);
 type RequestId = u64;
 type Value = char;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 enum PaxosMsg {
     Prepare {
         ballot: Ballot,

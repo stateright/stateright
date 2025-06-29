@@ -26,16 +26,20 @@ pub(crate) struct DfsChecker<M: Model> {
     state_count: Arc<AtomicUsize>,
     max_depth: Arc<AtomicUsize>,
     generated: Arc<DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>>,
-    discoveries: Arc<DashMap<&'static str, Vec<Fingerprint>>>,
+    discoveries: Arc<DashMap<&'static str, Vec<usize>>>,
 }
-type Job<State> = (State, Vec<Fingerprint>, EventuallyBits, NonZeroUsize);
+type Job<State> = (State, Vec<usize>, EventuallyBits, NonZeroUsize);
 
 impl<M> DfsChecker<M>
 where
     M: Model + Send + Sync + 'static,
     M::State: Hash + Send + 'static,
 {
-    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
+    pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         let model = Arc::new(options.model);
         let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
@@ -78,10 +82,8 @@ where
         };
         let pending: VecDeque<_> = init_states
             .into_iter()
-            .map(|s| {
-                let fp = fingerprint(&s);
-                (s, vec![fp], ebits.clone(), NonZeroUsize::new(1).unwrap())
-            })
+            .enumerate()
+            .map(|(i, s)| (s, vec![i], ebits.clone(), NonZeroUsize::new(1).unwrap()))
             .collect();
         let discoveries = Arc::new(DashMap::default());
         let mut handles = Vec::new();
@@ -184,13 +186,16 @@ where
         state_count: &AtomicUsize,
         generated: &DashSet<Fingerprint, BuildHasherDefault<NoHashHasher<u64>>>,
         pending: &mut VecDeque<Job<M::State>>,
-        discoveries: &DashMap<&'static str, Vec<Fingerprint>>,
+        discoveries: &DashMap<&'static str, Vec<usize>>,
         visitor: &Option<Box<dyn CheckerVisitor<M> + Send + Sync>>,
         mut max_count: usize,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
         symmetry: Option<fn(&M::State) -> M::State>,
-    ) {
+    ) where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         let properties = model.properties();
 
         let mut current_max_depth = global_max_depth.load(Ordering::Relaxed);
@@ -203,7 +208,7 @@ where
             max_count -= 1;
 
             // Done if none pending.
-            let (state, fingerprints, mut ebits, max_depth) = match pending.pop_back() {
+            let (state, action_indices, mut ebits, max_depth) = match pending.pop_back() {
                 None => return,
                 Some(pair) => pair,
             };
@@ -227,7 +232,7 @@ where
             if let Some(visitor) = visitor {
                 visitor.visit(
                     model,
-                    Path::from_fingerprints(model, VecDeque::from(fingerprints.clone())),
+                    Path::from_action_indices(model, VecDeque::from(action_indices.clone())),
                 );
             }
 
@@ -245,7 +250,7 @@ where
                     } => {
                         if !always(model, &state) {
                             // Races other threads, but that's fine.
-                            discoveries.insert(property.name, fingerprints.clone());
+                            discoveries.insert(property.name, action_indices.clone());
                         } else {
                             is_awaiting_discoveries = true;
                         }
@@ -257,7 +262,7 @@ where
                     } => {
                         if sometimes(model, &state) {
                             // Races other threads, but that's fine.
-                            discoveries.insert(property.name, fingerprints.clone());
+                            discoveries.insert(property.name, action_indices.clone());
                         } else {
                             is_awaiting_discoveries = true;
                         }
@@ -286,7 +291,7 @@ where
             // Otherwise enqueue newly generated states (with related metadata).
             let mut is_terminal = true;
             model.actions(&state, &mut actions);
-            for action in actions.drain(..) {
+            for (action_idx, action) in actions.drain(..).enumerate() {
                 let next_state = match model.next_state(&state, action) {
                     None => continue,
                     Some(next_state) => next_state,
@@ -306,7 +311,7 @@ where
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = if let Some(representative) = symmetry {
+                let _next_fingerprint = if let Some(representative) = symmetry {
                     let representative_fingerprint = fingerprint(&representative(&next_state));
                     if !generated.insert(representative_fingerprint) {
                         is_terminal = false;
@@ -335,14 +340,14 @@ where
 
                 // Otherwise further checking is applicable.
                 is_terminal = false;
-                let mut next_fingerprints = Vec::with_capacity(1 + fingerprints.len());
-                for f in &fingerprints {
-                    next_fingerprints.push(*f);
+                let mut next_action_indices = Vec::with_capacity(1 + action_indices.len());
+                for idx in &action_indices {
+                    next_action_indices.push(*idx);
                 }
-                next_fingerprints.push(next_fingerprint);
+                next_action_indices.push(action_idx);
                 pending.push_back((
                     next_state,
-                    next_fingerprints,
+                    next_action_indices,
                     ebits.clone(),
                     NonZeroUsize::new(max_depth.get() + 1).unwrap(),
                 ));
@@ -351,7 +356,7 @@ where
                 for (i, property) in properties.iter().enumerate() {
                     if ebits.contains(i) {
                         // Races other threads, but that's fine.
-                        discoveries.insert(property.name, fingerprints.clone());
+                        discoveries.insert(property.name, action_indices.clone());
                     }
                 }
             }
@@ -380,13 +385,17 @@ where
         self.max_depth.load(Ordering::Relaxed)
     }
 
-    fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>> {
+    fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         self.discoveries
             .iter()
             .map(|mapref| {
                 (
                     <&'static str>::clone(mapref.key()),
-                    Path::from_fingerprints(self.model(), VecDeque::from(mapref.value().clone())),
+                    Path::from_action_indices(self.model(), VecDeque::from(mapref.value().clone())),
                 )
             })
             .collect()

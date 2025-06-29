@@ -24,6 +24,8 @@ use super::timers::Timers;
 pub struct ActorModel<A, C = (), H = ()>
 where
     A: Actor,
+    A::Msg: Ord,
+    A::Timer: Ord,
     H: Clone + Debug + Hash,
 {
     pub actors: Vec<A>,
@@ -88,6 +90,8 @@ pub fn model_peers(self_ix: usize, count: usize) -> Vec<Id> {
 impl<A, C, H> ActorModel<A, C, H>
 where
     A: Actor,
+    A::Msg: Ord,
+    A::Timer: Ord,
     H: Clone + Debug + Hash,
 {
     /// Initializes an [`ActorModel`] with a specified configuration and history.
@@ -236,6 +240,8 @@ where
 impl<A, C, H> Model for ActorModel<A, C, H>
 where
     A: Actor,
+    A::Msg: Ord,
+    A::Timer: Ord,
     H: Clone + Debug + Hash,
 {
     type State = ActorModelState<A, H>;
@@ -328,6 +334,54 @@ where
                 }
             }
         }
+
+        // Action indices based `Path` construction relies on the consistent ordering of the returned actions.
+        // Some iterators like `HashableHashSet` do not guarantee a stable order.
+        // For simplicity, we sort actions here.
+        actions.sort_unstable_by(|a, b| {
+            use ActorModelAction::*;
+            let variant_order = |act: &ActorModelAction<_, _, _>| match act {
+                Drop(_) => 0,
+                Deliver { .. } => 1,
+                Timeout(_, _) => 2,
+                Crash(_) => 3,
+                Recover(_) => 4,
+                SelectRandom { .. } => 5,
+            };
+            let va = variant_order(a);
+            let vb = variant_order(b);
+            va.cmp(&vb).then_with(|| match (a, b) {
+                (
+                    Deliver {
+                        src: s1,
+                        dst: d1,
+                        msg: m1,
+                    },
+                    Deliver {
+                        src: s2,
+                        dst: d2,
+                        msg: m2,
+                    },
+                ) => s1.cmp(s2).then_with(|| d1.cmp(d2)).then_with(|| m1.cmp(m2)),
+                (Drop(e1), Drop(e2)) => e1.cmp(e2),
+                (Timeout(id1, t1), Timeout(id2, t2)) => id1.cmp(id2).then_with(|| t1.cmp(t2)),
+                (Crash(id1), Crash(id2)) => id1.cmp(id2),
+                (Recover(id1), Recover(id2)) => id1.cmp(id2),
+                (
+                    SelectRandom {
+                        actor: a1,
+                        key: k1,
+                        random: r1,
+                    },
+                    SelectRandom {
+                        actor: a2,
+                        key: k2,
+                        random: r2,
+                    },
+                ) => a1.cmp(a2).then_with(|| k1.cmp(k2)).then_with(|| r1.cmp(r2)),
+                _ => std::cmp::Ordering::Equal,
+            })
+        });
     }
 
     fn next_state(
@@ -956,7 +1010,7 @@ mod test {
             Client { server: Id },
             Server,
         }
-        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
         enum Msg {
             Ignored,
             Interesting,
@@ -1390,7 +1444,7 @@ mod test {
 
     #[test]
     fn choose_random() {
-        #[derive(Hash, PartialEq, Eq, Debug, Clone)]
+        #[derive(Hash, PartialEq, Eq, Debug, Clone, Ord, PartialOrd)]
         enum TestRandom {
             Choice1,
             Choice2,
@@ -1455,7 +1509,7 @@ mod test {
 
     #[test]
     fn overwrite_choose_random() {
-        #[derive(Hash, PartialEq, Eq, Debug, Clone)]
+        #[derive(Hash, PartialEq, Eq, Debug, Clone, Ord, PartialOrd)]
         enum TestRandom {
             Choice1,
             Choice2,
