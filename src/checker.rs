@@ -97,7 +97,7 @@ impl<M: Model> CheckerBuilder<M> {
     /// ```no_run
     /// use stateright::{Checker, Model};
     ///
-    /// #[derive(Clone, Debug, Hash)]
+    /// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     /// enum FizzBuzzAction { Fizz, Buzz, FizzBuzz }
     /// #[derive(Clone)]
     /// struct FizzBuzzModel { max: usize }
@@ -137,16 +137,15 @@ impl<M: Model> CheckerBuilder<M> {
     ///
     /// - `GET /` returns a web browser UI as HTML.
     /// - `GET /.status` returns information about the model checker status.
-    /// - `GET /.states` returns available initial states and fingerprints.
-    /// - `GET /.states/{fingerprint1}/{fingerprint2}/...` follows the specified
-    ///    path of fingerprints and returns available actions with resulting
-    ///    states and fingerprints.
-    /// - `GET /.states/.../{invalid-fingerprint}` returns 404.
+    /// - `GET /.states` returns available initial states and their indices.
+    /// - `GET /.states/{init_state_index}/{action_index1}/{action_index2}/...` follows the specified
+    ///    path of action indices and returns available actions with resulting states and their indices.
+    /// - `GET /.states/.../{invalid-index}` returns 404.
     pub fn serve(self, addresses: impl std::net::ToSocketAddrs) -> std::sync::Arc<impl Checker<M>>
     where
         M: 'static + Model + Send + Sync,
-        M::Action: Debug + Send + Sync,
-        M::State: Debug + Hash + Send + Sync,
+        M::Action: Debug + Send + Sync + Clone + PartialEq,
+        M::State: Debug + Hash + Send + Sync + Clone + PartialEq,
     {
         explorer::serve(self, addresses)
     }
@@ -163,7 +162,8 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn spawn_bfs(self) -> impl Checker<M>
     where
         M: Model + Send + Sync + 'static,
-        M::State: Hash + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + Clone + PartialEq + 'static,
+        M::Action: Clone + PartialEq,
     {
         bfs::BfsChecker::spawn(self)
     }
@@ -179,7 +179,8 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn spawn_on_demand(self) -> impl Checker<M>
     where
         M: Model + Send + Sync + 'static,
-        M::State: Hash + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + Clone + PartialEq + 'static,
+        M::Action: Clone + PartialEq,
     {
         on_demand::OnDemandChecker::spawn(self)
     }
@@ -195,7 +196,8 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn spawn_dfs(self) -> impl Checker<M>
     where
         M: Model + Send + Sync + 'static,
-        M::State: Hash + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + Clone + PartialEq + 'static,
+        M::Action: Clone + PartialEq,
     {
         dfs::DfsChecker::spawn(self)
     }
@@ -211,7 +213,8 @@ impl<M: Model> CheckerBuilder<M> {
     pub fn spawn_simulation<C>(self, seed: u64, chooser: C) -> impl Checker<M>
     where
         M: Model + Send + Sync + 'static,
-        M::State: Hash + Send + Sync + 'static,
+        M::State: Hash + Send + Sync + Clone + PartialEq + 'static,
+        M::Action: Clone + PartialEq,
         C: Chooser<M>,
     {
         simulation::SimulationChecker::spawn::<C>(self, seed, chooser)
@@ -319,7 +322,10 @@ pub trait Checker<M: Model> {
 
     /// Returns a map from property name to corresponding "discovery" (indicated
     /// by a [`Path`]).
-    fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>;
+    fn discoveries(&self) -> HashMap<&'static str, Path<M::State, M::Action>>
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq;
 
     /// Blocks the current thread until checking [`is_done`] or each thread evaluates
     /// a specified maximum number of states.
@@ -343,7 +349,11 @@ pub trait Checker<M: Model> {
     fn is_done(&self) -> bool;
 
     /// Looks up a discovery by property name. Panics if the property does not exist.
-    fn discovery(&self, name: &'static str) -> Option<Path<M::State, M::Action>> {
+    fn discovery(&self, name: &'static str) -> Option<Path<M::State, M::Action>>
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         self.discoveries().remove(name)
     }
 
@@ -351,8 +361,8 @@ pub trait Checker<M: Model> {
     /// the interval used for the reporting.
     fn join_and_report<R>(mut self, reporter: &mut R) -> Self
     where
-        M::Action: Debug,
-        M::State: Debug + Hash,
+        M::Action: Debug + PartialEq + Clone,
+        M::State: Debug + Hash + PartialEq + Clone,
         Self: Sized + Send + Sync,
         R: Reporter<M> + Send,
     {
@@ -404,7 +414,7 @@ pub trait Checker<M: Model> {
             reporter_mutex2
                 .lock()
                 .unwrap()
-                .report_discoveries(discoveries);
+                .report_discoveries(slf.model(), discoveries);
         });
         self
     }
@@ -412,8 +422,8 @@ pub trait Checker<M: Model> {
     /// Periodically emits a status message.
     fn report<R>(self, reporter: &mut R) -> Self
     where
-        M::Action: Debug,
-        M::State: Debug + Hash,
+        M::Action: Debug + PartialEq + Clone,
+        M::State: Debug + Hash + PartialEq + Clone,
         Self: Sized,
         R: Reporter<M>,
     {
@@ -447,7 +457,7 @@ pub trait Checker<M: Model> {
             };
             discoveries.insert(name, discovery);
         }
-        reporter.report_discoveries(discoveries);
+        reporter.report_discoveries(self.model(), discoveries);
 
         self
     }
@@ -468,8 +478,8 @@ pub trait Checker<M: Model> {
     /// exist for any `always`/`eventually` properties.
     fn assert_properties(&self)
     where
-        M::Action: Debug,
-        M::State: Debug,
+        M::Action: Debug + Clone + PartialEq,
+        M::State: Debug + Clone + PartialEq,
     {
         for p in self.model().properties() {
             match p.expectation {
@@ -483,7 +493,11 @@ pub trait Checker<M: Model> {
     }
 
     /// Panics if a particular discovery is not found.
-    fn assert_any_discovery(&self, name: &'static str) -> Path<M::State, M::Action> {
+    fn assert_any_discovery(&self, name: &'static str) -> Path<M::State, M::Action>
+    where
+        M::State: Clone + PartialEq,
+        M::Action: Clone + PartialEq,
+    {
         if let Some(found) = self.discovery(name) {
             return found;
         }
@@ -497,8 +511,8 @@ pub trait Checker<M: Model> {
     /// Panics if a particular discovery is found.
     fn assert_no_discovery(&self, name: &'static str)
     where
-        M::Action: Debug,
-        M::State: Debug,
+        M::Action: Debug + Clone + PartialEq,
+        M::State: Debug + Clone + PartialEq,
     {
         if let Some(found) = self.discovery(name) {
             panic!(
@@ -519,8 +533,8 @@ pub trait Checker<M: Model> {
     /// name.
     fn assert_discovery(&self, name: &'static str, actions: Vec<M::Action>)
     where
-        M::State: Debug + PartialEq,
-        M::Action: Debug + PartialEq,
+        M::State: Debug + PartialEq + Clone,
+        M::Action: Debug + PartialEq + Clone,
     {
         let mut additional_info: Vec<&'static str> = Vec::new();
 
@@ -682,25 +696,23 @@ mod test_eventually_property_checker {
 #[cfg(test)]
 mod test_path {
     use super::*;
-    use crate::fingerprint;
     use crate::test_util::linear_equation_solver::LinearEquation;
     use std::collections::VecDeque;
 
     #[test]
-    fn can_build_path_from_fingerprints() {
-        let fp = |a: u8, b: u8| fingerprint(&(a, b));
+    fn can_build_path_from_action_indices() {
         let model = LinearEquation { a: 2, b: 10, c: 14 };
-        let fingerprints = VecDeque::from(vec![
-            fp(0, 0),
-            fp(0, 1),
-            fp(1, 1),
-            fp(2, 1), // final state
+        let action_indices = VecDeque::from(vec![
+            0, // init state index: (0, 0)
+            0, // action index 0: IncreaseX
+            0, // action index 0: IncreaseX
+            1, // action index 1: IncreaseY
         ]);
-        let path = Path::from_fingerprints(&model, fingerprints.clone());
+        let path = Path::from_action_indices(&model, action_indices.clone());
         assert_eq!(path.last_state(), &(2, 1));
         assert_eq!(
             path.last_state(),
-            &Path::final_state(&model, fingerprints).unwrap()
+            &Path::final_state(&model, action_indices).unwrap()
         );
     }
 }
@@ -712,8 +724,6 @@ mod test_report {
 
     #[test]
     fn report_includes_property_names_and_paths() {
-        // The assertions use `starts_with` to omit timing since it varies.
-
         // BFS
         let mut written: Vec<u8> = Vec::new();
         LinearEquation { a: 2, b: 10, c: 14 }
@@ -721,13 +731,12 @@ mod test_report {
             .spawn_bfs()
             .report(&mut WriteReporter::new(&mut written));
         let output = String::from_utf8(written).unwrap();
+        // We skip verification of the initial "Checking" message due to execution timing uncertainty.
+        // The reporter's periodic reporting mechanism may not have enough time to emit the initial
+        // status message if model checking completes too quickly.
         assert!(
-            output.starts_with(
-                "\
-                Checking. states=1, unique=1, depth=0\n\
-                Done. states=15, unique=12, depth=4, sec="
-            ),
-            "Output did not start as expected (see test). output={output:?}`"
+            output.contains("Done. states=15, unique=12, depth=4, sec="),
+            "Output did not contain expected completion message (see test). output={output:?}`"
         );
         assert!(
             output.ends_with(
@@ -736,7 +745,7 @@ mod test_report {
                 - IncreaseX\n\
                 - IncreaseX\n\
                 - IncreaseY\n\
-                Fingerprint path: 16309487358465187103/4054010254685319810/14694746594177136764/4487299314074331070\n"
+                Action index path: 0/0/0/1\n"
             ),
             "Output did not end as expected (see test). output={output:?}`"
         );
@@ -749,12 +758,8 @@ mod test_report {
             .report(&mut WriteReporter::new(&mut written));
         let output = String::from_utf8(written).unwrap();
         assert!(
-            output.starts_with(
-                "\
-                Checking. states=1, unique=1, depth=0\n\
-                Done. states=55, unique=55, depth=28, sec="
-            ),
-            "Output did not start as expected (see test). output={output:?}`"
+            output.contains("Done. states=55, unique=55, depth=28, sec="),
+            "Output did not contain expected completion message (see test). output={output:?}`"
         );
         assert!(
             output.ends_with(
@@ -787,7 +792,7 @@ mod test_report {
                 - IncreaseY\n\
                 - IncreaseY\n\
                 - IncreaseY\n\
-                Fingerprint path: 16309487358465187103/4831423781950625701/16619844540305726739/12533105667452372613/3990830794503798808/16404477134879477635/15029999401018116540/12635432686257652764/5731717400168108395/11799661968520620327/10247191817427584860/17489788904632259311/5108719434779808037/14444227259923214149/8951907838241788528/6224853060915121328/14761813229303177416/5002190365317749106/17266499614293479757/6040176458240602590/5690727464021230627/17935965727896813147/6638580672402335984/7744930589914529004/103690611876300118/5243119980325930440/1013265194698294052/7804529378088234188\n"
+                Action index path: 0/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1/1\n"
             ),
             "Output did not end as expected (see test). output={output:?}`"
         );

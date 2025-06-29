@@ -12,9 +12,12 @@ function Status({done, state_count, unique_state_count, max_depth, model, proper
             ? recent_path
             : recent_path.substring(0, 99 - 3) + '...';
     }
-    status.properties = properties.map((p) => { return getProperty(p, done) });
+    status.properties = properties.map((p) => {
+        return getProperty(p, done)
+    });
     status.recentPath = recent_path;
 }
+
 /// Placeholder status.
 Status.LOADING = new Status({
     done: 'loading...',
@@ -36,18 +39,27 @@ function getProperty(p, done) {
         summary: (() => {
             if (discoveryPath) {
                 switch (expectation) {
-                    case 'Always':     return '⚠️ Counterexample found: ';
-                    case 'Sometimes':  return '✅ Example found: ';
-                    case 'Eventually': return '⚠️ Counterexample found: ';
+                    case 'Always':
+                        return '⚠️ Counterexample found: ';
+                    case 'Sometimes':
+                        return '✅ Example found: ';
+                    case 'Eventually':
+                        return '⚠️ Counterexample found: ';
                     default:
                         throw new Error(`Invalid expectation ${expectation}.`);
                 }
             } else {
-                if (!done) { return '🔎 Searching: ' };
+                if (!done) {
+                    return '🔎 Searching: '
+                }
+                ;
                 switch (expectation) {
-                    case 'Always':     return '✅ Safety holds: ';
-                    case 'Sometimes':  return '⚠️ Example not found: ';
-                    case 'Eventually': return '✅ Liveness holds: ';
+                    case 'Always':
+                        return '✅ Safety holds: ';
+                    case 'Sometimes':
+                        return '⚠️ Example not found: ';
+                    case 'Eventually':
+                        return '✅ Liveness holds: ';
                     default:
                         throw new Error(`Invalid expectation ${expectation}.`);
                 }
@@ -68,7 +80,7 @@ function getPropertyForState(p, path) {
         }
     }
 
-    const [ icon, summary ] = (() => {
+    const [icon, summary] = (() => {
         if (discoveryPath) {
             if (discoveryPath.length + 1 < path.length) {
                 // state after discovery
@@ -78,18 +90,24 @@ function getPropertyForState(p, path) {
                 return ['⬇️', ''];
             } else {
                 switch (expectation) {
-                    case 'Always': return [ '⚠️',' Counterexample found: ' ];
-                    case 'Sometimes':  return [ '✅', ' Example found: ' ];
-                    case 'Eventually': return [ '⚠️', ' Counterexample found: ' ];
+                    case 'Always':
+                        return ['⚠️', ' Counterexample found: '];
+                    case 'Sometimes':
+                        return ['✅', ' Example found: '];
+                    case 'Eventually':
+                        return ['⚠️', ' Counterexample found: '];
                     default:
                         throw new Error(`Invalid expectation ${expectation}.`);
                 }
             }
         } else {
             switch (expectation) {
-                case 'Always':     return [ '✅', ' Safety holds: ' ];
-                case 'Sometimes':  return [ '⚠️', ' Example not found: ' ];
-                case 'Eventually': return [ '✅', ' Liveness holds: ' ];
+                case 'Always':
+                    return ['✅', ' Safety holds: '];
+                case 'Sometimes':
+                    return ['⚠️', ' Example not found: '];
+                case 'Eventually':
+                    return ['✅', ' Liveness holds: '];
                 default:
                     throw new Error(`Invalid expectation ${expectation}.`);
             }
@@ -107,27 +125,33 @@ function getPropertyForState(p, path) {
 
 
 /// Represents a model step. Only loads next steps on demand.
-function Step({action, outcome, state, fingerprint, properties, prevStep, svg}) {
+function Step({action, outcome, state, actionIndex, properties, prevStep, svg}) {
     let step = this;
 
-    step.action = action || `Init ${i}`;
+    step.action = action || `Init ${actionIndex !== undefined ? actionIndex : 'unknown'}`;
     step.outcome = outcome;
     step.state = state;
     step.svg = svg;
-    step.fingerprint = fingerprint;
+    step.actionIndex = actionIndex;
     step.prevStep = prevStep;
 
-    step.path = prevStep ? prevStep.path + '/' + fingerprint : '';
+    step.path = prevStep && actionIndex !== undefined ? prevStep.path + '/' + actionIndex : '';
 
-    step.properties = properties.map((p) => { return getPropertyForState(p, step.path) });
-    step.icons = step.properties.map((p) => { return p.icon }).join(' ')
+    step.properties = properties.map((p) => {
+        return getPropertyForState(p, step.path)
+    });
+    step.icons = step.properties.map((p) => {
+        return p.icon
+    }).join(' ')
 
     step.pathSteps = () => (prevStep ? prevStep.pathSteps() : []).concat([step]);
     step.nextSteps = ko.observableArray();
     step.computeOffsetTo = (dstStep) => {
         let offset = 0;
         for (let cursor = step; cursor; cursor = cursor.prevStep) {
-            if (cursor == dstStep) { return offset; }
+            if (cursor == dstStep) {
+                return offset;
+            }
             ++offset;
         }
         return null;
@@ -138,7 +162,9 @@ function Step({action, outcome, state, fingerprint, properties, prevStep, svg}) 
     step.fetchNextSteps = async () => {
         Step._NEXT_STEPS = Step._NEXT_STEPS || {};
         let cached = Step._NEXT_STEPS[step.path];
-        if (cached) { return cached; }
+        if (cached) {
+            return cached;
+        }
 
         console.log('Fetching next steps.', {path: step.path});
         Step._NEXT_STEPS[step.path] = fetch(`/.states${step.path}`)
@@ -153,7 +179,7 @@ function Step({action, outcome, state, fingerprint, properties, prevStep, svg}) 
                     outcome: nextStep.outcome,
                     state: nextStep.state,
                     svg: nextStep.svg,
-                    fingerprint: nextStep.fingerprint,
+                    actionIndex: nextStep.actionIndex,
                     properties: nextStep.properties,
                     prevStep: step,
                 }));
@@ -168,11 +194,12 @@ function Step({action, outcome, state, fingerprint, properties, prevStep, svg}) 
     };
     step.isIgnored = 'undefined' === typeof step.state;
 }
+
 /// Special step that points to the init steps.
 Step.PRE_INIT = new Step({
     action: 'Pre-init',
     state: 'No state selected',
-    fingerprint: '',
+    actionIndex: undefined,
     properties: [],
     prevStep: null,
 });
@@ -224,6 +251,7 @@ function App() {
             setTimeout(refreshStatus, 5000);
         }
     }
+
     async function prepareView() {
         let hash = window.location.hash;
         console.log('Hash changed. Preparing view.', {hash});
@@ -244,16 +272,17 @@ function App() {
                 let step = Step.PRE_INIT;
                 while (true) {
                     let nextSteps = await step.fetchNextSteps();
-                    let nextFingerprint = components.shift();
-                    if (!nextFingerprint) {
+                    let nextActionIndex = components.shift();
+                    if (!nextActionIndex) {
                         app.selectedStep(step);
                         app.farthestStep(step);
                         break;
                     }
-                    step = nextSteps.find(step => step.fingerprint == nextFingerprint);
+                    step = nextSteps.find(step => step.actionIndex == parseInt(nextActionIndex));
                 }
                 break;
-            default: throw new Error(`Invalid view: '${view}'`);
+            default:
+                throw new Error(`Invalid view: '${view}'`);
         }
 
         let pairs = (queryString || '').split('&');
@@ -274,7 +303,7 @@ function App() {
 
 async function runToCompletion() {
     console.log("continuing checker");
-    let response = await fetch('/.runtocompletion', {method:'POST'});
+    let response = await fetch('/.runtocompletion', {method: 'POST'});
     console.log(response);
 }
 

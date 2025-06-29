@@ -5,13 +5,13 @@ use stateright::report::WriteReporter;
 use stateright::{Checker, Model};
 use std::borrow::Cow;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 enum PingerMsg {
     Ping,
     Pong,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 enum PingerTimer {
     Even,
     Odd,

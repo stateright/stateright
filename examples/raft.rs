@@ -8,14 +8,14 @@ use std::cmp::min;
 use std::collections::HashSet;
 use std::hash::Hash;
 
-#[derive(PartialEq, Hash, Eq, Clone, Debug)]
+#[derive(PartialEq, Hash, Eq, Clone, Debug, PartialOrd, Ord)]
 pub enum Role {
     Follower,
     Candidate,
     Leader,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LogEntry {
     pub(crate) term: usize,
     pub(crate) payload: Vec<u8>,
@@ -74,7 +74,7 @@ impl NodeState {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LogRequestArgs {
     pub leader_id: usize,
     pub term: usize,
@@ -84,7 +84,7 @@ pub struct LogRequestArgs {
     pub suffix: Vec<LogEntry>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LogResponseArgs {
     pub follower: usize,
     pub term: usize,
@@ -92,7 +92,7 @@ pub struct LogResponseArgs {
     pub success: bool,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VoteRequestArgs {
     pub cid: usize,
     pub cterm: usize,
@@ -100,19 +100,19 @@ pub struct VoteRequestArgs {
     pub clog_term: usize,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VoteResponseArgs {
     pub voter_id: usize,
     pub term: usize,
     pub granted: bool,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BroadcastArgs {
     pub payload: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RaftMessage {
     VoteRequest(VoteRequestArgs),
     VoteResponse(VoteResponseArgs),
@@ -121,7 +121,7 @@ pub enum RaftMessage {
     Broadcast(Vec<u8>),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RaftTimer {
     ElectionTimeout,
     ReplicationTimeout,

@@ -14,7 +14,7 @@
 //! [`Network::new_ordered`] can be used to reduce the state space of models that will use this
 //! abstraction.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::actor::*;
 use crate::util::HashableHashMap;
@@ -35,9 +35,7 @@ pub struct ActorWrapper<A: Actor> {
 }
 
 /// An envelope for ORL messages.
-#[derive(
-    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum MsgWrapper<Msg> {
     Deliver(Sequencer, Msg),
     Ack(Sequencer),
@@ -61,7 +59,7 @@ pub struct StateWrapper<Msg, State, Storage> {
 }
 
 /// Wrapper for timers.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Eq, Ord, PartialEq, PartialOrd, Clone, Debug, Hash)]
 pub enum TimerWrapper<Timer> {
     Network,
     User(Timer),

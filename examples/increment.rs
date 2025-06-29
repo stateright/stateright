@@ -106,7 +106,7 @@
 
 use stateright::{report::WriteReporter, *};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     /// A specified thread reads from the shared state into its local state.
     Read(usize),
@@ -122,7 +122,7 @@ struct ProcState {
     pc: u8,
 }
 
-#[derive(Debug, Clone, Default, Hash)]
+#[derive(Debug, Clone, Default, Hash, PartialEq)]
 pub struct State {
     /// The shared global state.
     i: u8,

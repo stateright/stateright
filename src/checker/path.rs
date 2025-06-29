@@ -1,6 +1,6 @@
 //! Private module for selective re-export.
 
-use crate::{fingerprint, Fingerprint, Model};
+use crate::Model;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
@@ -16,27 +16,28 @@ use std::hash::Hash;
 pub struct Path<State, Action>(Vec<(State, Option<Action>)>);
 
 impl<State, Action> Path<State, Action> {
-    /// Constructs a path from a model and a sequence of fingerprints.
-    pub(crate) fn from_fingerprints<M>(model: &M, mut fingerprints: VecDeque<Fingerprint>) -> Self
+    /// Constructs a path from a model and a sequence of action indices (the 0th index is for the
+    /// init state).
+    pub(crate) fn from_action_indices<M>(model: &M, mut indices: VecDeque<usize>) -> Self
     where
         M: Model<State = State, Action = Action>,
-        M::State: Hash,
+        State: Clone + PartialEq,
+        Action: Clone + PartialEq,
     {
         // FIXME: Don't panic. Return a `Result` so the details can be bubbled up to Explorer/etc.
-        //        Also serialize the states rather than printing the fingerprints.
-        let init_print = match fingerprints.pop_front() {
-            Some(init_print) => init_print,
+        //        Also serialize the states rather than printing the indices.
+        let init_state_index = match indices.pop_front() {
+            Some(init_index) => init_index,
             None => panic!("empty path is invalid"),
         };
-        let mut last_state = model
-            .init_states()
-            .into_iter()
-            .find(|s| fingerprint(&s) == init_print)
+        let init_states = model.init_states();
+        let mut last_state = init_states
+            .get(init_state_index)
             .unwrap_or_else(|| {
                 panic!(
                     r#"
-Unable to reconstruct a `Path` based on digests ("fingerprints") from states visited earlier. No
-init state has the expected fingerprint ({:?}). This usually happens when the return value of
+Unable to reconstruct a `Path` based on action indices from states visited earlier. No
+init state has the expected index ({:?}). This usually happens when the return value of
 `Model::init_states` varies.
 
 The most obvious cause would be a model that operates directly upon untracked external state such
@@ -44,33 +45,24 @@ as the file system, a thread local `RefCell`, or a source of randomness. Note th
 inadvertent. For example, iterating over a `HashMap` or `HashableHashMap` does not always happen in
 the same order (depending on the random seed), which can lead to unexpected nondeterminism.
 
-Available init fingerprints (none of which match): {:?}"#,
-                    init_print,
-                    model
-                        .init_states()
-                        .into_iter()
-                        .map(|s| fingerprint(&s))
-                        .collect::<Vec<_>>()
+Available init state indices (none of which match): {:?}"#,
+                    init_state_index,
+                    (0..init_states.len()).collect::<Vec<_>>()
                 );
-            });
+            })
+            .clone();
         let mut output = Vec::new();
-        while let Some(next_fp) = fingerprints.pop_front() {
-            let (action, next_state) = model
-                .next_steps(&last_state)
-                .into_iter()
-                .find_map(|(a, s)| {
-                    if fingerprint(&s) == next_fp {
-                        Some((a, s))
-                    } else {
-                        None
-                    }
-                })
+        while let Some(action_index) = indices.pop_front() {
+            let mut actions = Vec::new();
+            model.actions(&last_state, &mut actions);
+            let action = actions
+                .get(action_index)
                 .unwrap_or_else(|| {
                     panic!(
                         r#"
-Unable to reconstruct a `Path` based on digests ("fingerprints") from states visited earlier. {}
-previous state(s) of the path were able to be reconstructed, but no subsequent state has the next
-fingerprint ({:?}). This usually happens when `Model::actions` or `Model::next_state` vary even
+Unable to reconstruct a `Path` based on action indices from states visited earlier. {}
+previous state(s) of the path were able to be reconstructed, but no action has the next
+index ({:?}). This usually happens when `Model::actions` or `Model::next_state` vary even
 when given the same input arguments.
 
 The most obvious cause would be a model that operates directly upon untracked external state such
@@ -78,19 +70,18 @@ as the file system, a thread local `RefCell`, or a source of randomness. Note th
 inadvertent. For example, iterating over a `HashMap` or `HashableHashMap` does not always happen in
 the same order (depending on the random seed), which can lead to unexpected nondeterminism.
 
-Available next fingerprints (none of which match): {:?}"#,
+Available action indices (none of which match): {:?}"#,
                         1 + output.len(),
-                        next_fp,
-                        model
-                            .next_states(&last_state)
-                            .into_iter()
-                            .map(|s| fingerprint(&s))
-                            .collect::<Vec<_>>()
+                        action_index,
+                        (0..actions.len()).collect::<Vec<_>>()
                     );
-                });
-            output.push((last_state, Some(action)));
+                })
+                .clone();
+            output.push((last_state.clone(), Some(action.clone())));
 
-            last_state = next_state;
+            if let Some(next_state) = model.next_state(&last_state, action.clone()) {
+                last_state = next_state;
+            }
         }
         output.push((last_state, None));
         Path(output)
@@ -126,25 +117,22 @@ Available next fingerprints (none of which match): {:?}"#,
         Some(Path(output))
     }
 
-    /// Determines the final state associated with a particular fingerprint path.
-    pub(crate) fn final_state<M>(
-        model: &M,
-        mut fingerprints: VecDeque<Fingerprint>,
-    ) -> Option<M::State>
+    /// Determines the final state associated with a particular action indices path.
+    pub(crate) fn final_state<M>(model: &M, mut indices: VecDeque<usize>) -> Option<M::State>
     where
         M: Model<State = State, Action = Action>,
-        M::State: Hash,
+        State: Clone + PartialEq,
+        Action: Clone + PartialEq,
     {
-        let init_print = fingerprints.pop_front()?;
-        let mut matching_state = model
-            .init_states()
-            .into_iter()
-            .find(|s| fingerprint(&s) == init_print)?;
-        while let Some(next_print) = fingerprints.pop_front() {
-            matching_state = model
-                .next_states(&matching_state)
-                .into_iter()
-                .find(|s| fingerprint(&s) == next_print)?;
+        let init_state_index = indices.pop_front()?;
+        let mut matching_state = model.init_states().get(init_state_index)?.clone();
+        while let Some(action_index) = indices.pop_front() {
+            let mut actions = Vec::new();
+            model.actions(&matching_state, &mut actions);
+            let action = actions.get(action_index)?.clone();
+            if let Some(next_state) = model.next_state(&matching_state, action.clone()) {
+                matching_state = next_state;
+            }
         }
         Some(matching_state)
     }
@@ -169,17 +157,35 @@ Available next fingerprints (none of which match): {:?}"#,
         self.into()
     }
 
-    /// Encodes the path as a sequence of opaque "fingerprints" delimited by forward
-    /// slash (`/`) characters.
-    pub fn encode(&self) -> String
+    /// Encodes the path as a sequence of action indices (the 0th index is for the init state)
+    /// delimited by forward lash (`/`) characters.
+    pub fn encode<M>(&self, model: &M) -> String
     where
-        State: Hash,
+        M: Model<State = State, Action = Action>,
+        State: PartialEq,
+        Action: PartialEq,
     {
-        self.0
+        let mut result = Vec::new();
+        let init_state = &self.0[0].0;
+        let init_index = model
+            .init_states()
             .iter()
-            .map(|(s, _a)| format!("{}", fingerprint(s)))
-            .collect::<Vec<String>>()
-            .join("/")
+            .position(|s| s == init_state)
+            .expect("Init state not found in model's init_states");
+        result.push(init_index.to_string());
+        for i in 0..self.0.len() - 1 {
+            let (state, action) = &self.0[i];
+            if let Some(action) = action {
+                let mut actions = Vec::new();
+                model.actions(state, &mut actions);
+                let action_index = actions
+                    .iter()
+                    .position(|a| a == action)
+                    .expect("Action not found in model's actions");
+                result.push(action_index.to_string());
+            }
+        }
+        result.join("/")
     }
 }
 
@@ -219,7 +225,7 @@ mod test {
             }
         };
         let err_result = catch_unwind(|| {
-            Path::from_fingerprints(&model, VecDeque::from_iter(vec![fingerprint(&"expected")]));
+            Path::from_action_indices(&model, VecDeque::from_iter(vec![999]));
         });
         assert!(err_result.is_err());
     }
@@ -231,10 +237,7 @@ mod test {
             Some(_) => next_states.push("UNEXPECTED"),
         };
         let err_result = catch_unwind(|| {
-            Path::from_fingerprints(
-                &model,
-                VecDeque::from_iter(vec![fingerprint(&"expected"), fingerprint(&"expected")]),
-            );
+            Path::from_action_indices(&model, VecDeque::from_iter(vec![0, 999]));
         });
         assert!(err_result.is_err());
     }

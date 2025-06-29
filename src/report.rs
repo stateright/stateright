@@ -37,10 +37,13 @@ pub trait Reporter<M: Model> {
     fn report_checking(&mut self, data: ReportData);
 
     /// Report the discoveries at the end of the checking run.
-    fn report_discoveries(&mut self, discoveries: BTreeMap<&'static str, ReportDiscovery<M>>)
-    where
-        M::Action: Debug,
-        M::State: Debug + Hash;
+    fn report_discoveries(
+        &mut self,
+        model: &M,
+        discoveries: BTreeMap<&'static str, ReportDiscovery<M>>,
+    ) where
+        M::Action: Debug + PartialEq,
+        M::State: Debug + Hash + PartialEq;
 
     fn delay(&self) -> std::time::Duration {
         std::time::Duration::from_millis(1_000)
@@ -81,10 +84,13 @@ where
         }
     }
 
-    fn report_discoveries(&mut self, discoveries: BTreeMap<&'static str, ReportDiscovery<M>>)
-    where
-        M::Action: Debug,
-        M::State: Debug + Hash,
+    fn report_discoveries(
+        &mut self,
+        model: &M,
+        discoveries: BTreeMap<&'static str, ReportDiscovery<M>>,
+    ) where
+        M::Action: Debug + PartialEq,
+        M::State: Debug + Hash + PartialEq,
     {
         for (name, discovery) in discoveries {
             let _ = write!(
@@ -92,7 +98,11 @@ where
                 "Discovered \"{}\" {} {}",
                 name, discovery.classification, discovery.path,
             );
-            let _ = writeln!(self.writer, "Fingerprint path: {}", discovery.path.encode());
+            let _ = writeln!(
+                self.writer,
+                "Action index path: {}",
+                discovery.path.encode(model)
+            );
         }
     }
 }

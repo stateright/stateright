@@ -10,7 +10,7 @@ use stateright::{
 
 /// A Last Write Wins (LWW) register, implemented as a state-based CRDT.
 /// <https://www.bartoszsypytkowski.com/the-state-of-a-state-based-crdts/#lastwritewinsregister>.
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Serialize, Deserialize)]
 struct LwwRegister<T> {
     value: T,
     timestamp: u128,
@@ -33,14 +33,14 @@ impl<T: Clone> LwwRegister<T> {
     }
 }
 
-#[derive(Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Hash, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 enum Value {
     A,
     B,
     C,
 }
 
-#[derive(Hash, Debug, PartialEq, Eq, Clone)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug, Hash)]
 enum LwwActorActions<T> {
     SetValue(T),
     SetTime(u128),
