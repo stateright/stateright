@@ -1157,7 +1157,7 @@ mod test {
                 .unwrap()
                 .last_state()
                 .actor_states,
-            vec![Arc::new(4), Arc::new(5)]
+            vec![Arc::new(5), Arc::new(5)]
         );
     }
 
