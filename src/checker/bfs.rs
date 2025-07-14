@@ -245,11 +245,10 @@ where
             // Done if discoveries found for all properties.
             let mut is_awaiting_discoveries = false;
             for (i, property) in properties.iter().enumerate() {
-                if discoveries.contains_key(property.name) {
-                    if (property.expectation == Expectation::Eventually) && !ebits.contains(i) {
+                if discoveries.contains_key(property.name)
+                    && (property.expectation == Expectation::Eventually) && !ebits.contains(i) {
                         continue;
                     }
-                }
                 match property {
                     Property {
                         expectation: Expectation::Always,

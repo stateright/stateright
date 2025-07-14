@@ -152,8 +152,7 @@ where
     ) -> Self {
         assert!(
             !self.properties.iter().any(|p| p.name == name),
-            "Property with name '{}' already exists",
-            name
+            "Property with name '{name}' already exists"
         );
         self.properties.push(Property {
             expectation,
