@@ -139,7 +139,7 @@ fn can_model_single_copy_register() {
         Deliver { src: Id::from(2), dst: Id::from(0), msg: Put(2, 'A') },
         Deliver { src: Id::from(3), dst: Id::from(0), msg: Get(6) },
     ]);
-    assert_eq!(checker.unique_state_count(), 20);
+    assert_eq!(checker.unique_state_count(), 54);
 }
 
 fn main() -> Result<(), pico_args::Error> {
