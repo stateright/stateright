@@ -160,7 +160,7 @@ pub trait Model: Sized {
     type State;
 
     /// The type of action that transitions between states.
-    type Action;
+    type Action: Clone;
 
     /// Returns the initial possible states.
     ///
@@ -203,17 +203,13 @@ pub trait Model: Sized {
 
     /// Indicates the steps (action-state pairs) that follow a particular state.
     fn next_steps(&self, last_state: &Self::State) -> Vec<(Self::Action, Self::State)> {
-        // Must generate the actions twice because they are consumed by `next_state`.
-        let mut actions1 = Vec::new();
-        let mut actions2 = Vec::new();
-        self.actions(last_state, &mut actions1);
-        self.actions(last_state, &mut actions2);
-        actions1
+        let mut actions = Vec::new();
+        self.actions(last_state, &mut actions);
+        actions
             .into_iter()
-            .zip(actions2)
-            .filter_map(|(action1, action2)| {
-                self.next_state(last_state, action1)
-                    .map(|state| (action2, state))
+            .filter_map(|action| {
+                self.next_state(last_state, action.clone())
+                    .map(|state| (action, state))
             })
             .collect()
     }

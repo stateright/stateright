@@ -123,7 +123,7 @@ pub mod dgraph {
 pub mod function {
     use crate::*;
 
-    impl<T> Model for fn(Option<&T>, &mut Vec<T>) {
+    impl<T: Clone> Model for fn(Option<&T>, &mut Vec<T>) {
         type State = T;
         type Action = T;
         fn init_states(&self) -> Vec<Self::State> {
