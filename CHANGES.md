@@ -1,5 +1,40 @@
 # Changes
 
+## 0.31.0
+
+Andrew Jeffery <dev@jeffas.io>
+
+- Simplify how checker waits for shutdown.
+- Panic on property name collision.
+
+cjen1 <cjj39@cam.ac.uk>
+
+- Fix bug in eventually property checker.
+
+Jonathan Nadal <jon.nadal@gmail.com>
+
+- Address nondeterministic test.
+
+Liangrun Da <liangrun_da@outlook.com>
+
+- Add Raft protocol example.
+
+Maurice Lam <yukl@google.com>
+
+- Add support for random selection.
+- Add an example of a last writer wins register demonstrating random
+  selection.
+
+Peiyang He <peiyang_he@smail.nju.edu.cn>
+
+- Adding missing fields to `ActorModelState` equality/serialization
+  and correct field name typo.
+- Correct typos in docs.
+- Add support for actor recovery and storage.
+- Fix bug in Explorer.
+- Update Explorer to use action index rather than state digests to
+  reference a behavior, making the URLs more stable.
+
 ## 0.30.2
 
 Andrew Jeffery <dev@jeffas.io>
