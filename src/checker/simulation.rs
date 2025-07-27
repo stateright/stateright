@@ -65,7 +65,7 @@ where
         state: &mut Self::State,
         initial_states: &[<M as Model>::State],
     ) -> usize {
-        state.rng.gen_range(0..initial_states.len())
+        state.rng.random_range(0..initial_states.len())
     }
 
     fn choose_action(
@@ -74,7 +74,7 @@ where
         _current_state: &<M as Model>::State,
         actions: &[<M as Model>::Action],
     ) -> usize {
-        state.rng.gen_range(0..actions.len())
+        state.rng.random_range(0..actions.len())
     }
 }
 
@@ -194,7 +194,7 @@ where
                                 }
                             }
 
-                            seed = rng.gen();
+                            seed = rng.random();
                             log::trace!("{t}: Generated new thread seed={seed}");
                         }
                     })

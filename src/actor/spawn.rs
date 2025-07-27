@@ -203,7 +203,7 @@ fn on_command<A, E>(
         Command::SetTimer(timer, range) => {
             let duration = if range.start < range.end {
                 use rand::Rng;
-                rand::thread_rng().gen_range(range.start..range.end)
+                rand::rng().random_range(range.start..range.end)
             } else {
                 range.start
             };
@@ -219,12 +219,12 @@ fn on_command<A, E>(
                 .and_modify(|d| *d = practically_never());
         }
         Command::ChooseRandom(_key, random) => {
-            use rand::prelude::{Rng, SliceRandom};
+            use rand::prelude::{IndexedRandom, Rng};
             if random.is_empty() {
                 return;
             }
-            let mut rng = rand::thread_rng();
-            let duration = rng.gen_range(Duration::ZERO..Duration::from_secs(10));
+            let mut rng = rand::rng();
+            let duration = rng.random_range(Duration::ZERO..Duration::from_secs(10));
             let chosen_random = random.choose(&mut rng).unwrap();
             next_interrupts
                 .entry(Interrupt::Random(chosen_random.clone()))
