@@ -166,7 +166,7 @@ where
     }
 
     /// Returns an iterator over all envelopes in the network.
-    pub fn iter_all(&self) -> NetworkIter<Msg> {
+    pub fn iter_all(&self) -> NetworkIter<'_, Msg> {
         match self {
             Network::UnorderedDuplicating(set, _) => NetworkIter::UnorderedDuplicating(set.iter()),
             Network::UnorderedNonDuplicating(multiset) => {
@@ -177,7 +177,7 @@ where
     }
 
     /// Returns an iterator over all distinct deliverable envelopes in the network.
-    pub fn iter_deliverable(&self) -> NetworkDeliverableIter<Msg> {
+    pub fn iter_deliverable(&self) -> NetworkDeliverableIter<'_, Msg> {
         match self {
             Network::UnorderedDuplicating(set, _) => {
                 NetworkDeliverableIter::UnorderedDuplicating(set.iter())
